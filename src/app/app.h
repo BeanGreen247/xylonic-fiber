@@ -96,6 +96,7 @@ private:
     void svg(int which, Rect r, Color tint);
     // Shell
     void draw_header(float W);
+    void draw_hamburger(float W, float H);
     void draw_right_panel(float W, float H);
     void draw_modal(float W, float H);
     void start_cache_preload();
@@ -223,10 +224,10 @@ private:
     std::unordered_map<int, int> font_ids_;
     std::string assets_dir_;
     int svg_px_[3] = {0, 0, 0};
-    bool show_help_ = false, playing_random_ = false;
+    bool show_help_ = false, playing_random_ = false, hamburger_open_ = false, nav_expanded_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
-    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, CachePreload };
+    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, CachePreload, Firewall, TechStack, Licenses };
     Modal modal_ = Modal::None;
     uint64_t sleep_end_ms_ = 0;
     int dropdown_open_ = 0;
@@ -308,7 +309,7 @@ private:
     std::string mpris_sig_;
     uint32_t mpris_last_ms_ = 0;
     std::string preloaded_id_;
-    bool preloading_ = false, speed_popup_ = false;
+    bool preloading_ = false, speed_popup_ = false, quality_popup_ = false;
     bool track_loading_ = false;
     std::string play_err_;
     float vol_ = 0.8f, seek_drag_v_ = 0;

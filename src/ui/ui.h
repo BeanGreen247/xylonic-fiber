@@ -1,5 +1,6 @@
 // Immediate-mode widgets on top of Gfx. The app redraws only when something changed (see App::run).
 #pragma once
+#include <functional>
 #include <string>
 #include "gfx.h"
 
@@ -69,6 +70,9 @@ public:
     int focus = 0;       // text field focus
     bool wants_frames = false;  // set by widgets that animate (caret blink)
     size_t caret = 0;
+    // Optional application-owned Font Awesome renderer. Keeping this callback
+    // here avoids making the portable widget layer depend on app/skin.h.
+    std::function<void(uint32_t, Rect, Color)> draw_fa;
 
     bool hover(Rect r) const { return r.contains(in.mx, in.my); }
     bool clicked(Rect r) const { return in.released && r.contains(in.mx, in.my) && r.contains(in.press_x, in.press_y); }

@@ -199,6 +199,28 @@ void App::draw_modal(float W, float H) {
         gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.danger, 0.9f) : th.danger);
         T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Clear everything")) / 2, go.y, 36, "Clear everything", rgb(0xffffff));
         if (u.clicked(go)) { wipe_all_data(); modal_ = Modal::None; }
+    } else if (modal_ == Modal::Firewall) {
+        Rect b = frame(520, 300, skin::Wifi, "Firewall Setup");
+        T(400, 13, b.x + 20 * s, b.y + 64 * s, 20, "Remote control needs these local network ports:", th.sub);
+        T(600, 14, b.x + 34 * s, b.y + 104 * s, 22, "7766 / UDP", th.text);
+        T(400, 13, b.x + 178 * s, b.y + 104 * s, 22, "Device discovery", th.sub);
+        T(600, 14, b.x + 34 * s, b.y + 144 * s, 22, "7767 / TCP", th.text);
+        T(400, 13, b.x + 178 * s, b.y + 144 * s, 22, "Remote commands", th.sub);
+        T(400, 12, b.x + 20 * s, b.y + 190 * s, 18, "Allow Xylonic on your private network in the system firewall.", th.sub, b.w - 40 * s);
+        T(400, 12, b.x + 20 * s, b.y + 214 * s, 18, "The app does not change firewall rules automatically.", th.sub, b.w - 40 * s);
+        if (u.button({b.x + b.w - 130 * s, b.y + b.h - 48 * s, 110 * s, 32 * s}, "Close")) modal_ = Modal::None;
+    } else if (modal_ == Modal::TechStack) {
+        Rect b = frame(520, 330, skin::BookOpen, "Tech Stack");
+        static const char* lines[] = {"Native C++17 application", "SDL2 window, input and rendering", "Custom audio pipeline with dr_mp3", "Own HTTP client with mbedTLS", "yyjson metadata parsing", "Roboto and Font Awesome subset"};
+        for (int i = 0; i < 6; ++i) { fa(skin::Check, b.x + 28 * s, b.y + (70 + i * 32) * s, 11, th.accent); T(400, 13, b.x + 48 * s, b.y + (60 + i * 32) * s, 24, lines[i], th.text); }
+        if (u.button({b.x + b.w - 130 * s, b.y + b.h - 48 * s, 110 * s, 32 * s}, "Close")) modal_ = Modal::None;
+    } else if (modal_ == Modal::Licenses) {
+        Rect b = frame(560, 350, 0xf24e, "Licenses");
+        T(400, 13, b.x + 20 * s, b.y + 64 * s, 20, "Xylonic Fiber and its native dependencies use these licenses:", th.sub, b.w - 40 * s);
+        static const char* lines[] = {"Xylonic Fiber — MIT", "SDL2 — zlib", "mbedTLS — Apache-2.0", "yyjson — MIT", "dr_mp3 — public domain / Unlicense", "Roboto — Apache-2.0", "Font Awesome Free — OFL-1.1 / CC BY 4.0"};
+        for (int i = 0; i < 7; ++i) { T(400, 13, b.x + 28 * s, b.y + (94 + i * 27) * s, 20, lines[i], th.text); }
+        T(400, 11, b.x + 20 * s, b.y + 294 * s, 18, "Full attribution is included with the distributed assets.", th.sub);
+        if (u.button({b.x + b.w - 130 * s, b.y + b.h - 48 * s, 110 * s, 32 * s}, "Close")) modal_ = Modal::None;
     } else if (modal_ == Modal::Remote) { draw_remote_picker(W, H);
     } else if (modal_ == Modal::CachePreload) { draw_cache_preload(W, H);
     } else if (modal_ == Modal::Sleep) {
@@ -415,7 +437,7 @@ void App::draw_settings(Rect r) {
     if (row(skin::Satellite, "Be Controlled", "Let other Xylonic devices on your network control playback here", 1, false, cfg_.be_controlled ? "On" : "Off", cfg_.be_controlled, 61)) { cfg_.be_controlled = !cfg_.be_controlled; cfg_.save(cfg_path_); if (remote_) remote_->set_enabled(cfg_.be_controlled); }
     if (row(0xf11b, "Control Others", "Discover and control other Xylonic devices on your network", 1, false, cfg_.control_others ? "On" : "Off", cfg_.control_others, 61)) { cfg_.control_others = !cfg_.control_others; cfg_.save(cfg_path_); }
     if (row(0xf6ff, "Remote Devices", remote_ && !remote_->devices().empty() ? std::to_string(remote_->devices().size()) + " device(s) found" : "No devices found yet", 1, true, "", false, 61)) modal_ = Modal::Remote;
-    row(0xf7e4, "Firewall Setup", "Open ports 7766 (UDP) and 7767 (TCP) for remote discovery", 1, true, "", false, 61);
+    if (row(0xf7e4, "Firewall Setup", "Open ports 7766 (UDP) and 7767 (TCP) for remote discovery", 1, true, "", false, 61)) modal_ = Modal::Firewall;
     y += (1 + 32) * s; row_i = 0;
     // ---- STREAMING
     section("STREAMING");
@@ -484,8 +506,8 @@ void App::draw_settings(Rect r) {
     row(0xf05a, "Version", "", 0, false, kVersion, false, 52);
     row(0xf466, "Build Type", "", 0, false, "Release", false, 52);
     row(0xf073, "Built", "", 0, false, kBuildDate, false, 52);
-    row(0xf5fd, "Tech Stack", "", 1, true, "", false, 52);
-    row(0xf24e, "Licenses", "", 1, true, "", false, 52);
+    if (row(0xf5fd, "Tech Stack", "", 1, true, "", false, 52)) modal_ = Modal::TechStack;
+    if (row(0xf24e, "Licenses", "", 1, true, "", false, 52)) modal_ = Modal::Licenses;
     gfx_->clip(nullptr);
     if (dropdown_draw_) dropdown_draw_();
 }

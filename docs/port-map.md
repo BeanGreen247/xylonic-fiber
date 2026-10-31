@@ -7,7 +7,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | Old module | New module | Status |
 |---|---|---|
 | utils/colorContrast.ts, types/theme.ts, ThemeContext | src/ui/themes.* | done, exact, ported tests (system mode follows dark until OS detection lands) |
-| Header.tsx, AppNav.tsx (collapsed) | src/app/shell.cpp | partial: pixel-checked at 1024x768; expanded nav/hamburger todo |
+| Header.tsx, AppNav.tsx (collapsed) | src/app/shell.cpp | partial: 200px expandable / 64px collapsed rail, narrow-window hamburger, and player-bar input shielding; screenshot verification and full mobile spacing todo |
 | PlaybackControls, ProgressBar, VolumeControl, StreamingQualitySelector (bar) | shell.cpp draw_player_bar | partial: layout exact; speed and quality popups todo |
 | DiscoverView.tsx | shell.cpp draw_discover | done: sections, 20 albums, skeletons, arrows, Play All; 5 min cache TTL todo |
 | subsonicApi.ts | src/subsonic | partial: core calls done; playlists, getSong stats, starred list todo |
@@ -22,8 +22,8 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | AlbumList (artist page), SongList (album hero + rows) | src/app/pages.cpp | done (layout from reference) |
 | SearchResults, SearchContext (server search3, 300 ms debounce, best result rule) | src/app/search.cpp | done; local search index (searchCacheService) todo |
 | RightPanel Queue + History tabs, recentlyPlayedService (50, per account in local JSON) | src/app/panel.cpp | done (layout from reference, drag reorder, search, Q/H/P/Esc); Playlists tab, AddToPlaylistDialog and SongContextMenu done |
-| DesktopNowPlaying | src/app/nowplaying.cpp | partial: static backdrop; mobile overlay and animated blobs todo; MiniPlayer desktop done |
-| CarMode (header, art, transport, seek, flip, minimal layout, keep-awake, battery) | src/app/carmode.cpp | done for layout; Pulse Deck (24-band FFT, caps, lag guard), per-song bass/treble EQ by dragging; hi-res art cache and orientation lock todo |
+| DesktopNowPlaying | src/app/nowplaying.cpp | partial: animated low-rate cover-colour blobs and MiniPlayer desktop done; mobile overlay and screenshot verification todo |
+| CarMode (header, art, transport, seek, flip, minimal layout, keep-awake, battery) | src/app/carmode.cpp | partial: layout, Pulse Deck, EQ and 900px high-resolution art request done; artwork fallback and orientation lock todo |
 | SettingsView (all 13 sections), SleepTimerPicker, ThemeSelector + CustomThemeEditor, clear-all-data | src/app/settings.cpp | partial: settings/theme/sleep/performance modes and Render Timer HUD done; Car Mode, Remote, Tech Stack, Licenses and performance-cache stats rows still inert/placeholder |
 | lastfmService, LastfmSettings, useScrobbler | todo (plain scrobble call done) | |
 | remote (ipc/remote.js, RemoteModeContext, RemoteDevicePicker) | src/net/remote.*, src/app/remote_ui.cpp | done: UDP presence + multicast, HTTP /cmd server, pairing rules (account match, busy), Be Controlled actions, Control Others picker, player bar routes play/next/prev/seek/volume/shuffle/repeat; wire-compatible with the old app (tested on loopback, TSAN clean); FirewallSetupDialog todo, real two-device test is yours |

@@ -18,7 +18,10 @@ void App::draw_now_playing(float W, float H) {
     const float s = S_;
     const Theme& th = u.th;
     const Song* cur = queue_.current();
-    // backdrop: base tint + three soft blobs in the cover's colours (the old one drifts; this one is static to save power)
+    // Backdrop: the Electron view slowly drifts three soft cover-colour blobs.
+    // The native loop throttles wants_frames to 2.5 Hz when this view is open,
+    // keeping the effect visible without turning the whole app into a 60 Hz loop.
+    u.wants_frames = true;
     uint32_t avg = 0x0a3a40;
     if (cur) { int dev = static_cast<int>(308 * S_); (void)images_->average(cover_key(cur->cover_art, dev), avg); }
     auto ch = [&](int sh) { return static_cast<float>((avg >> sh) & 255); };
@@ -28,9 +31,10 @@ void App::draw_now_playing(float W, float H) {
         Color mid{static_cast<uint8_t>(ch(16)), static_cast<uint8_t>(ch(8)), static_cast<uint8_t>(ch(0)), static_cast<uint8_t>(a * 255)};
         gfx_->radial(cx, cy, rad, mid, {mid.r, mid.g, mid.b, 0});
     };
-    blob(194 * s, 87 * s, 318 * s, 0.30f);
-    blob(870 * s, 742 * s, 318 * s, 0.26f);
-    blob(553 * s, 855 * s, 266 * s, 0.24f);
+    const float t = static_cast<float>(SDL_GetTicks64()) * 0.001f;
+    blob((194 + std::sin(t * 0.23f) * 54) * s, (87 + std::cos(t * 0.19f) * 28) * s, 318 * s, 0.30f);
+    blob((870 + std::cos(t * 0.17f) * 62) * s, (742 + std::sin(t * 0.21f) * 34) * s, 318 * s, 0.26f);
+    blob((553 + std::sin(t * 0.13f + 1.4f) * 46) * s, (855 + std::cos(t * 0.16f) * 30) * s, 266 * s, 0.24f);
     gfx_->radial(W / 2, H / 2, std::max(W, H) * 0.8f, {0, 0, 0, 0}, {0, 0, 0, 120});  // vignette
     // handle + top bar
     gfx_->fill_round({494 * s, 10 * s, 36 * s, 4 * s}, 2 * s, {255, 255, 255, 105});

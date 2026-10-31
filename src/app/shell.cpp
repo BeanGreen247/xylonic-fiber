@@ -72,17 +72,27 @@ void App::draw_main(float W, float H) {
     const float s = S_;
     Ui& uin = *ui_;
     Input saved = uin.in;
-    if (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
+    if (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
     struct Restore { App* a; Input saved; ~Restore() { } } restore{this, saved};
     (void)restore;
     if (car_open_) { draw_car_mode(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } return; }
     if (np_open_) { draw_now_playing(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); } return; }
     draw_nav(H);
     draw_header(W);
-    float navw = skin::kNavW * s, top = skin::kHeaderH * s, bar = skin::kPlayerH * s;
+    float navw = (nav_expanded_ ? 200.0f : skin::kNavW) * s, top = skin::kHeaderH * s, bar = skin::kPlayerH * s;
     Rect content{navw, top, W - navw, H - top - bar};
     View& v = views_.back();
     Rect body{content.x, content.y, content.w, content.h};
+    // The player bar is drawn after the page, so shield the page from the same
+    // mouse release. This also keeps an active seek/volume drag from reaching
+    // rows underneath when the pointer leaves the bar.
+    const bool player_input = (uin.in.mx >= navw && uin.in.my >= H - bar) || uin.active == kSeek || uin.active == kVol;
+    if (player_input) {
+        uin.in.mx = uin.in.my = -1000;
+        uin.in.pressed = uin.in.released = uin.in.rclick = false;
+        uin.in.down = false;
+        uin.in.wheel = uin.in.hwheel = 0;
+    }
     gfx_->clip(&body);
     if (v.kind == ViewKind::Artist) draw_artist(body);
     else if (v.kind == ViewKind::Album) draw_album(body);
@@ -95,8 +105,10 @@ void App::draw_main(float W, float H) {
         case Nav::Settings: draw_settings(body); break;
     }
     gfx_->clip(nullptr);
+    uin.in = saved;
     draw_player_bar({navw, H - bar, W - navw, bar});
     draw_right_panel(W, H);
+    if (hamburger_open_) { uin.in = saved; draw_hamburger(W, H); }
     if (add_song_) { uin.in = saved; draw_add_to_playlist(W, H); return; }
     if (show_help_) { uin.in = saved; draw_help(W, H); return; }
     if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); }
@@ -160,39 +172,98 @@ void App::draw_header(float W) {
         T(500, 14, r.x + 46 * s, r.y, r.h / s, label, th.text);
         return u.clicked(r);
     };
-    if (pill({606 * s, 10 * s, 116 * s, 43 * s}, skin::Satellite, remote_mode_ ? "Remote \xE2\x97\x8F" : "Remote")) modal_ = Modal::Remote;
-    if (pill({734 * s, 10 * s, 95 * s, 43 * s}, skin::Compress, "Mini")) toggle_mini();
+    if (W / s >= 900) {
+        if (pill({606 * s, 10 * s, 116 * s, 43 * s}, skin::Satellite, remote_mode_ ? "Remote \xE2\x97\x8F" : "Remote")) modal_ = Modal::Remote;
+        if (pill({734 * s, 10 * s, 95 * s, 43 * s}, skin::Compress, "Mini")) toggle_mini();
+    } else {
+        Rect menu{W - 112 * s, 10 * s, 44 * s, 44 * s};
+        if (round_btn(menu, 22 * s)) { hamburger_open_ = !hamburger_open_; mark(); }
+        fa(skin::List, menu.x + 22 * s, menu.y + 22 * s, 17, hamburger_open_ ? th.accent : th.sub);
+    }
     // offline toggle (globe)
     Rect gl{W - 60 * s, 14 * s, 36 * s, 36 * s};
     if (round_btn(gl, 18 * s)) { offline_ = !offline_; load_home(); load_artists(); for (int i = 0; i < 4; ++i) load_section(i); }
     fa(skin::Globe, gl.x + 18 * s, gl.y + 18 * s, 14, offline_ ? th.accent : th.sub);
 }
 
+void App::draw_hamburger(float W, float H) {
+    Ui& u = *ui_;
+    const float s = S_;
+    const Theme& th = u.th;
+    const float mw = 320 * s;
+    const float mh = 7 * 48 * s + 16 * s;
+    Rect menu{std::max(8 * s, W - mw - 8 * s), skin::kHeaderH * s + 8 * s, mw, std::min(mh, H - skin::kHeaderH * s - 16 * s)};
+    if (u.in.escape || (u.in.pressed && !menu.contains(u.in.mx, u.in.my))) { hamburger_open_ = false; return; }
+    gfx_->fill_round({menu.x - 1, menu.y - 1, menu.w + 2, menu.h + 2}, 13 * s, th.border);
+    gfx_->fill_round(menu, 12 * s, th.bg_light);
+    struct Item { uint32_t icon; const char* label; int action; };
+    static const Item items[] = {
+        {skin::Satellite, "Remote devices", 0}, {skin::Compress, "Mini player", 1},
+        {skin::Download, "Downloads", 2}, {skin::Gear, "Settings", 3},
+        {skin::CircleQuestion, "Keyboard help", 4}, {skin::Globe, "Offline mode", 5},
+        {skin::SignOut, "Sign out", 6}
+    };
+    for (int i = 0; i < 7; ++i) {
+        Rect row{menu.x + 8 * s, menu.y + 8 * s + i * 48 * s, menu.w - 16 * s, 44 * s};
+        if (u.hover(row)) gfx_->fill_round(row, 9 * s, th.hover);
+        fa(items[i].icon, row.x + 24 * s, row.y + 22 * s, 16, th.accent);
+        T(500, 14, row.x + 50 * s, row.y, 44, items[i].label, th.text);
+        if (!u.clicked(row)) continue;
+        hamburger_open_ = false;
+        switch (items[i].action) {
+        case 0: modal_ = Modal::Remote; break;
+        case 1: toggle_mini(); break;
+        case 2: set_nav(Nav::Downloads); break;
+        case 3: set_nav(Nav::Settings); break;
+        case 4: show_help_ = true; break;
+        case 5: offline_ = !offline_; load_home(); load_artists(); for (int j = 0; j < 4; ++j) load_section(j); break;
+        case 6: logout(); break;
+        default: break;
+        }
+        mark();
+        return;
+    }
+}
+
 void App::draw_nav(float H) {
     Ui& u = *ui_;
     const float s = S_;
     const Theme& th = u.th;
-    float top = skin::kHeaderH * s;
-    gfx_->fill({0, top, skin::kNavW * s, H - top}, th.panel);
+    const bool expanded = nav_expanded_;
+    const float top = skin::kHeaderH * s;
+    const float nw = (expanded ? 200.0f : skin::kNavW) * s;
+    gfx_->fill({0, top, nw, H - top}, th.panel);
     struct Item { Nav n; uint32_t icon; const char* tip; };
     static const Item up[] = {{Nav::Home, skin::House, "Home"}, {Nav::Library, skin::BookOpen, "Library"}, {Nav::Downloads, skin::Download, "Downloads"}};
-    auto item = [&](float y, uint32_t icon, bool active) {
-        Rect r{6 * s, y, 52 * s, 41 * s};
+    auto item = [&](float y, uint32_t icon, bool active, const char* label) {
+        Rect r{expanded ? 8 * s : 6 * s, y, expanded ? nw - 16 * s : 52 * s, 41 * s};
         if (active) gfx_->fill_round(r, 12 * s, alpha(th.accent, 0.15f));
         else if (u.hover(r)) gfx_->fill_round(r, 12 * s, th.hover);
-        fa(icon, r.x + r.w / 2, r.y + r.h / 2, 17, active ? th.accent : th.sub);
+        fa(icon, expanded ? r.x + 24 * s : r.x + r.w / 2, r.y + r.h / 2, 17, active ? th.accent : th.sub);
+        if (expanded) T(500, 14, r.x + 50 * s, r.y, 41, label, active ? th.accent : th.sub);
         return u.clicked(r);
     };
-    float y = top + 16 * s;
+    // In collapsed mode the narrow top strip is an unobtrusive expand hit area
+    // so the 1024px reference layout stays unchanged. Expanded mode shows the
+    // same chevron control and "Collapse" label as the Electron AppNav.
+    Rect collapse{expanded ? 8 * s : 0, top + 6 * s, expanded ? nw - 16 * s : nw, expanded ? 36 * s : 10 * s};
+    if (expanded) {
+        if (u.hover(collapse)) gfx_->fill_round(collapse, 9 * s, th.hover);
+        fa(skin::ChevLeft, collapse.x + 24 * s, collapse.y + 18 * s, 12, th.sub);
+        T(500, 13, collapse.x + 50 * s, collapse.y, 36, "Collapse", th.sub);
+        if (u.clicked(collapse)) { nav_expanded_ = false; mark(); return; }
+    } else if (u.clicked(collapse)) { nav_expanded_ = true; mark(); return; }
+    const float first_y = expanded ? top + 52 * s : top + 16 * s;
+    float y = first_y;
     for (const Item& it : up) {
         bool on = (nav_ == Nav::Search ? search_prev_nav_ : nav_) == it.n;
-        if (item(y, it.icon, on)) set_nav(it.n);
+        if (item(y, it.icon, on, it.tip)) set_nav(it.n);
         y += 43 * s;
     }
     float by = H - 16 * s - 41 * s;
-    if (item(by, skin::SignOut, false)) logout();
-    if (item(by - 43 * s, skin::CircleQuestion, show_help_)) show_help_ = !show_help_;
-    if (item(by - 86 * s, skin::Gear, nav_ == Nav::Settings)) set_nav(Nav::Settings);
+    if (item(by, skin::SignOut, false, "Logout")) logout();
+    if (item(by - 43 * s, skin::CircleQuestion, show_help_, "Help")) show_help_ = !show_help_;
+    if (item(by - 86 * s, skin::Gear, nav_ == Nav::Settings, "Settings")) set_nav(Nav::Settings);
 }
 
 // ---------------------------------------------------------------- player bar
@@ -301,7 +372,29 @@ void App::draw_player_bar(Rect r) {
     }
     fa(skin::Cloud, qual.x + 51 * s, qual.y + 16 * s, 14, th.accent);
     T(600, 12, qual.x + 65 * s, qual.y, 32, cfg_.stream_quality ? std::to_string(cfg_.stream_quality) + "k" : "Original", th.text);
-    if (u.clicked(qual)) { static const int q[] = {0, 320, 256, 192, 128, 64}; int idx = 0; for (int i = 0; i < 6; ++i) if (q[i] == cfg_.stream_quality) idx = i; cfg_.stream_quality = q[(idx + 1) % 6]; cfg_.save(cfg_path_); }
+    if (u.clicked(qual)) { quality_popup_ = !quality_popup_; speed_popup_ = false; mark(); }
+    if (quality_popup_) {
+        static const int qualities[] = {0, 320, 256, 192, 128, 64};
+        static const char* labels[] = {"Original", "320 kbps", "256 kbps", "192 kbps", "128 kbps", "64 kbps"};
+        const float pw = 164 * s, ih = 34 * s, ph = 6 * ih + 8 * s;
+        Rect pop{qual.x + qual.w - pw, qual.y - 6 * s - ph, pw, ph};
+        gfx_->fill_round({pop.x - 1, pop.y - 1, pop.w + 2, pop.h + 2}, 13 * s, th.border);
+        gfx_->fill_round(pop, 12 * s, th.bg_light);
+        for (int i = 0; i < 6; ++i) {
+            Rect ir{pop.x + 4 * s, pop.y + 4 * s + i * ih, pop.w - 8 * s, ih};
+            const bool on = cfg_.stream_quality == qualities[i];
+            if (u.hover(ir)) gfx_->fill_round(ir, 8 * s, th.hover);
+            if (on) fa(skin::Check, ir.x + 18 * s, ir.y + ih / 2, 11, th.accent);
+            T(on ? 600 : 400, 13, ir.x + 36 * s, ir.y, ih / s, labels[i], on ? th.accent : th.text);
+            if (u.clicked(ir)) {
+                cfg_.stream_quality = qualities[i];
+                cfg_.save(cfg_path_);
+                quality_popup_ = false;
+                mark();
+            }
+        }
+        if (u.in.pressed && !pop.contains(u.in.mx, u.in.my) && !qual.contains(u.in.mx, u.in.my)) quality_popup_ = false;
+    }
     bool muted = vol_ <= 0.001f;
     Rect sp{vol.x, vol.y, 24 * s, 24 * s};
     fa(skin::VolumeHigh, sp.x + 12 * s, sp.y + 12 * s, 14, muted ? th.muted : th.sub);

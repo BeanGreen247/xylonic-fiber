@@ -95,6 +95,10 @@ bool App::init() {
     ui_->f_small = F(400, 12.5f);
     ui_->f_title = F(700, 26);
     ui_->f_bold = F(500, 15);
+    ui_->draw_fa = [this](uint32_t cp, Rect r, Color c) {
+        const float px = std::min(r.w, r.h) * 0.9f / std::max(1.0f, S_);
+        fa(cp, r.x + r.w / 2, r.y + r.h / 2, px, c);
+    };
     if (ui_->f_body < 0 || ui_->f_title < 0) {
         std::fprintf(stderr, "fonts not found in %s\n", assets_dir_.c_str());
         return false;

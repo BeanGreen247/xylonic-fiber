@@ -16,7 +16,20 @@ bool Ui::icon_button(Rect r, Icon ic, bool on, float pad) {
     bool h = hover(r);
     if (h) g.fill_round(r, r.h / 2, th.hover);
     float p = r.w * pad;
-    icon(ic, {r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, on ? th.accent : th.text);
+    Rect inner{r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p};
+    Color color = on ? th.accent : th.text;
+    if (draw_fa) {
+        static const uint32_t fa_codes[] = {
+            0xf04b, 0xf04c, 0xf051, 0xf048, 0xf074, 0xf363, 0xf363,
+            0xf004, 0xf004, 0xf028, 0xf028, 0xf03a, 0xf015, 0xf1c0,
+            0xf013, 0xf002, 0xf00d, 0xf060, 0xf019, 0xf055
+        };
+        const size_t index = static_cast<size_t>(ic);
+        if (index < sizeof(fa_codes) / sizeof(fa_codes[0])) draw_fa(fa_codes[index], inner, color);
+        else icon(ic, inner, color);
+    } else {
+        icon(ic, inner, color);
+    }
     return clicked(r);
 }
 

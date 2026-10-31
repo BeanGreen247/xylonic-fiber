@@ -133,7 +133,9 @@ void App::draw_car_mode(float W, float H) {
         gfx_->fill_round(af, 16 * s, alpha(th.text, 0.21));
         Rect ai{af.x + 1 * s, af.y + 1 * s, af.w - 2 * s, af.h - 2 * s};
         gfx_->fill_round(ai, 15 * s, th.panel2);
-        if (cur) if (SDL_Texture* t = cover(cur->cover_art, 450)) gfx_->image_round(t, ai, 15 * s);
+        // Car Mode uses the larger artwork variant so the dashboard view does
+        // not upscale the normal library thumbnail on high-DPI displays.
+        if (cur) if (SDL_Texture* t = cover(cur->cover_art, 900)) gfx_->image_round(t, ai, 15 * s);
         }
         // footer
         float fy = H - 84 * s;
