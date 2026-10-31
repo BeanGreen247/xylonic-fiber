@@ -3,7 +3,7 @@
 set -e
 D=$(mktemp -d); trap 'kill $P 2>/dev/null; rm -rf $D' EXIT
 openssl req -x509 -newkey rsa:2048 -nodes -keyout $D/k.pem -out $D/c.pem -days 1 -subj /CN=localhost -addext subjectAltName=DNS:localhost >/dev/null 2>&1
-openssl s_server -accept 0 -cert $D/c.pem -key $D/k.pem -www -naccept 2 >$D/log 2>&1 &
+openssl s_server -accept 0 -cert $D/c.pem -key $D/k.pem -www -naccept 8 >$D/log 2>&1 &
 P=$!
 PORT=""
 for i in 1 2 3 4 5 6 7 8 9 10; do

@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <mbedtls/ctr_drbg.h>
+#include <mbedtls/sha256.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
 #include <mbedtls/ssl.h>
@@ -58,7 +59,9 @@ public:
         mbedtls_ctr_drbg_free(&drbg_);
         mbedtls_entropy_free(&entropy_);
     }
-    bool init(std::unique_ptr<TcpStream> tcp, const std::string& host, const std::string& ca_file, std::string& err) {
+    enum class Verify { Chain, Pin, None };
+    std::string fingerprint;
+    bool init(std::unique_ptr<TcpStream> tcp, const std::string& host, const std::string& ca_file, Verify mode, const std::string& pin, std::string& err) {
         tcp_ = std::move(tcp);
         mbedtls_ssl_init(&ssl_);
         mbedtls_ssl_config_init(&conf_);
@@ -68,9 +71,13 @@ public:
         if (psa_crypto_init() != PSA_SUCCESS) { err = "psa_crypto_init"; return false; }
         if (mbedtls_ctr_drbg_seed(&drbg_, mbedtls_entropy_func, &entropy_, nullptr, 0)) { err = "drbg seed"; return false; }
         if (mbedtls_ssl_config_defaults(&conf_, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT)) { err = "ssl config"; return false; }
-        if (!load_roots(ca_file)) { err = "no CA certificates found"; return false; }
-        mbedtls_ssl_conf_ca_chain(&conf_, &ca_, nullptr);
-        mbedtls_ssl_conf_authmode(&conf_, MBEDTLS_SSL_VERIFY_REQUIRED);
+        if (mode == Verify::Chain) {
+            if (!load_roots(ca_file)) { err = "no CA certificates found"; return false; }
+            mbedtls_ssl_conf_ca_chain(&conf_, &ca_, nullptr);
+            mbedtls_ssl_conf_authmode(&conf_, MBEDTLS_SSL_VERIFY_REQUIRED);
+        } else {
+            mbedtls_ssl_conf_authmode(&conf_, MBEDTLS_SSL_VERIFY_NONE);
+        }
         mbedtls_ssl_conf_rng(&conf_, mbedtls_ctr_drbg_random, &drbg_);
         if (mbedtls_ssl_setup(&ssl_, &conf_)) { err = "ssl setup"; return false; }
         if (mbedtls_ssl_set_hostname(&ssl_, host.c_str())) { err = "set hostname"; return false; }
@@ -85,6 +92,15 @@ public:
             }
         }
         ready_ = true;
+        if (mode != Verify::Chain) {
+            const mbedtls_x509_crt* c = mbedtls_ssl_get_peer_cert(&ssl_);
+            unsigned char h[32];
+            if (!c || mbedtls_sha256(c->raw.p, c->raw.len, h, 0)) { err = "no peer certificate"; return false; }
+            static const char* d = "0123456789abcdef";
+            fingerprint.clear();
+            for (unsigned char b : h) { fingerprint += d[b >> 4]; fingerprint += d[b & 15]; }
+            if (mode == Verify::Pin && fingerprint != pin) { err = "certificate does not match the trusted fingerprint"; return false; }
+        }
         return true;
     }
     long read(void* buf, size_t n) override {
@@ -178,6 +194,16 @@ std::unique_ptr<Stream> connect_stream(const std::string& host, int port, bool t
     if (!tcp) return nullptr;
     if (!tls) return tcp;
     auto t = std::make_unique<TlsStream>();
-    if (!t->init(std::move(tcp), host, opt.ca_file, err)) return nullptr;
+    bool pin = !opt.pin_sha256.empty();
+    if (!t->init(std::move(tcp), host, opt.ca_file, pin ? TlsStream::Verify::Pin : TlsStream::Verify::Chain, opt.pin_sha256, err)) return nullptr;
     return t;
+}
+
+bool fetch_cert_fingerprint(const std::string& host, int port, int timeout_ms, std::string& hex, std::string& err) {
+    auto tcp = tcp_connect(host, port, timeout_ms, err);
+    if (!tcp) return false;
+    TlsStream t;
+    if (!t.init(std::move(tcp), host, "", TlsStream::Verify::None, "", err)) return false;
+    hex = t.fingerprint;
+    return true;
 }

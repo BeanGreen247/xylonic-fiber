@@ -47,6 +47,15 @@ int main(int argc, char** argv) {
         ConnectOptions bad; bad.ca_file = "/dev/null";  // untrusted: must fail
         auto r2 = http_get_string(argv[2], body, bad);
         CHECK(!r2.error.empty());
+        // pinning: fetch fingerprint, connect with pin ok, wrong pin rejected, no pin + no CA rejected
+        Url pu; parse_url(argv[2], pu);
+        std::string fp, err;
+        CHECK(fetch_cert_fingerprint(pu.host, pu.port, 5000, fp, err) && fp.size() == 64);
+        ConnectOptions pin; pin.pin_sha256 = fp;
+        auto r3 = http_get_string(argv[2], body, pin);
+        CHECK(r3.status == 200 && r3.error.empty());
+        ConnectOptions wrong; wrong.pin_sha256 = std::string(64, '0');
+        CHECK(!http_get_string(argv[2], body, wrong).error.empty());
         std::printf(fails ? "FAILED\n" : "OK\n");
         return fails ? 1 : 0;
     }
