@@ -187,6 +187,29 @@ void Gfx::ring(float cx, float cy, float r, float t, Color c) {
     }
 }
 
+void Gfx::stroke_round(Rect r, float rad, float t, Color c) {
+    rad = std::min(rad, std::min(r.w, r.h) / 2);
+    if (rad < 1.5f) { stroke(r, t, c); return; }
+    const int segs = rad > 10 ? 8 : 5;
+    const float u = 1.0f / aw_, v = 1.0f / ah_;
+    SDL_Color sc{c.r, c.g, c.b, c.a};
+    int base = static_cast<int>(v_.size()), n = 0;
+    const float ri = std::max(0.0f, rad - t);
+    const float cx[4] = {r.x + r.w - rad, r.x + rad, r.x + rad, r.x + r.w - rad};
+    const float cy[4] = {r.y + rad, r.y + rad, r.y + r.h - rad, r.y + r.h - rad};
+    for (int k = 0; k < 4; ++k)
+        for (int s = 0; s <= segs; ++s) {
+            float a = (float(k) + float(s) / segs) * 1.5707963f, ca = std::cos(a), sa = -std::sin(a);
+            v_.push_back({{cx[k] + ca * rad, cy[k] + sa * rad}, sc, {u, v}});
+            v_.push_back({{cx[k] + ca * ri, cy[k] + sa * ri}, sc, {u, v}});
+            ++n;
+        }
+    for (int i = 0; i < n; ++i) {
+        int a = base + 2 * i, b = base + 2 * ((i + 1) % n);
+        for (int q : {a, a + 1, b, a + 1, b + 1, b}) idx_.push_back(q);
+    }
+}
+
 void Gfx::stroke(Rect r, float t, Color c) {
     fill({r.x, r.y, r.w, t}, c);
     fill({r.x, r.y + r.h - t, r.w, t}, c);

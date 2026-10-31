@@ -80,14 +80,14 @@ bool App::init() {
     ui_ = std::make_unique<Ui>(*gfx_);
     apply_theme();
     char* base = SDL_GetBasePath();
-    std::string assets = std::string(base ? base : "./") + "assets/fonts/";
+    assets_dir_ = std::string(base ? base : "./") + "assets/fonts/";
     SDL_free(base);
-    ui_->f_body = gfx_->add_font((assets + "Inter-Regular.ttf").c_str(), 15 * S_);
-    ui_->f_small = gfx_->add_font((assets + "Inter-Regular.ttf").c_str(), 12.5f * S_);
-    ui_->f_title = gfx_->add_font((assets + "Inter-SemiBold.ttf").c_str(), 26 * S_);
-    ui_->f_bold = gfx_->add_font((assets + "Inter-SemiBold.ttf").c_str(), 15 * S_);
+    ui_->f_body = F(400, 15);
+    ui_->f_small = F(400, 12.5f);
+    ui_->f_title = F(700, 26);
+    ui_->f_bold = F(500, 15);
     if (ui_->f_body < 0 || ui_->f_title < 0) {
-        std::fprintf(stderr, "fonts not found in %s\n", assets.c_str());
+        std::fprintf(stderr, "fonts not found in %s\n", assets_dir_.c_str());
         return false;
     }
     worker_ = std::make_unique<Worker>(3);
@@ -247,7 +247,8 @@ void App::logout() {
     store_.reset();
     offline_ = false;
     images_->clear_memory();
-    recent_.clear(); random_.clear(); artists_.clear(); artist_cache_.clear(); album_cache_.clear();
+    for (auto& sec : sections_) { sec.albums.clear(); sec.loading = true; sec.error.clear(); sec.scroll_x = 0; }
+    artists_.clear(); artist_cache_.clear(); album_cache_.clear();
     search_res_.clear();
     queue_.clear();
     screen_ = Screen::Login;
@@ -256,28 +257,7 @@ void App::logout() {
 }
 
 void App::load_home() {
-    if (loading_home_) return;
-    std::string j;
-    if (store_ && store_->get("home:newest", j)) from_json(j, recent_);
-    if (store_ && store_->get("home:random", j)) from_json(j, random_);
-    if (offline_ || !client_) {
-        if (downloads_) { recent_ = downloads_->done_albums(); random_.clear(); }
-        mark();
-        return;
-    }
-    loading_home_ = true;
-    worker_->post([this, c = client_, s = session_] {
-        std::vector<Album> a, b; std::string e1, e2;
-        bool ok1 = c->album_list("newest", 24, 0, a, e1), ok2 = c->album_list("random", 24, 0, b, e2);
-        ui_post([this, s, a, b, ok1, ok2, e1, e2] {
-            if (s != session_) return;
-            loading_home_ = false;
-            if (ok1) { recent_ = a; if (store_) store_->put("home:newest", to_json(a)); }
-            if (ok2) { random_ = b; if (store_) store_->put("home:random", to_json(b)); }
-            load_err_ = !ok1 ? e1 : !ok2 ? e2 : "";
-            mark();
-        });
-    });
+    for (int i = 0; i < 4; ++i) load_section(i);
 }
 
 void App::load_artists() {
@@ -527,7 +507,11 @@ void App::handle(const SDL_Event& e) {
     case SDL_MOUSEBUTTONUP:
         if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * S_; in.my = e.button.y * S_; in.down = false; in.released = true; mark(); }
         break;
-    case SDL_MOUSEWHEEL: in.wheel += e.wheel.preciseY; mark(); break;
+    case SDL_MOUSEWHEEL:
+        if (SDL_GetModState() & KMOD_SHIFT) in.hwheel += e.wheel.preciseY; else in.wheel += e.wheel.preciseY;
+        in.hwheel += e.wheel.preciseX;
+        mark();
+        break;
     case SDL_TEXTINPUT: in.text += e.text.text; mark(); break;
     case SDL_KEYDOWN: {
         SDL_Keycode k = e.key.keysym.sym;

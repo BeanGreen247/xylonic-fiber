@@ -15,6 +15,7 @@
 #include "store.h"
 #include "images.h"
 #include "queue.h"
+#include "skin.h"
 #include "worker.h"
 
 enum WidgetId { kUrl = 1, kUser, kPass, kSearch, kEditName, kEditHex, kSeek = 10, kVol };
@@ -49,9 +50,7 @@ private:
     void frame();
     void draw_login(float W, float H);
     void draw_main(float W, float H);
-    void draw_sidebar(Rect r);
     void draw_player_bar(Rect r);
-    void draw_home(Rect r);
     void draw_library(Rect r);
     void draw_artist(Rect r);
     void draw_album(Rect r);
@@ -65,6 +64,19 @@ private:
     void pop_view();
     void set_nav(Nav n);
     void mark() { dirty_ = true; }
+    // Fonts (Roboto 400/500/700 + Font Awesome), created lazily per size. weight 600 maps to Bold.
+    int F(int weight, float px);
+    int FA(float px);
+    // CSS-like text: y_top/line_height in logical px, glyphs centred in the line box. Returns drawn width.
+    float T(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w = 0, bool center_in = false);
+    void fa(uint32_t cp, float cx, float cy, float px, Color c);   // glyph centred on (cx, cy)
+    void svg(int which, Rect r, Color tint);
+    // Shell
+    void draw_header(float W);
+    void play_random_mix();
+    void draw_nav(float H);
+    void draw_discover(Rect r);
+    bool hit(Rect r) const { return ui_->clicked(r); }
     ThemeDef theme_def(int idx) const;
     void apply_theme();
 
@@ -124,6 +136,15 @@ private:
     struct DlInfo { int state; int64_t bytes, total; };
     std::unordered_map<std::string, DlInfo> dl_state_;
     bool dl_dirty_ = true;
+    struct Section { std::vector<Album> albums; bool loading = true; std::string error; float scroll_x = 0; };
+    Section sections_[4];   // newest, recent, frequent, random
+    Scroll discover_scroll_;
+    std::unordered_map<int, int> font_ids_;
+    std::string assets_dir_;
+    int svg_px_[3] = {0, 0, 0};
+    bool show_help_ = false, playing_random_ = false;
+    SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
+    void load_section(int i);
     Scroll dl_scroll_, settings_scroll_;
     int edit_slot_ = 0;
     std::string edit_name_, edit_hex_;
