@@ -2,6 +2,10 @@
 
 Updated after every step. Newest first.
 
+## 2026-10-31 (exact UI port, in progress)
+
+Owner direction: port the old app exactly (behaviour and UI). Method and status table: docs/port-map.md. Reference screenshots and the CDP capture scripts: docs/ui-ref/. Done so far: themes (exact), shell (header, nav, player bar), Discover, Library (4 modes + pagination). Fonts: Roboto 400/500/700 + Font Awesome 7 subset TTF in assets/fonts; SVG icons via nanosvg in assets/icons. Next screens to capture and port: artist page, album page, search results, right panel (queue/history/playlists), now playing overlay, settings and hamburger, mini player, dialogs, car mode. Test checklist for the owner: docs/TESTING.md part 3 (UI parity: compare against the old app side by side).
+
 ## 2026-10-31 (app part 2: metadata cache, downloads, offline)
 
 Done: SQLite store (kv metadata cache + downloads table), JSON models, resumable Downloads manager (2 threads, pause/resume/retry/verify/remove, TSAN clean), SWR loading for home/artists/artist/album, offline mode (downloaded albums only), cover prefetch for offline, Downloads view, keyring credentials (libsecret via dlopen). Test checklist: docs/TESTING.md part 2. Next: themes + settings, MPRIS2, mini player, sleep timer, Last.fm, playlists, history, Now Playing view, then remote control, car mode, Android (owner builds), perf pass for the G88.

@@ -34,7 +34,9 @@ public:
     void fill(Rect r, Color c);
     void fill_round(Rect r, float radius, Color c);
     void stroke(Rect r, float t, Color c);
-    void stroke_round(Rect r, float radius, float thickness, Color c);  // rounded outline, no joint overlap
+    // Rounded outline. With `under` (the solid colour behind it) it is drawn as two fills, which stays gap-free on the
+    // software renderer; without it, as a triangle strip.
+    void stroke_round(Rect r, float radius, float thickness, Color c, Color under = {0, 0, 0, 0});
     void tri(float x0, float y0, float x1, float y1, float x2, float y2, Color c);
     void line(float x0, float y0, float x1, float y1, float thickness, Color c);
     void circle(float cx, float cy, float r, Color c);

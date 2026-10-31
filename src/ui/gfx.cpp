@@ -132,7 +132,7 @@ void Gfx::fill_round(Rect r, float rad, Color c) {
     if (rad > r.w / 2) rad = r.w / 2;
     if (rad > r.h / 2) rad = r.h / 2;
     if (rad < 1.5f) { fill(r, c); return; }
-    const int segs = rad > 10 ? 6 : 4;
+    const int segs = std::min(16, std::max(4, static_cast<int>(rad / 2)));
     const float u = 1.0f / aw_, v = 1.0f / ah_;
     SDL_Color sc{c.r, c.g, c.b, c.a};
     int base = static_cast<int>(v_.size());
@@ -172,7 +172,7 @@ void Gfx::line(float x0, float y0, float x1, float y1, float t, Color c) {
 }
 
 void Gfx::circle(float cx, float cy, float r, Color c) {
-    int n = r < 8 ? 12 : r < 24 ? 20 : 32;
+    int n = std::min(64, std::max(12, static_cast<int>(r * 1.2f)));
     for (int i = 0; i < n; ++i) {
         float a0 = 6.2831853f * i / n, a1 = 6.2831853f * (i + 1) / n;
         tri(cx, cy, cx + std::cos(a0) * r, cy + std::sin(a0) * r, cx + std::cos(a1) * r, cy + std::sin(a1) * r, c);
@@ -180,17 +180,25 @@ void Gfx::circle(float cx, float cy, float r, Color c) {
 }
 
 void Gfx::ring(float cx, float cy, float r, float t, Color c) {
-    int n = r < 8 ? 12 : r < 24 ? 20 : 32;
+    int n = std::min(64, std::max(12, static_cast<int>(r * 1.2f)));
     for (int i = 0; i < n; ++i) {
         float a0 = 6.2831853f * i / n, a1 = 6.2831853f * (i + 1) / n;
         line(cx + std::cos(a0) * r, cy + std::sin(a0) * r, cx + std::cos(a1) * r, cy + std::sin(a1) * r, t, c);
     }
 }
 
-void Gfx::stroke_round(Rect r, float rad, float t, Color c) {
+void Gfx::stroke_round(Rect r, float rad, float t, Color c, Color under) {
     rad = std::min(rad, std::min(r.w, r.h) / 2);
+    if (under.a) {
+        auto mixc = [](uint8_t f, uint8_t b, float a) { return static_cast<uint8_t>(std::lround(f * a + b * (1 - a))); };
+        float a = c.a / 255.0f;
+        Color solid{mixc(c.r, under.r, a), mixc(c.g, under.g, a), mixc(c.b, under.b, a), 255};
+        fill_round(r, rad, solid);
+        fill_round({r.x + t, r.y + t, r.w - 2 * t, r.h - 2 * t}, std::max(0.0f, rad - t), under);
+        return;
+    }
     if (rad < 1.5f) { stroke(r, t, c); return; }
-    const int segs = rad > 10 ? 8 : 5;
+    const int segs = std::min(16, std::max(4, static_cast<int>(rad / 2)));
     const float u = 1.0f / aw_, v = 1.0f / ah_;
     SDL_Color sc{c.r, c.g, c.b, c.a};
     int base = static_cast<int>(v_.size()), n = 0;

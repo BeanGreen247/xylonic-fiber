@@ -74,6 +74,11 @@ private:
     // Shell
     void draw_header(float W);
     void play_random_mix();
+    void load_albums_page(int page);
+    void load_songs_page(int page);
+    void load_liked();
+    void load_song_count();
+    void fetch_all_songs(bool shuffle_play);
     void draw_nav(float H);
     void draw_discover(Rect r);
     bool hit(Rect r) const { return ui_->clicked(r); }
@@ -145,6 +150,10 @@ private:
     bool show_help_ = false, playing_random_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
+    int lib_mode_ = 0, lib_page_[4] = {0, 0, 0, 0};
+    std::vector<Album> alb_items_; bool alb_more_ = false, alb_loading_ = false; int alb_loaded_page_ = -1;
+    std::vector<Song> song_items_, liked_; bool song_more_ = false, song_loading_ = false, liked_loaded_ = false, liked_loading_ = false, busy_all_ = false;
+    int song_loaded_page_ = -1, total_songs_ = -1;
     Scroll dl_scroll_, settings_scroll_;
     int edit_slot_ = 0;
     std::string edit_name_, edit_hex_;

@@ -127,26 +127,6 @@ void App::draw_song_rows(Rect r, const std::vector<Song>& songs, Scroll& sc, boo
     (void)base_id;
 }
 
-void App::draw_library(Rect r) {
-    Ui& u = *ui_;
-    const float s = S_;
-    Scroll& sc = lib_scroll_;
-    float rh = 48 * s;
-    if (u.hover(r)) sc.y -= u.in.wheel * 60 * s;
-    sc.clamp(rh * artists_.size() + 16 * s, r.h);
-    if (artists_.empty()) u.label(u.f_body, r.x + 24 * s, r.y + 10 * s, loading_artists_ ? "Loading..." : "No artists", u.th.sub);
-    size_t i0 = static_cast<size_t>(std::max(0.0f, std::floor(sc.y / rh)));
-    size_t i1 = std::min(artists_.size(), static_cast<size_t>(std::ceil((sc.y + r.h) / rh)) + 1);
-    for (size_t i = i0; i < i1; ++i) {
-        const Artist& a = artists_[i];
-        Rect row{r.x + 12 * s, r.y + i * rh - sc.y, r.w - 24 * s, rh};
-        if (u.hover(row) && r.contains(u.in.mx, u.in.my)) gfx_->fill_round(row, 8 * s, u.th.hover);
-        u.label_in(u.f_body, {row.x + 14 * s, row.y, row.w - 120 * s, row.h}, a.name, u.th.text);
-        u.label_in(u.f_small, {row.x + row.w - 100 * s, row.y, 90 * s, row.h}, std::to_string(a.album_count) + " albums", u.th.sub);
-        if (u.clicked(row) && r.contains(u.in.mx, u.in.my)) { push_view(ViewKind::Artist, a.id, a.name); load_artist(a.id); }
-    }
-}
-
 void App::draw_artist(Rect r) {
     Ui& u = *ui_;
     View& v = views_.back();

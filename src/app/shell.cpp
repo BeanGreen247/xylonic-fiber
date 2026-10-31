@@ -122,7 +122,7 @@ void App::draw_header(float W) {
     Color edge = alpha(th.primary_light, 0.464f);
     Rect sb{gx, 14 * s, 200 * s, 35 * s};
     gfx_->fill_round(sb, 17.5f * s, th.panel);
-    gfx_->stroke_round(sb, 17.5f * s, 1 * s, edge);
+    gfx_->stroke_round(sb, 17.5f * s, 1 * s, edge, th.panel);
     fa(skin::Search, sb.x + 16 * s, sb.y + sb.h / 2, 12, th.sub);
     if (u.clicked(sb)) { if (nav_ != Nav::Search) set_nav(Nav::Search); u.focus = kSearch; }
     if (u.focus == kSearch && nav_ != Nav::Search) set_nav(Nav::Search);
@@ -133,7 +133,7 @@ void App::draw_header(float W) {
     auto pill = [&](Rect r, uint32_t icon, const std::string& label) {
         bool h = u.hover(r);
         gfx_->fill_round(r, r.h / 2, h ? th.hover : th.panel);
-        gfx_->stroke_round(r, r.h / 2, 1 * s, edge);
+        gfx_->stroke_round(r, r.h / 2, 1 * s, edge, th.panel);
         fa(icon, r.x + 28 * s, r.y + r.h / 2, 14, th.text);
         T(500, 14, r.x + 46 * s, r.y, r.h / s, label, th.text);
         return u.clicked(r);
@@ -222,12 +222,12 @@ void App::draw_player_bar(Rect r) {
     Rect spd{qual.x - 16 * s - 52 * s, cy + 9 * s, 52 * s, 26 * s};
     Color edge = alpha(th.primary_light, 0.464f);
     gfx_->fill_round(spd, 8 * s, th.panel);
-    gfx_->stroke_round(spd, 8 * s, 1 * s, edge);
+    gfx_->stroke_round(spd, 8 * s, 1 * s, edge, th.panel);
     if (u.hover(spd)) gfx_->fill_round(spd, 8 * s, th.hover);
     fa(skin::Bolt, spd.x + 17 * s, spd.y + spd.h / 2, 11, th.accent);
     T(600, 12, spd.x + 28 * s, spd.y, 26, "1\xC3\x97", th.sub);
     gfx_->fill_round(qual, 16 * s, th.panel);
-    gfx_->stroke_round(qual, 16 * s, 1 * s, edge);
+    gfx_->stroke_round(qual, 16 * s, 1 * s, edge, th.panel);
     if (u.hover(qual)) gfx_->fill_round(qual, 16 * s, th.hover);
     int bars = cfg_.stream_quality == 0 ? 6 : cfg_.stream_quality >= 320 ? 5 : cfg_.stream_quality >= 256 ? 4 : cfg_.stream_quality >= 192 ? 3 : cfg_.stream_quality >= 128 ? 2 : 1;
     for (int i = 0; i < 6; ++i) {

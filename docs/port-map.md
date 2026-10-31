@@ -18,7 +18,8 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | persistentCache, metadataCache, searchCacheService, searchWorker | store.* | partial: SWR kv cache; full search index todo |
 | secureCredentialService, credentialsService | src/app/secrets.* | done (Linux Secret Service); Android Keystore, Windows, macOS todo |
 | LoginForm, ConnectionTest, ReauthDialog, serverDiscoveryProbe, ipc/serverDiscovery | app.cpp login | partial: login + cert pin; saved connections list, discovery, reauth todo |
-| LibraryViews (ArtistList, AlbumList, AllAlbumsGrid, AllSongsGrid, SongList, LikedSongsView, SearchResults) | app_views.cpp | todo: functional placeholders, need exact port |
+| ArtistList, AllAlbumsGrid, AllSongsGrid, LikedSongsView, LibraryViewToggle, ShuffleAll, Pagination | src/app/library.cpp | done (layout from reference); Shuffle All pages 500 songs serially, quality picker for Download All todo |
+| AlbumList (artist page), SongList (album page), SearchResults | app_views.cpp | todo: functional placeholders, need exact port |
 | RightPanel (Queue, History, Playlists), AddToPlaylistDialog, SongContextMenu | todo | |
 | NowPlayingOverlay, DesktopNowPlaying, MiniPlayer (ipc/playerWindow) | todo | |
 | CarMode, useSongEq, Pulse Deck | todo | |

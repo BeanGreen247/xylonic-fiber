@@ -30,3 +30,7 @@ Isolated profile: `XDG_DATA_HOME=/tmp/xf build/xylonic-fiber`.
 - Offline mode: login screen button "Offline mode (downloaded music)" needs a saved account; Home/Library/Album show only downloaded music, covers come from the disk cache.
 - Library, artists, albums, home load instantly from the SQLite cache and refresh in the background.
 - Data lives in `~/.local/share/xylonic-fiber/xylonic-fiber/` (`data_<account>.db`, `downloads/`, `stream/`, `covers/`).
+
+## Checklist for part 3 (exact UI port, in progress)
+
+Run the old app and the new one side by side at 1024x768 and compare: header (logo, Xylonic, github, heart, search, Remote, Mini, globe), icon nav, Discover (4 sections, card hover, scroll arrows, Play All, refresh), Library (Artists/Albums/Songs/Liked toggle, stats pills, Shuffle All, Download All, 4-column grids, song rows, pagination), player bar (progress, transport, speed, quality, volume). Known gaps are listed in docs/port-map.md. Reference screenshots: docs/ui-ref/*.png.
