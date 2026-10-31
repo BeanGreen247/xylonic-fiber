@@ -19,7 +19,7 @@ http.createServer((q,r)=>{
  case'getAlbum':{const[a,b]=p.get('id').slice(2).split('-').map(Number);return j({album:{...alb(a,b),song:Array.from({length:S},(_,s)=>song(a,b,s))}})}
  case'getSong':{const[a,b,s]=p.get('id').slice(1).split('-').map(Number);return j({song:song(a,b,s)})}
  case'getAlbumList2':case'getAlbumList':{const n=+p.get('size')||10,o=+p.get('offset')||0,all=[];for(let a=0;a<A;a++)for(let b=0;b<B;b++)all.push(alb(a,b));return j({albumList2:{album:all.slice(o,o+n)},albumList:{album:all.slice(o,o+n)}})}
- case'search3':{const n=+p.get('songCount')||20,o=+p.get('songOffset')||0,all=[];for(let a=0;a<A;a++)for(let b=0;b<B;b++)for(let s=0;s<S;s++)all.push(song(a,b,s));return j({searchResult3:{song:all.slice(o,o+n)}})}
+ case'search3':{const q=(p.get('query')||'').toLowerCase(),n=+p.get('songCount')||20,o=+p.get('songOffset')||0,all=[],al=[],ar=[];for(let a=0;a<A;a++){const an=`artist ${a}`;if(q&&an.includes(q))ar.push({id:`ar${a}`,name:`Artist ${a}`,albumCount:B,coverArt:`al${a}-0`});for(let b=0;b<B;b++){if(q&&`album ${a}-${b}`.includes(q))al.push(alb(a,b));for(let s=0;s<S;s++){const t=`song ${a}-${b}-${s}`;if(!q||t.includes(q)||an.includes(q))all.push(song(a,b,s))}}}return j({searchResult3:{artist:ar.slice(0,+p.get('artistCount')||20),album:al.slice(0,+p.get('albumCount')||20),song:all.slice(o,o+n)}})}
  case'getStarred2':case'getStarred':return j({starred2:{},starred:{}});
  case'getPlaylists':return j({playlists:{}});
  default:return j({});

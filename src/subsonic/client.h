@@ -16,6 +16,9 @@ public:
     // type: recent, newest, frequent, random, alphabeticalByName, ...
     bool album_list(const std::string& type, int size, int offset, std::vector<Album>& out, std::string& err);
     bool search_songs(const std::string& query, int count, int offset, std::vector<Song>& out, std::string& err);
+    struct SearchAll { std::vector<Artist> artists; std::vector<Album> albums; std::vector<Song> songs; };
+    // search3 with the old app's limits (20 artists, 20 albums, 50 songs)
+    bool search_all(const std::string& query, SearchAll& out, std::string& err);
     bool starred(std::vector<Song>& out, std::string& err);
     bool set_star(const std::string& id, bool on, std::string& err);
     bool scrobble(const std::string& id, bool submission, std::string& err);

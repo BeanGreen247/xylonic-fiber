@@ -218,6 +218,7 @@ void App::on_connected() {
     else if (opt_.nav == "downloads") set_nav(Nav::Downloads);
     else if (opt_.nav == "search") set_nav(Nav::Search);
     else if (opt_.nav.rfind("album:", 0) == 0) { push_view(ViewKind::Album, opt_.nav.substr(6), "Album"); load_album(opt_.nav.substr(6)); }
+    if (!opt_.search.empty()) { search_q_ = opt_.search; nav_ = Nav::Search; views_.clear(); views_.push_back({ViewKind::Root, "", "Search", {}}); run_search(); }
     if (!opt_.download_album.empty()) {
         worker_->post([this, c = client_, s = session_, id = opt_.download_album] {
             Album a; std::string e;
@@ -249,7 +250,7 @@ void App::logout() {
     images_->clear_memory();
     for (auto& sec : sections_) { sec.albums.clear(); sec.loading = true; sec.error.clear(); sec.scroll_x = 0; }
     artists_.clear(); artist_cache_.clear(); album_cache_.clear();
-    search_res_.clear();
+    search_res_ = SubsonicClient::SearchAll{};
     queue_.clear();
     screen_ = Screen::Login;
     login_msg_.clear();
@@ -328,19 +329,6 @@ void App::load_album(const std::string& id) {
             if (s != session_) return;
             if (ok) { album_cache_[id] = a; if (store_) store_->put("album:" + id, to_json(a)); }
             else if (album_cache_[id].id.empty()) album_cache_.erase(id);
-            mark();
-        });
-    });
-}
-
-void App::run_search() {
-    if (search_q_.size() < 2) { search_res_.clear(); return; }
-    worker_->post([this, c = client_, s = session_, q = search_q_] {
-        std::vector<Song> r; std::string e;
-        bool ok = c->search_songs(q, 60, 0, r, e);
-        ui_post([this, s, q, r = std::move(r), ok]() mutable {
-            if (s != session_ || q != search_q_) return;
-            if (ok) search_res_ = std::move(r);
             mark();
         });
     });
@@ -551,7 +539,7 @@ void App::handle(const SDL_Event& e) {
 int App::run() {
     uint32_t last_draw = 0;
     while (running_) {
-        bool animating = player_.playing() || track_loading_ || ui_->wants_frames || connecting_;
+        bool animating = player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_;
         SDL_Event e;
         bool got;
         if (dirty_) got = SDL_PollEvent(&e) != 0;
@@ -563,6 +551,7 @@ int App::run() {
             got = SDL_PollEvent(&e) != 0;
         }
         if (screen_ == Screen::Main) tick_player();
+        if (search_pending_ && SDL_GetTicks() >= search_due_) run_search();
         uint32_t now = SDL_GetTicks();
         if (ui_->wants_frames && now - last_draw > 400) mark();
         if (dirty_) {

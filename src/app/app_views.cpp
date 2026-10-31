@@ -127,18 +127,6 @@ void App::draw_song_rows(Rect r, const std::vector<Song>& songs, Scroll& sc, boo
     (void)base_id;
 }
 
-void App::draw_search(Rect r) {
-    Ui& u = *ui_;
-    const float s = S_;
-    std::string before = search_q_;
-    u.text_field(kSearch, {r.x + 24 * s, r.y + 4 * s, std::min(r.w - 48 * s, 520 * s), 40 * s}, search_q_, "Search songs");
-    if (search_q_ != before) run_search();
-    Rect list{r.x, r.y + 56 * s, r.w, r.h - 56 * s};
-    gfx_->clip(&list);
-    if (search_res_.empty() && search_q_.size() >= 2) u.label(u.f_body, r.x + 24 * s, list.y + 10 * s, "No results yet", u.th.sub);
-    draw_song_rows(list, search_res_, search_scroll_, true, 200);
-}
-
 void App::draw_queue(Rect r) {
     Ui& u = *ui_;
     const float s = S_;

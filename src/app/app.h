@@ -26,6 +26,7 @@ struct AppOptions {
     int shot_after_ms = 1500;
     std::string nav;                 // home|library|queue|settings|search (testing)
     bool autoplay = false;
+    std::string search;     // type this into the search field after login (testing)
     bool selftest = false;  // init and exit
     bool offline = false;   // start in offline mode with the saved account
     std::string download_album;  // enqueue this album after login (testing)
@@ -171,8 +172,11 @@ private:
     std::unordered_map<std::string, Album> album_cache_;
     std::string load_err_;
     bool loading_home_ = false, loading_artists_ = false;
-    std::string search_q_;
-    std::vector<Song> search_res_;
+    std::string search_q_, search_done_q_;
+    SubsonicClient::SearchAll search_res_;
+    Nav search_prev_nav_ = Nav::Library;
+    bool search_pending_ = false, search_loading_ = false;
+    uint32_t search_due_ = 0;
     Scroll search_scroll_, queue_scroll_, home_scroll_, lib_scroll_, album_scroll_;
 
     // playback state

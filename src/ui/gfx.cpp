@@ -169,7 +169,7 @@ void Gfx::fill_round(Rect r, float rad, Color c) {
     corner(x1 - R, y0, R, true, false, *sh, c);
     corner(x0, y1 - R, R, false, true, *sh, c);
     corner(x1 - R, y1 - R, R, true, true, *sh, c);
-    if (w - 2 * R > 0) { fill({x0 + R, y0, w - 2 * R, R}, c); fill({x0 + R, y1 - R, w - 2 * R, R}, c); }
+    if (w - 2 * R > 0) { fill({x0 + static_cast<float>(R), y0, w - 2.0f * R, static_cast<float>(R)}, c); fill({x0 + static_cast<float>(R), y1 - R, w - 2.0f * R, static_cast<float>(R)}, c); }
     if (h - 2 * R > 0) fill({x0, y0 + R, w, h - 2 * R}, c);
 }
 

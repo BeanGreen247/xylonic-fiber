@@ -121,11 +121,22 @@ void App::draw_header(float W) {
     gfx_->fill_round(sb, 17.5f * s, th.panel);
     gfx_->stroke_round(sb, 17.5f * s, 1 * s, edge, th.panel);
     fa(skin::Search, sb.x + 16 * s, sb.y + sb.h / 2, 12, th.sub);
-    if (u.clicked(sb)) { if (nav_ != Nav::Search) set_nav(Nav::Search); u.focus = kSearch; }
-    if (u.focus == kSearch && nav_ != Nav::Search) set_nav(Nav::Search);
-    if (nav_ != Nav::Search) {
-        T(400, 13, sb.x + 36 * s, sb.y, 35, "Search", th.sub);
-        T(400, 11, sb.x + 36 * s + 46 * s, sb.y + 1 * s, 35, "Ctrl+K", alpha(th.sub, 0.7f));
+    if (u.clicked(sb) && u.focus != kSearch) { u.focus = kSearch; }
+    {
+        Rect fld{sb.x + 1 * s, sb.y + 1 * s, sb.w - 2 * s, sb.h - 2 * s};
+        std::string before = search_q_;
+        bool changed = u.text_field(kSearch, fld, search_q_, "Search", false, false, 36 * s, F(400, 13));
+        if (u.focus == kSearch && nav_ != Nav::Search) { search_prev_nav_ = nav_; nav_ = Nav::Search; views_.clear(); views_.push_back({ViewKind::Root, "", "Search", {}}); }
+        if (changed || search_q_ != before) { search_pending_ = true; search_due_ = SDL_GetTicks() + 300; if (search_q_.empty()) run_search(); }
+        if (nav_ != Nav::Search && search_q_.empty() && u.focus != kSearch) {
+            T(400, 11, sb.x + 36 * s + 46 * s, sb.y + 1 * s, 35, "Ctrl+K", alpha(th.sub, 0.7f));
+        }
+        if (!search_q_.empty()) {
+            Rect xb{sb.x + sb.w - 30 * s, sb.y + 7 * s, 20 * s, 20 * s};
+            gfx_->circle(xb.x + 10 * s, xb.y + 10 * s, 10 * s, {255, 255, 255, 46});
+            fa(skin::Xmark, xb.x + 10 * s, xb.y + 10 * s, 10, th.text);
+            if (u.clicked(xb)) { search_q_.clear(); run_search(); }
+        }
     }
     auto pill = [&](Rect r, uint32_t icon, const std::string& label) {
         bool h = u.hover(r);
@@ -160,7 +171,7 @@ void App::draw_nav(float H) {
     };
     float y = top + 16 * s;
     for (const Item& it : up) {
-        bool on = nav_ == it.n && views_.size() >= 1;
+        bool on = (nav_ == Nav::Search ? search_prev_nav_ : nav_) == it.n;
         if (item(y, it.icon, on)) set_nav(it.n);
         y += 43 * s;
     }

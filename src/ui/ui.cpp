@@ -90,8 +90,10 @@ size_t prev_char(const std::string& s, size_t i) { if (i == 0) return 0; --i; wh
 size_t next_char(const std::string& s, size_t i) { if (i >= s.size()) return s.size(); ++i; while (i < s.size() && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80) ++i; return i; }
 }  // namespace
 
-bool Ui::text_field(int id, Rect r, std::string& s, const char* placeholder, bool password) {
+bool Ui::text_field(int id, Rect r, std::string& s, const char* placeholder, bool password, bool bg, float pad_l, int font) {
     bool changed = false;
+    if (font < 0) font = f_body;
+    if (pad_l < 0) pad_l = 12;
     if (in.pressed && r.contains(in.mx, in.my)) { focus = id; caret = s.size(); }
     else if (in.pressed && focus == id) focus = 0;
     bool f = focus == id;
@@ -106,26 +108,28 @@ bool Ui::text_field(int id, Rect r, std::string& s, const char* placeholder, boo
         if (in.end) caret = s.size();
         wants_frames = true;
     }
-    g.fill_round(r, 8, th.panel2);
-    if (f) g.stroke({r.x, r.y, r.w, r.h}, 1.5f, th.accent);
-    std::string shown = password ? std::string(s.size() / 1, '*') : s;
-    if (password) { size_t n = 0; for (size_t i = 0; i < s.size(); i = next_char(s, i)) ++n; shown.assign(n, '*'); }
-    float lh = g.line_height(f_body), ty = r.y + (r.h - lh) / 2;
+    if (bg) {
+        g.fill_round(r, 8, th.panel2);
+        if (f) g.stroke_round(r, 8, 1.5f, th.accent);
+    }
+    std::string shown = password ? std::string() : s;
+    size_t chars = 0;
+    for (size_t i = 0; i < s.size(); i = next_char(s, i)) ++chars;
+    if (password) shown.assign(chars, '*');
+    float lh = g.line_height(font), ty = r.y + (r.h - lh) / 2;
     Rect clip{r.x + 4, r.y, r.w - 8, r.h};
     g.clip(&clip);
-    if (shown.empty() && !f) g.text(f_body, r.x + 12, ty, placeholder, th.sub);
+    if (shown.empty() && !f) g.text(font, r.x + pad_l, ty, placeholder, th.sub);
     else {
         float cw = 0;
         if (f) {
-            size_t chars = 0;
-            for (size_t i = 0; i < caret; i = next_char(s, i)) ++chars;
-            std::string upto = password ? std::string(chars, '*') : s.substr(0, caret);
-            cw = g.measure(f_body, upto);
+            size_t cc = 0;
+            for (size_t i = 0; i < caret; i = next_char(s, i)) ++cc;
+            cw = g.measure(font, password ? std::string(cc, '*') : s.substr(0, caret));
         }
-        float tw = g.measure(f_body, shown), off = (f && cw > r.w - 28) ? cw - (r.w - 28) : 0;
-        (void)tw;
-        g.text(f_body, r.x + 12 - off, ty, shown, th.text);
-        if (f && ((SDL_GetTicks() / 500) % 2 == 0)) g.fill({r.x + 12 - off + cw, ty, 1.5f, lh}, th.text);
+        float off = (f && cw > r.w - pad_l - 16) ? cw - (r.w - pad_l - 16) : 0;
+        g.text(font, r.x + pad_l - off, ty, shown, th.text);
+        if (f && ((SDL_GetTicks() / 500) % 2 == 0)) g.fill({r.x + pad_l - off + cw, ty, 1.5f, lh}, th.text);
     }
     g.clip(nullptr);
     return changed;

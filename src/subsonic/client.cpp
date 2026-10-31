@@ -168,6 +168,23 @@ bool SubsonicClient::search_songs(const std::string& q, int count, int offset, s
     });
 }
 
+bool SubsonicClient::search_all(const std::string& q, SearchAll& out, std::string& err) {
+    std::string b;
+    if (!call("search3", "query=" + url_encode(q) + "&artistCount=20&albumCount=20&songCount=50", b, err)) return false;
+    return with_doc(b, err, [&](yyjson_val* r) {
+        out = SearchAll{};
+        yyjson_val* sr = yyjson_obj_get(r, "searchResult3");
+        size_t i, n; yyjson_val* v;
+        yyjson_arr_foreach(yyjson_obj_get(sr, "artist"), i, n, v) {
+            Artist a;
+            a.id = str(v, "id"); a.name = str(v, "name"); a.cover_art = str(v, "coverArt"); a.album_count = num(v, "albumCount");
+            out.artists.push_back(std::move(a));
+        }
+        yyjson_arr_foreach(yyjson_obj_get(sr, "album"), i, n, v) { out.albums.emplace_back(); to_album(v, out.albums.back()); }
+        yyjson_arr_foreach(yyjson_obj_get(sr, "song"), i, n, v) { out.songs.emplace_back(); to_song(v, out.songs.back()); }
+    });
+}
+
 bool SubsonicClient::starred(std::vector<Song>& out, std::string& err) {
     std::string b;
     if (!call("getStarred2", "", b, err)) return false;

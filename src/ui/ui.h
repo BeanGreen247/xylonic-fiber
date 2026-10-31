@@ -75,7 +75,8 @@ public:
     void icon(Icon ic, Rect r, Color c);
     // Returns true while the value changes (drag or click). v in [0,1].
     bool slider(int id, Rect r, float& v);
-    bool text_field(int id, Rect r, std::string& s, const char* placeholder, bool password = false);
+    // bg=false draws only text and caret (caller paints the field); pad_l in device px; font -1 = f_body.
+    bool text_field(int id, Rect r, std::string& s, const char* placeholder, bool password = false, bool bg = true, float pad_l = -1, int font = -1);
     void label(int font, float x, float y, const std::string& s, Color c, float max_w = 0) { g.text(font, x, y, s, c, max_w); }
     // Truncating text centred vertically in r.
     void label_in(int font, Rect r, const std::string& s, Color c);
