@@ -9,6 +9,9 @@
 #include "../subsonic/client.h"
 #include "../ui/ui.h"
 #include "config.h"
+#include "downloads.h"
+#include "model_json.h"
+#include "store.h"
 #include "images.h"
 #include "queue.h"
 #include "worker.h"
@@ -22,6 +25,8 @@ struct AppOptions {
     std::string nav;                 // home|library|queue|settings|search (testing)
     bool autoplay = false;
     bool selftest = false;  // init and exit
+    bool offline = false;   // start in offline mode with the saved account
+    std::string download_album;  // enqueue this album after login (testing)
     int width = 1024, height = 768;
 };
 
@@ -34,7 +39,7 @@ public:
 
 private:
     enum class Screen { Login, Main };
-    enum class Nav { Home, Library, Search, Queue, Settings };
+    enum class Nav { Home, Library, Search, Queue, Downloads, Settings };
     enum class ViewKind { Root, Artist, Album };
     struct View { ViewKind kind = ViewKind::Root; std::string id, title; Scroll scroll; };
 
@@ -52,6 +57,7 @@ private:
     void draw_search(Rect r);
     void draw_queue(Rect r);
     void draw_settings(Rect r);
+    void draw_downloads(Rect r);
     void draw_song_rows(Rect r, const std::vector<Song>& songs, Scroll& sc, bool show_cover, int base_id);
     float draw_album_grid(Rect r, const std::vector<Album>& albums, float y, float& hit_scroll_y);
     void push_view(ViewKind k, const std::string& id, const std::string& title);
@@ -62,6 +68,9 @@ private:
     // session
     void connect(bool trust_pin);
     void on_connected();
+    void enter_offline();
+    void open_account_data();
+    void refresh_dl_state();
     void logout();
     void load_home();
     void load_artists();
@@ -70,6 +79,7 @@ private:
     void run_search();
     std::string cover_key(const std::string& id, int px) const { return id + "@" + std::to_string(px); }
     SDL_Texture* cover(const std::string& id, int px);
+    void prefetch_covers(const std::vector<Song>& songs);  // for offline browsing
 
     // playback
     void play_songs(const std::vector<Song>& songs, size_t start, bool shuffle);
@@ -104,6 +114,14 @@ private:
     std::vector<View> views_;  // top = current; bottom = nav root
     std::shared_ptr<SubsonicClient> client_;
     ConnectOptions copt_;
+    bool offline_ = false;
+    std::string acct_;
+    std::unique_ptr<Store> store_;
+    std::unique_ptr<Downloads> downloads_;
+    struct DlInfo { int state; int64_t bytes, total; };
+    std::unordered_map<std::string, DlInfo> dl_state_;
+    bool dl_dirty_ = true;
+    Scroll dl_scroll_;
     uint32_t session_ = 0;
 
     // login form

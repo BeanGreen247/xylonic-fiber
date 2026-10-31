@@ -36,6 +36,10 @@ void App::draw_login(float W, float H) {
     bool go = u.button({x, y, w, 44 * s}, connecting_ ? "Connecting..." : "Connect", true) || (u.in.enter && u.focus != 0);
     if (go && !connecting_) connect(false);
     y += 56 * s;
+    if (!cfg_.server_url.empty() && !cfg_.username.empty() && !connecting_ && !cert_prompt_) {
+        if (u.button({x, y, w, 36 * s}, "Offline mode (downloaded music)")) { enter_offline(); return; }
+        y += 46 * s;
+    }
     if (cert_prompt_) {
         u.label(u.f_small, x, y, login_msg_, u.th.danger, w);
         y += 20 * s;
@@ -73,6 +77,7 @@ void App::draw_main(float W, float H) {
         case Nav::Library: draw_library(body); break;
         case Nav::Search: draw_search(body); break;
         case Nav::Queue: draw_queue(body); break;
+        case Nav::Downloads: draw_downloads(body); break;
         case Nav::Settings: draw_settings(body); break;
     }
     gfx_->clip(nullptr);
@@ -86,7 +91,7 @@ void App::draw_sidebar(Rect r) {
     bool compact = r.w < 100 * s;
     struct Item { Nav n; Icon ic; const char* name; };
     static const Item items[] = {{Nav::Home, Icon::Home, "Home"}, {Nav::Library, Icon::Library, "Library"}, {Nav::Search, Icon::Search, "Search"},
-                                 {Nav::Queue, Icon::Queue, "Queue"}, {Nav::Settings, Icon::Settings, "Settings"}};
+                                 {Nav::Queue, Icon::Queue, "Queue"}, {Nav::Downloads, Icon::Download, "Downloads"}, {Nav::Settings, Icon::Settings, "Settings"}};
     float y = 16 * s;
     if (!compact) u.label(u.f_bold, r.x + 20 * s, y, "xylonic-fiber", u.th.accent, r.w - 30 * s);
     y += 44 * s;
@@ -101,7 +106,7 @@ void App::draw_sidebar(Rect r) {
         y += 46 * s;
     }
     if (!compact) {
-        u.label(u.f_small, r.x + 20 * s, r.y + r.h - 70 * s, cfg_.username, u.th.sub, r.w - 30 * s);
+        u.label(u.f_small, r.x + 20 * s, r.y + r.h - 70 * s, cfg_.username + (offline_ ? "  (offline)" : ""), u.th.sub, r.w - 30 * s);
         if (u.button({r.x + 16 * s, r.y + r.h - 44 * s, r.w - 32 * s, 32 * s}, "Log out")) logout();
     }
 }
@@ -199,11 +204,11 @@ void App::draw_home(Rect r) {
     float y = r.y - sc.y;
     if (recent_.empty() && loading_home_) u.label(u.f_body, r.x + 24 * s, r.y + 10 * s, "Loading...", u.th.sub);
     if (!load_err_.empty() && recent_.empty()) u.label(u.f_body, r.x + 24 * s, r.y + 40 * s, load_err_, u.th.danger, r.w - 48 * s);
-    u.label(u.f_bold, r.x + 24 * s, y + 6 * s, "Recently added", u.th.text);
+    u.label(u.f_bold, r.x + 24 * s, y + 6 * s, offline_ ? "Downloaded albums" : "Recently added", u.th.text);
     draw_album_grid(r, recent_, y + sec, dummy);
     float y2 = y + sec + gridh1;
-    u.label(u.f_bold, r.x + 24 * s, y2 + 6 * s, "Random mix", u.th.text);
-    if (u.button({r.x + 24 * s + 140 * s, y2 + 2 * s, 110 * s, 28 * s}, "Refresh")) { random_.clear(); loading_home_ = false; load_home(); }
+    if (!offline_) u.label(u.f_bold, r.x + 24 * s, y2 + 6 * s, "Random mix", u.th.text);
+    if (!offline_ && u.button({r.x + 24 * s + 140 * s, y2 + 2 * s, 110 * s, 28 * s}, "Refresh")) { random_.clear(); loading_home_ = false; load_home(); }
     draw_album_grid(r, random_, y2 + sec, dummy);
 }
 
@@ -239,6 +244,13 @@ void App::draw_song_rows(Rect r, const std::vector<Song>& songs, Scroll& sc, boo
             u.label_in(u.f_body, {x, row.y, tw, row.h}, sg.title, isplay ? u.th.accent : u.th.text);
         }
         u.label_in(u.f_small, {row.x + row.w - 72 * s, row.y, 60 * s, row.h}, mmss(sg.duration), u.th.sub);
+        auto ds = dl_state_.find(sg.id);
+        if (ds != dl_state_.end()) {
+            Rect dot{row.x + row.w - 100 * s, row.y + row.h / 2 - 5 * s, 10 * s, 10 * s};
+            if (ds->second.state == Downloads::Done) gfx_->circle(dot.x + 5 * s, dot.y + 5 * s, 4 * s, u.th.accent);
+            else if (ds->second.state == Downloads::Failed) gfx_->circle(dot.x + 5 * s, dot.y + 5 * s, 4 * s, u.th.danger);
+            else gfx_->ring(dot.x + 5 * s, dot.y + 5 * s, 4 * s, 1.5f * s, u.th.sub);
+        }
         if (u.clicked(row) && r.contains(u.in.mx, u.in.my)) {
             play_songs(songs, i, false);
         }
@@ -293,6 +305,12 @@ void App::draw_album(Rect r) {
     u.label(u.f_small, tx, r.y + 70 * s, std::to_string(a.songs.size()) + " songs  -  " + mmss(a.duration), u.th.sub);
     if (u.button({tx, r.y + 98 * s, 100 * s, 38 * s}, "Play", true)) play_songs(a.songs, 0, false);
     if (u.button({tx + 112 * s, r.y + 98 * s, 100 * s, 38 * s}, "Shuffle")) play_songs(a.songs, 0, true);
+    if (downloads_ && !offline_) {
+        int done = 0;
+        for (const Song& sg : a.songs) { auto d = dl_state_.find(sg.id); if (d != dl_state_.end() && d->second.state == Downloads::Done) ++done; }
+        bool all = done == static_cast<int>(a.songs.size()) && done > 0;
+        if (u.button({tx + 224 * s, r.y + 98 * s, 150 * s, 38 * s}, all ? "Downloaded" : done ? "Download rest" : "Download")) { if (!all) { downloads_->enqueue(a.songs); prefetch_covers(a.songs); } }
+    }
     Rect list{r.x, r.y + hh, r.w, r.h - hh};
     gfx_->clip(&list);
     draw_song_rows(list, a.songs, v.scroll, false, 100);
@@ -358,4 +376,50 @@ void App::draw_settings(Rect r) {
     y += 54 * s;
     u.label(u.f_bold, x, y, "Cache", u.th.text); y += 30 * s;
     if (u.button({x, y, 190 * s, 34 * s}, "Clear cover memory")) images_->clear_memory();
+}
+
+void App::draw_downloads(Rect r) {
+    Ui& u = *ui_;
+    const float s = S_;
+    if (!downloads_) { u.label(u.f_body, r.x + 24 * s, r.y + 10 * s, "Downloads are unavailable.", u.th.sub); return; }
+    auto items = downloads_->snapshot();
+    int done = 0, active = 0, failed = 0;
+    int64_t bytes = 0;
+    for (auto& it : items) { if (it.state == Downloads::Done) { ++done; bytes += it.total; } else if (it.state == Downloads::Failed) ++failed; else ++active; }
+    char hdr[128];
+    std::snprintf(hdr, sizeof hdr, "%d downloaded (%.1f MB), %d pending, %d failed", done, bytes / 1048576.0, active, failed);
+    u.label(u.f_small, r.x + 24 * s, r.y + 10 * s, hdr, u.th.sub);
+    float bx = r.x + r.w - 24 * s - 120 * s;
+    if (u.button({bx, r.y + 2 * s, 120 * s, 30 * s}, "Clear all")) { downloads_->clear_all(); return; }
+    if (u.button({bx - 130 * s, r.y + 2 * s, 120 * s, 30 * s}, "Verify")) downloads_->verify();
+    if (failed && u.button({bx - 260 * s, r.y + 2 * s, 120 * s, 30 * s}, "Retry failed")) downloads_->retry_failed();
+    Rect list{r.x, r.y + 40 * s, r.w, r.h - 40 * s};
+    gfx_->clip(&list);
+    float rh = 60 * s;
+    if (items.empty()) u.label(u.f_body, r.x + 24 * s, list.y + 8 * s, "Nothing downloaded yet. Open an album and press Download.", u.th.sub);
+    if (u.hover(list)) dl_scroll_.y -= u.in.wheel * 60 * s;
+    dl_scroll_.clamp(rh * items.size() + 16 * s, list.h);
+    size_t i0 = static_cast<size_t>(std::max(0.0f, std::floor(dl_scroll_.y / rh)));
+    size_t i1 = std::min(items.size(), static_cast<size_t>(std::ceil((dl_scroll_.y + list.h) / rh)) + 1);
+    static const char* names[] = {"Queued", "Downloading", "Done", "Failed", "Paused"};
+    for (size_t i = i0; i < i1; ++i) {
+        const auto& it = items[i];
+        Rect row{list.x + 12 * s, list.y + i * rh - dl_scroll_.y, list.w - 24 * s, rh};
+        bool hov = u.hover(row) && list.contains(u.in.mx, u.in.my);
+        if (hov) gfx_->fill_round(row, 8 * s, u.th.hover);
+        float tw = row.w - 260 * s;
+        u.label(u.f_body, row.x + 14 * s, row.y + 8 * s, it.song.title, u.th.text, tw);
+        u.label(u.f_small, row.x + 14 * s, row.y + 32 * s, it.song.artist + "  -  " + names[it.state], it.state == Downloads::Failed ? u.th.danger : u.th.sub, tw);
+        if (it.state == Downloads::Active || it.state == Downloads::Paused) {
+            float frac = it.total > 0 ? static_cast<float>(it.bytes) / it.total : 0;
+            Rect pb{row.x + row.w - 230 * s, row.y + row.h / 2 - 2 * s, 140 * s, 4 * s};
+            gfx_->fill_round(pb, 2 * s, u.th.panel2);
+            gfx_->fill_round({pb.x, pb.y, pb.w * std::min(1.0f, frac), pb.h}, 2 * s, u.th.accent);
+        }
+        Rect act{row.x + row.w - 80 * s, row.y + 14 * s, 32 * s, 32 * s};
+        Rect del{row.x + row.w - 44 * s, row.y + 14 * s, 32 * s, 32 * s};
+        if (it.state == Downloads::Active || it.state == Downloads::Queued) { if (u.icon_button(act, Icon::Pause)) downloads_->pause(it.song.id); }
+        else if (it.state == Downloads::Paused || it.state == Downloads::Failed) { if (u.icon_button(act, Icon::Play)) downloads_->resume(it.song.id); }
+        if (u.icon_button(del, Icon::Close, false, 0.3f)) { downloads_->remove(it.song.id); return; }
+    }
 }

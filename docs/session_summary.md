@@ -2,6 +2,10 @@
 
 Updated after every step. Newest first.
 
+## 2026-10-31 (app part 2: metadata cache, downloads, offline)
+
+Done: SQLite store (kv metadata cache + downloads table), JSON models, resumable Downloads manager (2 threads, pause/resume/retry/verify/remove, TSAN clean), SWR loading for home/artists/artist/album, offline mode (downloaded albums only), cover prefetch for offline, Downloads view, keyring credentials (libsecret via dlopen). Test checklist: docs/TESTING.md part 2. Next: themes + settings, MPRIS2, mini player, sleep timer, Last.fm, playlists, history, Now Playing view, then remote control, car mode, Android (owner builds), perf pass for the G88.
+
 ## 2026-10-31 (app part 1: shell, library, playback)
 
 Owner wants to test each main part against a real server himself: see docs/TESTING.md (updated per part). I never contact his real server. Done: Worker pool + UI mailbox, cover ImageCache (disk + LRU textures), Config, App shell with Login (pin prompt), Home, Library, Artist, Album, Search, Queue, Settings, player bar, keyboard shortcuts, scrobble, queue restore, cache-first playback, async seek. Measured: idle 35MB PSS / 0.03% CPU, playing 36MB / 0.47% (old: 298 / 0.5-3 and 333 / 12), selftest startup 147ms. Next: credentials in OS keychain (libsecret), SQLite metadata cache + offline downloads UI, themes, MPRIS2, mini player, sleep timer, Last.fm, remote control, car mode, Android (SDL2 project; owner builds). Slow-device work for the G88: measure with cpulimit/cgroup caps; avoid per-frame allocations; keep damage-based redraw.

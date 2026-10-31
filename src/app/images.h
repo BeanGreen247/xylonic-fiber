@@ -17,6 +17,8 @@ public:
     // Non-blocking: returns the texture if resident, else schedules a load and returns nullptr.
     // key identifies the image (cover id + size); url_fn builds the URL on the worker thread.
     SDL_Texture* get(const std::string& key, std::function<std::string()> url_fn);
+    // Downloads the image to the disk cache only (for offline use); no texture is created.
+    void prefetch(const std::string& key, std::function<std::string()> url_fn);
     size_t resident() const { return tex_.size(); }
     void clear_memory();
 

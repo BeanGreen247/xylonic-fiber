@@ -21,3 +21,12 @@ Isolated profile: `XDG_DATA_HOME=/tmp/xf build/xylonic-fiber`.
 - flac and non-mp3 formats (ogg/opus/m4a are transcoded to mp3 by the server).
 - Resource use: `ps -o pid,rss,pcpu -p $(pgrep xylonic-fiber)` idle and playing; report numbers.
 - Known gaps: no offline downloads UI, no themes, no MPRIS, no Android build yet.
+
+## Checklist for part 2 (metadata cache, offline downloads, offline mode)
+
+- Album page: Download (all tracks), "Download rest", dots on rows (filled = downloaded, ring = pending, red = failed).
+- Downloads view: progress, pause/resume, remove, Verify (drops rows whose file is gone), Retry failed, Clear all. Quit mid-download and relaunch: queued items continue.
+- Playback order: a downloaded track plays from disk (works with the server stopped); otherwise it streams into `stream/` and is reused next time.
+- Offline mode: login screen button "Offline mode (downloaded music)" needs a saved account; Home/Library/Album show only downloaded music, covers come from the disk cache.
+- Library, artists, albums, home load instantly from the SQLite cache and refresh in the background.
+- Data lives in `~/.local/share/xylonic-fiber/xylonic-fiber/` (`data_<account>.db`, `downloads/`, `stream/`, `covers/`).

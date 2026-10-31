@@ -89,3 +89,14 @@ SDL_Texture* ImageCache::get(const std::string& key, std::function<std::string()
     });
     return nullptr;
 }
+
+void ImageCache::prefetch(const std::string& key, std::function<std::string()> url_fn) {
+    std::string path = dir_ + hash_name(key) + ".img";
+    ConnectOptions opt = opt_;
+    w_.post([path, opt, url_fn = std::move(url_fn)] {
+        std::string bytes;
+        if (read_file(path, bytes)) return;
+        HttpResult r = http_get_string(url_fn(), bytes, opt, 8u << 20);
+        if (r.error.empty() && r.status == 200 && !bytes.empty() && r.content_type.compare(0, 5, "image") == 0) write_file(path, bytes);
+    });
+}

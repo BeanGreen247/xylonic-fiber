@@ -103,6 +103,7 @@ bool App::init() {
         if (secret_lookup(cfg_.server_url + "|" + cfg_.username, saved)) { f_pass_ = saved; connect(false); }
     }
     if (!opt_.server.empty() && !opt_.pass.empty()) connect(false);
+    if (opt_.offline) { enter_offline(); if (opt_.nav == "downloads") set_nav(Nav::Downloads); else if (opt_.nav == "library") set_nav(Nav::Library); }
     if (!opt_.shot_path.empty()) shot_deadline_ = SDL_GetTicks() + static_cast<uint32_t>(opt_.shot_after_ms);
     return true;
 }
@@ -157,17 +158,55 @@ void App::connect(bool trust_pin) {
     mark();
 }
 
+void App::open_account_data() {
+    acct_ = hash8(cfg_.server_url + "|" + cfg_.username);
+    perm_dir_ = pref_ + "downloads/" + acct_ + "/";
+    stream_dir_ = pref_ + "stream/" + acct_ + "/";
+    mkdirs(perm_dir_); mkdirs(stream_dir_);
+    store_ = std::make_unique<Store>();
+    if (!store_->open(pref_ + "data_" + acct_ + ".db")) store_.reset();
+    downloads_.reset();
+    if (store_) {
+        auto c = client_;
+        downloads_ = std::make_unique<Downloads>(*store_, perm_dir_, [c](const std::string& id) { return c ? c->download_url(id) : std::string(); }, copt_, 2);
+        downloads_->set_on_change([this] { ui_post([this] { dl_dirty_ = true; mark(); }); });
+    }
+    dl_dirty_ = true;
+}
+
+void App::refresh_dl_state() {
+    dl_dirty_ = false;
+    dl_state_.clear();
+    if (!downloads_) return;
+    for (auto& it : downloads_->snapshot()) dl_state_[it.song.id] = {it.state, it.bytes, it.total};
+}
+
+void App::enter_offline() {
+    if (cfg_.server_url.empty() || cfg_.username.empty()) return;
+    offline_ = true;
+    client_.reset();
+    screen_ = Screen::Main;
+    views_.clear();
+    views_.push_back({ViewKind::Root, "", "Home", {}});
+    nav_ = Nav::Home;
+    open_account_data();
+    queue_.load_songs(pref_ + "queue_" + acct_ + ".json");
+    queue_saved_rev_ = queue_.revision();
+    load_home();
+    load_artists();
+    mark();
+}
+
 void App::on_connected() {
+    offline_ = false;
     screen_ = Screen::Main;
     images_->set_connect_options(copt_);
     f_pass_.clear();
     views_.clear();
     views_.push_back({ViewKind::Root, "", "Home", {}});
     nav_ = Nav::Home;
-    std::string acct = hash8(cfg_.server_url + "|" + cfg_.username);
-    perm_dir_ = pref_ + "downloads/" + acct + "/";
-    stream_dir_ = pref_ + "stream/" + acct + "/";
-    mkdirs(perm_dir_); mkdirs(stream_dir_);
+    open_account_data();
+    std::string acct = acct_;
     queue_.load_songs(pref_ + "queue_" + acct + ".json");
     queue_saved_rev_ = queue_.revision();
     load_home();
@@ -175,8 +214,15 @@ void App::on_connected() {
     if (opt_.nav == "library") set_nav(Nav::Library);
     else if (opt_.nav == "queue") set_nav(Nav::Queue);
     else if (opt_.nav == "settings") set_nav(Nav::Settings);
+    else if (opt_.nav == "downloads") set_nav(Nav::Downloads);
     else if (opt_.nav == "search") set_nav(Nav::Search);
     else if (opt_.nav.rfind("album:", 0) == 0) { push_view(ViewKind::Album, opt_.nav.substr(6), "Album"); load_album(opt_.nav.substr(6)); }
+    if (!opt_.download_album.empty()) {
+        worker_->post([this, c = client_, s = session_, id = opt_.download_album] {
+            Album a; std::string e;
+            if (c->album(id, a, e)) ui_post([this, s, a] { if (s == session_ && downloads_) { downloads_->enqueue(a.songs); prefetch_covers(a.songs); } });
+        });
+    }
     if (opt_.autoplay) {
         std::string sess_acct = acct;
         (void)sess_acct;
@@ -194,7 +240,11 @@ void App::logout() {
     player_.stop();
     ++session_;
     ++play_gen_;
+    save_queue_state();
     client_.reset();
+    downloads_.reset();
+    store_.reset();
+    offline_ = false;
     images_->clear_memory();
     recent_.clear(); random_.clear(); artists_.clear(); artist_cache_.clear(); album_cache_.clear();
     search_res_.clear();
@@ -206,6 +256,14 @@ void App::logout() {
 
 void App::load_home() {
     if (loading_home_) return;
+    std::string j;
+    if (store_ && store_->get("home:newest", j)) from_json(j, recent_);
+    if (store_ && store_->get("home:random", j)) from_json(j, random_);
+    if (offline_ || !client_) {
+        if (downloads_) { recent_ = downloads_->done_albums(); random_.clear(); }
+        mark();
+        return;
+    }
     loading_home_ = true;
     worker_->post([this, c = client_, s = session_] {
         std::vector<Album> a, b; std::string e1, e2;
@@ -213,8 +271,8 @@ void App::load_home() {
         ui_post([this, s, a, b, ok1, ok2, e1, e2] {
             if (s != session_) return;
             loading_home_ = false;
-            if (ok1) recent_ = a;
-            if (ok2) random_ = b;
+            if (ok1) { recent_ = a; if (store_) store_->put("home:newest", to_json(a)); }
+            if (ok2) { random_ = b; if (store_) store_->put("home:random", to_json(b)); }
             load_err_ = !ok1 ? e1 : !ok2 ? e2 : "";
             mark();
         });
@@ -223,6 +281,20 @@ void App::load_home() {
 
 void App::load_artists() {
     if (loading_artists_) return;
+    std::string j;
+    if (store_ && store_->get("artists", j)) from_json(j, artists_);
+    if (offline_ || !client_) {
+        artists_.clear();
+        if (downloads_) for (auto& al : downloads_->done_albums()) {
+            Artist* ar = nullptr;
+            for (auto& x : artists_) if (x.id == al.artist_id) { ar = &x; break; }
+            if (!ar) { artists_.emplace_back(); ar = &artists_.back(); ar->id = al.artist_id; ar->name = al.artist; ar->cover_art = al.cover_art; }
+            ar->albums.push_back(al);
+            ar->album_count = static_cast<int>(ar->albums.size());
+        }
+        mark();
+        return;
+    }
     loading_artists_ = true;
     worker_->post([this, c = client_, s = session_] {
         std::vector<Artist> a; std::string e;
@@ -230,7 +302,7 @@ void App::load_artists() {
         ui_post([this, s, a = std::move(a), ok, e]() mutable {
             if (s != session_) return;
             loading_artists_ = false;
-            if (ok) artists_ = std::move(a); else load_err_ = e;
+            if (ok) { if (store_) store_->put("artists", to_json(a)); artists_ = std::move(a); } else load_err_ = e;
             mark();
         });
     });
@@ -239,12 +311,20 @@ void App::load_artists() {
 void App::load_artist(const std::string& id) {
     if (artist_cache_.count(id)) return;
     artist_cache_[id] = Artist{};  // placeholder marks "loading"
+    std::string j;
+    if (store_ && store_->get("artist:" + id, j)) { Artist a; if (from_json(j, a)) artist_cache_[id] = a; }
+    if (offline_ || !client_) {
+        for (auto& x : artists_) if (x.id == id) artist_cache_[id] = x;
+        mark();
+        return;
+    }
     worker_->post([this, c = client_, s = session_, id] {
         Artist a; std::string e;
         bool ok = c->artist(id, a, e);
         ui_post([this, s, id, a = std::move(a), ok] {
             if (s != session_) return;
-            if (ok) artist_cache_[id] = a; else artist_cache_.erase(id);
+            if (ok) { artist_cache_[id] = a; if (store_) store_->put("artist:" + id, to_json(a)); }
+            else if (artist_cache_[id].id.empty()) artist_cache_.erase(id);
             mark();
         });
     });
@@ -253,12 +333,20 @@ void App::load_artist(const std::string& id) {
 void App::load_album(const std::string& id) {
     if (album_cache_.count(id)) return;
     album_cache_[id] = Album{};
+    std::string j;
+    if (store_ && store_->get("album:" + id, j)) { Album a; if (from_json(j, a)) album_cache_[id] = a; }
+    if (offline_ || !client_) {
+        if (downloads_) for (auto& al : downloads_->done_albums()) if (al.id == id) album_cache_[id] = al;
+        mark();
+        return;
+    }
     worker_->post([this, c = client_, s = session_, id] {
         Album a; std::string e;
         bool ok = c->album(id, a, e);
         ui_post([this, s, id, a = std::move(a), ok] {
             if (s != session_) return;
-            if (ok) album_cache_[id] = a; else album_cache_.erase(id);
+            if (ok) { album_cache_[id] = a; if (store_) store_->put("album:" + id, to_json(a)); }
+            else if (album_cache_[id].id.empty()) album_cache_.erase(id);
             mark();
         });
     });
@@ -278,10 +366,23 @@ void App::run_search() {
 }
 
 SDL_Texture* App::cover(const std::string& id, int px) {
-    if (id.empty() || !client_) return nullptr;
+    if (id.empty()) return nullptr;
     int dev = static_cast<int>(px * S_);
+    auto c = client_;  // offline: empty URL, the image only resolves from the disk cache
+    return images_->get(cover_key(id, dev), [c, id, dev] { return c ? c->cover_url(id, dev) : std::string(); });
+}
+
+void App::prefetch_covers(const std::vector<Song>& songs) {
+    if (!client_) return;
     auto c = client_;
-    return images_->get(cover_key(id, dev), [c, id, dev] { return c->cover_url(id, dev); });
+    for (const Song& sg : songs) {
+        if (sg.cover_art.empty()) continue;
+        for (int px : {44, 64, 132, 164}) {
+            int dev = static_cast<int>(px * S_);
+            std::string id = sg.cover_art;
+            images_->prefetch(cover_key(id, dev), [c, id, dev] { return c->cover_url(id, dev); });
+        }
+    }
 }
 
 void App::push_view(ViewKind k, const std::string& id, const std::string& title) { views_.push_back({k, id, title, {}}); mark(); }
@@ -290,7 +391,7 @@ void App::pop_view() { if (views_.size() > 1) { views_.pop_back(); mark(); } }
 void App::set_nav(Nav n) {
     nav_ = n;
     views_.clear();
-    static const char* names[] = {"Home", "Library", "Search", "Queue", "Settings"};
+    static const char* names[] = {"Home", "Library", "Search", "Queue", "Downloads", "Settings"};
     views_.push_back({ViewKind::Root, "", names[static_cast<int>(n)], {}});
     if (n == Nav::Search) ui_->focus = kSearch;
     mark();
@@ -303,7 +404,7 @@ std::string App::track_kind(const Song& s) const {
     return e == "flac" ? "flac" : "mp3";  // anything else is transcoded to mp3 by the server
 }
 
-std::string App::perm_path(const Song& s) const { return perm_dir_ + s.id + "." + lower_ext(s.suffix); }
+std::string App::perm_path(const Song& s) const { return downloads_ ? downloads_->path_if_done(s.id) : std::string(); }
 
 std::string App::stream_path(const Song& s) const {
     std::string e = lower_ext(s.suffix);
@@ -322,7 +423,7 @@ void App::play_songs(const std::vector<Song>& songs, size_t start, bool shuffle)
 
 void App::start_current() {
     const Song* s = queue_.current();
-    if (!s || !client_) return;
+    if (!s) return;
     Song song = *s;
     uint32_t gen = ++play_gen_;
     track_loading_ = true;
@@ -331,7 +432,7 @@ void App::start_current() {
     std::string e = lower_ext(song.suffix);
     bool native = e == "mp3" || e == "flac";
     int kbps = cfg_.stream_quality;
-    std::string url = client_->stream_url(song.id, e == "flac" ? 0 : kbps, native ? "" : "mp3");
+    std::string url = client_ ? client_->stream_url(song.id, e == "flac" ? 0 : kbps, native ? "" : "mp3") : std::string();
     worker_->post([this, gen, song, url, c = copt_, perm = perm_path(song), strm = stream_path(song), kind = track_kind(song)] {
         std::string err;
         auto dec = std::make_shared<std::unique_ptr<Decoder>>(open_track(url, perm, strm, kind, c, err));
@@ -387,9 +488,9 @@ void App::set_volume(float v) {
 }
 
 void App::save_queue_state() {
-    if (!client_) return;
+    if (screen_ != Screen::Main) return;
     if (queue_.revision() != queue_saved_rev_) {
-        queue_.save_songs(pref_ + "queue_" + hash8(cfg_.server_url + "|" + cfg_.username) + ".json");
+        queue_.save_songs(pref_ + "queue_" + acct_ + ".json");
         queue_saved_rev_ = queue_.revision();
     }
     cfg_.save(cfg_path_);
@@ -489,6 +590,7 @@ void App::frame() {
     int dw, dh;
     SDL_GetRendererOutputSize(ren_, &dw, &dh);
     float W = static_cast<float>(dw), H = static_cast<float>(dh);
+    if (dl_dirty_) refresh_dl_state();
     gfx_->begin_frame(ui_->th.bg);
     if (screen_ == Screen::Login) draw_login(W, H);
     else draw_main(W, H);

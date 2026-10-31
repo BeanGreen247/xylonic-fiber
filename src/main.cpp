@@ -18,6 +18,8 @@ int main(int argc, char** argv) {
         else if (arg("--size")) std::sscanf(argv[++i], "%dx%d", &o.width, &o.height);
         else if (!std::strcmp(argv[i], "--autoplay")) o.autoplay = true;
         else if (!std::strcmp(argv[i], "--selftest")) o.selftest = true;
+        else if (!std::strcmp(argv[i], "--offline")) o.offline = true;
+        else if (arg("--download-album")) o.download_album = argv[++i];
     }
     App app(o);
     if (!app.init()) return 1;
