@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "../net/url.h"
 #include "secrets.h"
 
@@ -91,6 +92,7 @@ bool App::init() {
         return false;
     }
     worker_ = std::make_unique<Worker>(3);
+    mpris_.start("xylonic-fiber", [this](MprisCmd c, double a, const std::string& sa) { mpris_command(c, a, sa); });
     images_ = std::make_unique<ImageCache>(ren_, *worker_, img_dir_, 96);
     images_->set_on_ready([this] { mark(); });
     ui_post([] {});  // registers the wake-up event type on the UI thread
@@ -467,6 +469,50 @@ void App::prev_track() {
     if (queue_.prev()) start_current();
 }
 
+void App::mpris_command(MprisCmd c, double arg, const std::string& sarg) {
+    ui_post([this, c, arg, sarg] {
+        switch (c) {
+        case MprisCmd::Play: if (!player_.playing()) toggle_play(); break;
+        case MprisCmd::Pause: case MprisCmd::Stop: if (player_.playing()) player_.pause(); break;
+        case MprisCmd::PlayPause: toggle_play(); break;
+        case MprisCmd::Next: next_track(); break;
+        case MprisCmd::Previous: prev_track(); break;
+        case MprisCmd::SeekRelative: player_.seek_seconds(player_.position_seconds() + arg); break;
+        case MprisCmd::SeekAbsolute: player_.seek_seconds(arg); break;
+        case MprisCmd::SetVolume: set_volume(static_cast<float>(arg)); break;
+        case MprisCmd::SetShuffle: queue_.set_shuffle(arg != 0); break;
+        case MprisCmd::SetLoop: queue_.set_repeat(sarg == "Track" ? Repeat::One : sarg == "Playlist" ? Repeat::All : Repeat::Off); break;
+        case MprisCmd::Raise: if (win_) SDL_RaiseWindow(win_); break;
+        }
+        mark();
+    });
+}
+
+void App::mpris_push() {
+    const Song* cur = queue_.current();
+    MprisState st;
+    st.has_song = cur != nullptr;
+    st.playing = player_.playing();
+    st.shuffle = queue_.shuffle();
+    st.loop = queue_.repeat() == Repeat::One ? "Track" : queue_.repeat() == Repeat::All ? "Playlist" : "None";
+    st.volume = vol_;
+    st.position_s = player_.position_seconds();
+    st.length_s = player_.duration_seconds();
+    if (cur) {
+        st.title = cur->title; st.artist = cur->artist; st.album = cur->album; st.track_id = cur->id;
+        std::string key = cover_key(cur->cover_art, 300);
+        if (!cur->cover_art.empty()) {
+            auto c = client_;
+            images_->prefetch(key, [c, id = cur->cover_art] { return c ? c->cover_url(id, 300) : std::string(); });
+            std::string path = images_->disk_path(key);
+            if (::access(path.c_str(), R_OK) == 0) st.art_url = "file://" + path;
+        }
+    }
+    uint32_t now = SDL_GetTicks();
+    std::string sig = st.title + "|" + st.track_id + "|" + std::to_string(st.playing) + "|" + std::to_string(st.shuffle) + st.loop + std::to_string(static_cast<int>(st.volume * 100)) + st.art_url;
+    if (sig != mpris_sig_ || now - mpris_last_ms_ > 1000) { mpris_sig_ = sig; mpris_last_ms_ = now; mpris_.update(st); }
+}
+
 void App::preload_next() {
     if (preloading_ || queue_.empty() || (!client_ && !downloads_)) return;
     // the track that follows the current one (repeat-one replays the same song)
@@ -529,6 +575,7 @@ void App::tick_player() {
     }
     int sec = static_cast<int>(player_.position_seconds());
     if (sec != shown_sec_) { shown_sec_ = sec; mark(); }
+    mpris_push();
 }
 
 void App::set_volume(float v) {

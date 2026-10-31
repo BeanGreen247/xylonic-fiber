@@ -19,6 +19,7 @@
 #include "model_json.h"
 #include "store.h"
 #include "images.h"
+#include "mpris.h"
 #include "queue.h"
 #include "skin.h"
 #include "worker.h"
@@ -159,6 +160,8 @@ private:
     void prev_track();
     void tick_player();
     void preload_next();
+    void mpris_push();
+    void mpris_command(MprisCmd c, double arg, const std::string& sarg);
     void set_volume(float v);
     void save_queue_state();
     std::string track_kind(const Song& s) const;
@@ -263,6 +266,9 @@ private:
 
     // playback state
     uint32_t play_gen_ = 0;
+    Mpris mpris_;
+    std::string mpris_sig_;
+    uint32_t mpris_last_ms_ = 0;
     std::string preloaded_id_;
     bool preloading_ = false, speed_popup_ = false;
     bool track_loading_ = false;

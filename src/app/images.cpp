@@ -53,6 +53,8 @@ void ImageCache::evict() {
     }
 }
 
+std::string ImageCache::disk_path(const std::string& key) const { return dir_ + hash_name(key) + ".img"; }
+
 bool ImageCache::average(const std::string& key, uint32_t& rgb) const {
     auto it = avg_.find(key);
     if (it == avg_.end()) return false;

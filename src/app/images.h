@@ -21,6 +21,7 @@ public:
     void prefetch(const std::string& key, std::function<std::string()> url_fn);
     // Average colour (0xRRGGBB) of a loaded image, for backdrops; false until it has been decoded.
     bool average(const std::string& key, uint32_t& rgb) const;
+    std::string disk_path(const std::string& key) const;
     void set_max_textures(size_t n) { max_ = n; evict(); }
     size_t resident() const { return tex_.size(); }
     void clear_memory();

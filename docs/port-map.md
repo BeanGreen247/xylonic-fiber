@@ -27,7 +27,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | SettingsView (all 13 sections), SleepTimerPicker, ThemeSelector + CustomThemeEditor, clear-all-data | src/app/settings.cpp | done for layout; Car Mode, Remote, Tech Stack, Licenses, performance-cache stats rows inert or placeholder; HamburgerMenu, KeyboardHelp todo |
 | lastfmService, LastfmSettings, useScrobbler | todo (plain scrobble call done) | |
 | remote (ipc/remote.js, remoteDiscoveryService, RemoteModeContext, FirewallSetupDialog) | todo | |
-| mpris.js | todo | |
+| mpris.js | src/app/mpris.* (sd-bus, own thread) | done: status, metadata + art, transport, seek, volume, shuffle, loop; verified with busctl on the real session bus |
 | CachePreloadDialog, perfModeService (Gaming/Balanced/Eco), RenderTimerHUD | todo | |
 | Android native (capacitorBridge, MusicService, download service) | todo: SDL2 NDK project, owner builds | |
 
