@@ -98,6 +98,9 @@ private:
     void draw_header(float W);
     void draw_right_panel(float W, float H);
     void draw_modal(float W, float H);
+    void start_cache_preload();
+    void cancel_cache_preload();
+    void draw_cache_preload(float W, float H);
     void draw_ctx_menu(float W, float H);
     void draw_help(float W, float H);
     void open_ctx(const Song& s, float x, float y);
@@ -223,12 +226,16 @@ private:
     bool show_help_ = false, playing_random_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
-    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote };
+    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, CachePreload };
     Modal modal_ = Modal::None;
     uint64_t sleep_end_ms_ = 0;
     int dropdown_open_ = 0;
     std::function<void()> dropdown_draw_;
     std::pair<int, int> dropdown_choice_{0, -1};
+    std::shared_ptr<std::atomic<bool>> preload_cancel_;
+    bool preload_running_ = false, preload_complete_ = false;
+    int preload_done_ = 0, preload_total_ = 5;
+    std::string preload_phase_, preload_error_;
     float pulse_caps_[24] = {};
     uint32_t pulse_last_ms_ = 0, pulse_frames_ = 0, pulse_toast_ms_ = 0;
     float pulse_avg_ms_ = 16.0f, eq_bass_db_ = 0, eq_treble_db_ = 0;

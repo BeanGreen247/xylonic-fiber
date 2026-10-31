@@ -28,7 +28,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | lastfmService, LastfmSettings, useScrobbler | todo (plain scrobble call done) | |
 | remote (ipc/remote.js, RemoteModeContext, RemoteDevicePicker) | src/net/remote.*, src/app/remote_ui.cpp | done: UDP presence + multicast, HTTP /cmd server, pairing rules (account match, busy), Be Controlled actions, Control Others picker, player bar routes play/next/prev/seek/volume/shuffle/repeat; wire-compatible with the old app (tested on loopback, TSAN clean); FirewallSetupDialog todo, real two-device test is yours |
 | mpris.js | src/app/mpris.* (sd-bus, own thread) | done: status, metadata + art, transport, seek, volume, shuffle, loop; verified with busctl on the real session bus |
-| CachePreloadDialog, perfModeService (Gaming/Balanced/Eco), RenderTimerHUD | partial: performance modes and persistent Render Timer HUD done; cache preload dialog todo | |
+| CachePreloadDialog, perfModeService (Gaming/Balanced/Eco), RenderTimerHUD | partial: performance modes, Render Timer HUD and native preload dialog done; search-index persistence and exact IndexedDB-equivalent cache still todo | |
 | Android native (capacitorBridge, MusicService, download service) | todo: SDL2 NDK project, owner builds | |
 
 Reference capture tooling lives in the session scratchpad only; to recreate: run the old app with `ELECTRON_IS_DEV=0 electron . --user-data-dir=X --remote-debugging-port=9333`, log in to the fake Subsonic server, drive it over CDP (`Emulation.setDeviceMetricsOverride` 1024x768, `Page.captureScreenshot`, DOM walk with getBoundingClientRect/getComputedStyle).

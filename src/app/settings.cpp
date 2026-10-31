@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <set>
 #include "app.h"
 #include "secrets.h"
 
@@ -30,6 +31,143 @@ std::string App::sleep_remaining() const {
 
 void App::tick_sleep() {
     if (sleep_end_ms_ && SDL_GetTicks64() >= sleep_end_ms_) { sleep_end_ms_ = 0; if (player_.playing()) player_.pause(); mark(); }
+}
+
+void App::start_cache_preload() {
+    if (preload_running_ || !client_ || offline_) return;
+    preload_cancel_ = std::make_shared<std::atomic<bool>>(false);
+    auto cancel = preload_cancel_;
+    const uint32_t sess = session_;
+    preload_running_ = true;
+    preload_complete_ = false;
+    preload_done_ = 0;
+    preload_total_ = 1;
+    preload_phase_ = "Loading artists...";
+    preload_error_.clear();
+    modal_ = Modal::CachePreload;
+    mark();
+    worker_->post([this, c = client_, sess, cancel] {
+        std::vector<Artist> artists;
+        std::vector<Album> albums;
+        std::vector<std::vector<Album>> sections(4);
+        int failed_artists = 0, failed_albums = 0;
+        std::string err;
+        if (cancel->load()) return;
+        const bool artists_ok = c->artists(artists, err);
+        if (!artists_ok) {
+            ui_post([this, sess, cancel, err] {
+                if (sess != session_ || preload_cancel_ != cancel) return;
+                preload_running_ = false; preload_error_ = err.empty() ? "Could not load artists." : err; mark();
+            });
+            return;
+        }
+        ui_post([this, sess, cancel, n = static_cast<int>(artists.size())] {
+            if (sess != session_ || preload_cancel_ != cancel) return;
+            preload_done_ = 1; preload_total_ = std::max(1, n + 1); preload_phase_ = "Loading artist metadata..."; mark();
+        });
+        for (size_t i = 0; i < artists.size(); ++i) {
+            if (cancel->load()) return;
+            std::string e;
+            Artist full;
+            if (c->artist(artists[i].id, full, e)) {
+                artists[i] = std::move(full);
+                for (const Album& a : artists[i].albums) {
+                    if (a.id.empty()) continue;
+                    bool seen = false; for (const Album& old : albums) if (old.id == a.id) { seen = true; break; }
+                    if (!seen) albums.push_back(a);
+                }
+            } else {
+                ++failed_artists;
+            }
+            ui_post([this, sess, cancel, done = static_cast<int>(i + 2)] {
+                if (sess != session_ || preload_cancel_ != cancel) return;
+                preload_done_ = done; preload_phase_ = "Loading artist metadata..."; mark();
+            });
+        }
+        ui_post([this, sess, cancel, total = static_cast<int>(1 + artists.size() + albums.size())] {
+            if (sess != session_ || preload_cancel_ != cancel) return;
+            preload_total_ = std::max(1, total); preload_phase_ = "Loading song metadata..."; mark();
+        });
+        for (size_t i = 0; i < albums.size(); ++i) {
+            if (cancel->load()) return;
+            std::string e;
+            Album full;
+            if (c->album(albums[i].id, full, e)) albums[i] = std::move(full);
+            else ++failed_albums;
+            ui_post([this, sess, cancel, done = static_cast<int>(1 + artists.size() + i + 1)] {
+                if (sess != session_ || preload_cancel_ != cancel) return;
+                preload_done_ = done; preload_phase_ = "Loading song metadata..."; mark();
+            });
+        }
+        static const char* kinds[4] = {"newest", "recent", "frequent", "random"};
+        for (int i = 0; i < 4; ++i) {
+            if (cancel->load()) return;
+            std::string e;
+            c->album_list(kinds[i], 20, 0, sections[i], e);
+        }
+        ui_post([this, sess, cancel, artists = std::move(artists), albums = std::move(albums), sections = std::move(sections), failed_artists, failed_albums]() mutable {
+            if (sess != session_ || preload_cancel_ != cancel) return;
+            artists_ = std::move(artists);
+            for (auto& a : albums) if (!a.id.empty()) album_cache_[a.id] = a;
+            for (size_t i = 0; i < sections.size(); ++i) { sections_[i].albums = std::move(sections[i]); sections_[i].loading = false; }
+            std::set<std::string> covers;
+            for (const auto& a : artists_) if (!a.cover_art.empty()) covers.insert(a.cover_art);
+            for (const auto& a : albums) {
+                if (!a.cover_art.empty()) covers.insert(a.cover_art);
+                for (const auto& s : a.songs) if (!s.cover_art.empty()) covers.insert(s.cover_art);
+            }
+            for (const auto& list : sections_) for (const auto& a : list.albums) if (!a.cover_art.empty()) covers.insert(a.cover_art);
+            auto c = client_;
+            for (const auto& id : covers) for (int px : {64, 132, 164, 300}) {
+                int dev = static_cast<int>(px * S_);
+                images_->prefetch(cover_key(id, dev), [c, id, dev] { return c ? c->cover_url(id, dev) : std::string(); });
+            }
+            preload_running_ = false; preload_complete_ = true; preload_done_ = preload_total_;
+            preload_phase_ = failed_artists || failed_albums ? "Cache ready with some unavailable items" : "Cache ready";
+            mark();
+        });
+    });
+}
+
+void App::cancel_cache_preload() {
+    if (preload_cancel_) preload_cancel_->store(true);
+    preload_running_ = false;
+    if (!preload_complete_) preload_error_ = "Cache preload cancelled.";
+    modal_ = Modal::None;
+    mark();
+}
+
+void App::draw_cache_preload(float W, float H) {
+    Ui& u = *ui_;
+    const float s = S_;
+    const Theme& th = u.th;
+    float bw = 470 * s, bh = 246 * s;
+    Rect b{(W - bw) / 2, (H - bh) / 2, bw, bh};
+    gfx_->fill({0, 0, W, H}, {0, 0, 0, 170});
+    gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 4 * s, th.border);
+    gfx_->fill_round(b, 3 * s, th.bg_light);
+    fa(skin::Sync, b.x + 28 * s, b.y + 32 * s, 15, th.accent);
+    T(600, 16, b.x + 44 * s, b.y + 20 * s, 24, "Build library cache", th.text);
+    if (u.in.escape && preload_running_) { cancel_cache_preload(); return; }
+    T(400, 13, b.x + 20 * s, b.y + 62 * s, 20, "Preload metadata and cover art for faster browsing and offline startup.", th.sub, b.w - 40 * s);
+    float pct = preload_total_ > 0 ? std::min(1.0f, static_cast<float>(preload_done_) / preload_total_) : 0;
+    Rect track{b.x + 20 * s, b.y + 104 * s, b.w - 40 * s, 12 * s};
+    gfx_->fill_round(track, 6 * s, alpha(th.text, 0.10f));
+    if (pct > 0) gfx_->fill_round({track.x, track.y, track.w * pct, track.h}, 6 * s, th.accent);
+    std::string count = std::to_string(preload_done_) + " / " + std::to_string(preload_total_) + " steps";
+    T(500, 12, b.x + 20 * s, b.y + 124 * s, 20, count, th.text);
+    T(400, 12, b.x + 20 * s, b.y + 149 * s, 20, preload_error_.empty() ? preload_phase_ : preload_error_, preload_error_.empty() ? th.sub : th.danger, b.w - 40 * s);
+    if (preload_running_) {
+        Rect cancel{b.x + b.w - 130 * s, b.y + b.h - 52 * s, 110 * s, 34 * s};
+        if (u.button(cancel, "Cancel")) cancel_cache_preload();
+    } else {
+        Rect close{b.x + b.w - 130 * s, b.y + b.h - 52 * s, 110 * s, 34 * s};
+        if (u.button(close, preload_error_.empty() ? "Close" : "Close")) modal_ = Modal::None;
+    }
+    if (!preload_running_ && !preload_error_.empty()) {
+        Rect retry{b.x + 20 * s, b.y + b.h - 52 * s, 110 * s, 34 * s};
+        if (u.button(retry, "Try again", true)) start_cache_preload();
+    }
 }
 
 // ---------------------------------------------------------------- modal helpers
@@ -62,6 +200,7 @@ void App::draw_modal(float W, float H) {
         T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Clear everything")) / 2, go.y, 36, "Clear everything", rgb(0xffffff));
         if (u.clicked(go)) { wipe_all_data(); modal_ = Modal::None; }
     } else if (modal_ == Modal::Remote) { draw_remote_picker(W, H);
+    } else if (modal_ == Modal::CachePreload) { draw_cache_preload(W, H);
     } else if (modal_ == Modal::Sleep) {
         Rect b = frame(420, 336, 0xf186, "Sleep Timer");
         T(400, 12, b.x + 18 * s, b.y + 52 * s, 18, "Playback stops automatically after the selected time.", th.sub);
@@ -263,10 +402,7 @@ void App::draw_settings(Rect r) {
     }
     row(0xf012, "Auto-offline on mobile data", "Download songs first to enable", 1, false, "Off", false, 61);
     if (row(skin::Download, "Downloads", "", 1, true, "", false, 52)) set_nav(Nav::Downloads);
-    if (row(skin::Sync, "Rebuild Cache", "Re-fetches library index; keeps downloaded files", 1, false, "", false, 61)) {
-        if (store_) { store_->erase_prefix("home:"); store_->erase_prefix("artist"); store_->erase_prefix("album"); }
-        album_cache_.clear(); artist_cache_.clear(); load_home(); load_artists(); alb_loaded_page_ = -1; song_loaded_page_ = -1;
-    }
+    if (row(skin::Sync, "Preload Library Cache", "Fetches metadata and cover art for faster browsing", 1, false, "Start", true, 61)) start_cache_preload();
     if (row(0xf1f8, "Clear All Caches", "Deletes artwork, offline data, and precache flags", 2, false, "", false, 61)) {
         images_->clear_memory();
         if (store_) { store_->erase_prefix("home:"); store_->erase_prefix("artist"); store_->erase_prefix("album"); }

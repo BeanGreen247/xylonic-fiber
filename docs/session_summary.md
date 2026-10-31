@@ -4,6 +4,8 @@
 
 Added the persistent Render Timer HUD from the old app: Settings > Advanced > Render Timer HUD stores its state in the native config and displays measured frame time/FPS plus the active performance mode. Corrected the port map for features already implemented in C++ (playlists, add-to-playlist, song context menu, desktop mini player, and performance modes). Next exact-port slice is the cache preload dialog, followed by hamburger/mobile layouts and the remaining inert settings actions.
 
+The cache preload dialog is now implemented from the original Electron flow: Settings > Offline & Cache > Preload Library Cache loads all artists, artist album metadata, album song metadata and home lists, then warms persistent cover artwork with progress/cancel/retry. It deliberately does not use the native SQLite Store; metadata remains live in the session and the image cache persists artwork. The remaining difference from the original is the search-index build/persistence, which is still unported.
+
 Updated after every step. Newest first.
 
 ## 2026-10-31 (exact UI port, in progress)
