@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <sys/stat.h>
 #include "../net/url.h"
+#include "secrets.h"
 
 namespace {
 const char* kOrg = "xylonic-fiber";
@@ -97,6 +98,10 @@ bool App::init() {
     f_url_ = cfg_.server_url;
     f_user_ = cfg_.username;
     if (!opt_.server.empty()) { f_url_ = opt_.server; f_user_ = opt_.user; f_pass_ = opt_.pass; }
+    if (opt_.server.empty() && !cfg_.server_url.empty() && !cfg_.username.empty()) {
+        std::string saved;
+        if (secret_lookup(cfg_.server_url + "|" + cfg_.username, saved)) { f_pass_ = saved; connect(false); }
+    }
     if (!opt_.server.empty() && !opt_.pass.empty()) connect(false);
     if (!opt_.shot_path.empty()) shot_deadline_ = SDL_GetTicks() + static_cast<uint32_t>(opt_.shot_after_ms);
     return true;
@@ -137,6 +142,7 @@ void App::connect(bool trust_pin) {
                 cfg_.username = f_user_;
                 cfg_.pin_sha256 = copt_.pin_sha256;
                 cfg_.save(cfg_path_);
+                if (opt_.server.empty()) secret_store(url + "|" + f_user_, f_pass_);  // not for scripted test logins
                 on_connected();
             } else if (!fp.empty()) {
                 cert_fp_ = fp;
@@ -184,6 +190,7 @@ void App::on_connected() {
 }
 
 void App::logout() {
+    secret_clear(cfg_.server_url + "|" + cfg_.username);
     player_.stop();
     ++session_;
     ++play_gen_;

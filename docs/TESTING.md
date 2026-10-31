@@ -1,6 +1,6 @@
 # Testing against a real server
 
-Build (once) and run. The password is not stored yet, type it at each launch.
+Build (once) and run. After a successful login the password goes to the OS keyring (Secret Service) and the next launch signs in by itself; Log out forgets it. Needs an unlocked keyring (GNOME Keyring / KWallet); otherwise you type it each launch.
 
     cmake -S . -B build -G Ninja && cmake --build build
     build/xylonic-fiber
@@ -20,4 +20,4 @@ Isolated profile: `XDG_DATA_HOME=/tmp/xf build/xylonic-fiber`.
 - Queue view: jump, remove, clear. Quit and relaunch: queue is restored, nothing auto-plays.
 - flac and non-mp3 formats (ogg/opus/m4a are transcoded to mp3 by the server).
 - Resource use: `ps -o pid,rss,pcpu -p $(pgrep xylonic-fiber)` idle and playing; report numbers.
-- Known gaps: no stored credentials, no offline downloads UI, no themes, no MPRIS, no Android build yet.
+- Known gaps: no offline downloads UI, no themes, no MPRIS, no Android build yet.
