@@ -35,6 +35,7 @@ std::string lower_ext(const std::string& s) {
 App::App(AppOptions o) : opt_(std::move(o)) {}
 
 App::~App() {
+    close_mini();
     save_queue_state();
     player_.stop();
     images_.reset();   // textures must die before the renderer
@@ -596,6 +597,10 @@ void App::save_queue_state() {
 // ---------------------------------------------------------------- events / loop
 
 void App::handle(const SDL_Event& e) {
+    if (mini_win_) {
+        uint32_t wid = e.type == SDL_WINDOWEVENT ? e.window.windowID : e.type == SDL_MOUSEMOTION ? e.motion.windowID : (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) ? e.button.windowID : (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) ? e.key.windowID : 0;
+        if (wid == mini_id_) { handle_mini(e); return; }
+    }
     Input& in = ui_->in;
     switch (e.type) {
     case SDL_QUIT: running_ = false; break;
@@ -631,6 +636,7 @@ void App::handle(const SDL_Event& e) {
         else if (k == SDLK_TAB) ++in.tab;
         else if (k == SDLK_ESCAPE) { ++in.escape; if (typing) ui_->focus = 0; else if (np_open_) np_open_ = false; else if (panel_open_) panel_open_ = false; }
         else if (in.ctrl && k == SDLK_k && screen_ == Screen::Main) set_nav(Nav::Search);
+        else if (in.ctrl && k == SDLK_m && screen_ == Screen::Main) toggle_mini();
         else if (!typing && screen_ == Screen::Main) {
             if (k == SDLK_SPACE) toggle_play();
             else if (k == SDLK_RIGHT) { if (shift) next_track(); else player_.seek_seconds(player_.position_seconds() + 5); }
@@ -669,6 +675,7 @@ int App::run() {
             got = SDL_PollEvent(&e) != 0;
         }
         if (screen_ == Screen::Main) tick_player();
+        if (opt_.mini && !mini_win_ && queue_.current() && !track_loading_) toggle_mini();
         if (search_pending_ && SDL_GetTicks() >= search_due_) run_search();
         tick_sleep();
         uint32_t now = SDL_GetTicks();
@@ -678,14 +685,17 @@ int App::run() {
             dirty_ = false;
             ui_->wants_frames = false;
             frame();
+            ui_theme_cache_ = ui_->th;
+            if (mini_win_) draw_mini();
             last_draw = SDL_GetTicks();
             ui_->in.new_frame();
         }
         if (shot_deadline_ && SDL_GetTicks() >= shot_deadline_ && !track_loading_ && !loading_home_) {
             int w, h;
-            SDL_GetRendererOutputSize(ren_, &w, &h);
+            SDL_Renderer* shot_ren = mini_ren_ ? mini_ren_ : ren_;
+            SDL_GetRendererOutputSize(shot_ren, &w, &h);
             SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
-            SDL_RenderReadPixels(ren_, nullptr, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
+            SDL_RenderReadPixels(shot_ren, nullptr, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
             SDL_SaveBMP(s, opt_.shot_path.c_str());
             SDL_FreeSurface(s);
             running_ = false;

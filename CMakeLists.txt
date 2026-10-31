@@ -37,7 +37,7 @@ add_library(ui STATIC src/ui/gfx.cpp src/ui/ui.cpp src/ui/themes.cpp src/ui/svg.
 target_compile_options(ui PRIVATE -Wall -Wextra -fno-exceptions -fno-rtti)
 target_link_libraries(ui PUBLIC PkgConfig::SDL2)
 pkg_check_modules(SYSTEMD IMPORTED_TARGET libsystemd)
-add_library(appcore STATIC src/app/app.cpp src/app/app_views.cpp src/app/shell.cpp src/app/library.cpp src/app/pages.cpp src/app/search.cpp src/app/panel.cpp src/app/nowplaying.cpp src/app/settings.cpp src/app/login.cpp src/app/playlists.cpp src/app/dialogs.cpp src/app/carmode.cpp src/app/queue.cpp src/app/worker.cpp src/app/images.cpp src/app/config.cpp src/app/secrets.cpp src/app/mpris.cpp src/app/model_json.cpp src/app/store.cpp src/app/downloads.cpp)
+add_library(appcore STATIC src/app/app.cpp src/app/app_views.cpp src/app/shell.cpp src/app/library.cpp src/app/pages.cpp src/app/search.cpp src/app/panel.cpp src/app/nowplaying.cpp src/app/settings.cpp src/app/login.cpp src/app/playlists.cpp src/app/dialogs.cpp src/app/carmode.cpp src/app/mini.cpp src/app/queue.cpp src/app/worker.cpp src/app/images.cpp src/app/config.cpp src/app/secrets.cpp src/app/mpris.cpp src/app/model_json.cpp src/app/store.cpp src/app/downloads.cpp)
 target_compile_options(appcore PRIVATE -Wall -Wextra -fno-exceptions -fno-rtti)
 target_link_libraries(appcore PUBLIC subsonic ui audio sqlite3 PkgConfig::SDL2 Threads::Threads ${CMAKE_DL_LIBS})
 add_library(audio STATIC src/audio/decoder.cpp src/audio/player.cpp src/audio/source.cpp src/audio/dsp.cpp)

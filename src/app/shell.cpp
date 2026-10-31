@@ -160,7 +160,7 @@ void App::draw_header(float W) {
         return u.clicked(r);
     };
     if (pill({606 * s, 10 * s, 116 * s, 43 * s}, skin::Satellite, "Remote")) { /* remote control lands with the LAN module */ }
-    if (pill({734 * s, 10 * s, 95 * s, 43 * s}, skin::Compress, "Mini")) { /* mini player lands with its module */ }
+    if (pill({734 * s, 10 * s, 95 * s, 43 * s}, skin::Compress, "Mini")) toggle_mini();
     // offline toggle (globe)
     Rect gl{W - 60 * s, 14 * s, 36 * s, 36 * s};
     if (round_btn(gl, 18 * s)) { offline_ = !offline_; load_home(); load_artists(); for (int i = 0; i < 4; ++i) load_section(i); }

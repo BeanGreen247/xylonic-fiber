@@ -37,6 +37,7 @@ struct AppOptions {
     std::string search;     // type this into the search field after login (testing)
     bool help = false;      // open the keyboard help dialog (testing)
     bool pulse = false;     // Pulse Deck on (testing)
+    bool mini = false;      // open the mini player (testing)
     bool carmode = false;   // open Car Mode (testing)
     bool nowplaying = false; // open Now Playing (testing)
     std::string panel;      // open the right panel: queue|history|playlists (testing)
@@ -161,6 +162,10 @@ private:
     void tick_player();
     void preload_next();
     void mpris_push();
+    void toggle_mini();
+    void close_mini();
+    void draw_mini();
+    void handle_mini(const SDL_Event& e);
     void mpris_command(MprisCmd c, double arg, const std::string& sarg);
     void set_volume(float v);
     void save_queue_state();
@@ -266,6 +271,13 @@ private:
 
     // playback state
     uint32_t play_gen_ = 0;
+    SDL_Window* mini_win_ = nullptr;
+    SDL_Renderer* mini_ren_ = nullptr;
+    uint32_t mini_id_ = 0;
+    std::unique_ptr<Gfx> mini_gfx_;
+    std::unique_ptr<Ui> mini_ui_;
+    std::unordered_map<int, int> mini_fonts_;
+    Theme ui_theme_cache_;
     Mpris mpris_;
     std::string mpris_sig_;
     uint32_t mpris_last_ms_ = 0;
