@@ -104,7 +104,7 @@ void Player::decode_loop() {
             lo.design(false, dev_rate_, 100, b); hi.design(true, dev_rate_, 8000, t);
             lo.clear(); hi.clear();
         }
-        if (ring_.writable() < 8192) { std::this_thread::sleep_for(std::chrono::milliseconds(5)); continue; }
+        if (ring_.writable() < 8192) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); continue; }  // 0.74 s ring: waking at 50 Hz is plenty
         if (eof_.load()) {
             std::unique_ptr<Decoder> nx;
             double hint = 0;
@@ -162,9 +162,11 @@ void Player::fill(int16_t* out, size_t samples) {
     if (got < samples) std::memset(out + got, 0, (samples - got) * sizeof(int16_t));
     consumed_.fetch_add(got / 2, std::memory_order_relaxed);
     // spectrum tap (mono)
+    if (tap_on_.load(std::memory_order_relaxed)) {
     size_t tp = tap_pos_.load(std::memory_order_relaxed);
     for (size_t i = 0; i + 1 < got; i += 2) { tap_[tp % kTap] = (out[i] + out[i + 1]) * (0.5f / 32768.0f); ++tp; }
     tap_pos_.store(tp, std::memory_order_release);
+    }
 }
 
 bool Player::play() {

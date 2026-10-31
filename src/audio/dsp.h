@@ -11,7 +11,7 @@ public:
     void reset() { pos_ = 0; have_prev_ = false; }
     // Appends output frames to `out`. `in` holds `frames` stereo frames.
     void process(const float* in, size_t frames, double step, std::vector<float>& out) {
-        if (step == 1.0 && !have_prev_ && pos_ == 0) { out.insert(out.end(), in, in + frames * 2); return; }
+        if (step == 1.0) { out.insert(out.end(), in, in + frames * 2); reset(); return; }  // integer positions: no interpolation needed
         for (size_t i = 0; i < frames; ++i) {
             const float* cur = in + i * 2;
             if (!have_prev_) { prev_[0] = cur[0]; prev_[1] = cur[1]; have_prev_ = true; continue; }

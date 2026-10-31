@@ -62,3 +62,18 @@ First end-to-end slice (login, home grid with covers, library, album, queue, sea
 | Startup | 812ms to first text | 147ms to window, renderer and fonts ready (`--selftest`, hyperfine n=15, mean) | | |
 
 Caveats: tiny fake library (20 artists), so memory will grow with a real library; the new app has no keychain, SQLite cache, MPRIS or themes yet; startup definitions differ (old = first text via CDP, new = init complete). Re-measure on the owner's real server and on the G88 before claiming parity.
+
+## Re-measure after the exact UI port, audio chain, MPRIS and remote service (2026-10-31)
+
+Same machine and fake server, real GL window on Wayland, 1024x768. The earlier "playing 0.47%" row was taken before audio really reached the PulseAudio device; the numbers below are with real playback (decode + resample chain + PipeWire/Pulse client threads).
+
+| Metric | Old idle | New idle | Old playing | New playing |
+|---|---|---|---|---|
+| PSS (MB) | 295-300 | 42 | 329-338 | 40 |
+| RSS (MB) | 677-691 | 98 | 774-783 | 95 |
+| CPU (% of one core) | 0.5-3.1 | 0.10 | 11.9-12.7 | 4.1-4.6 |
+| Threads | 84-86 | 13 | 97 | 15 |
+| Startup | 812ms to first text | 273ms to init complete (`--selftest`, hyperfine n=12) | | |
+| Binary | Electron 248MB runtime | 4.1MB executable + 5.7MB assets (fonts) | | |
+
+perf of the playing process: about half of the CPU is the mp3 decoder (dr_mp3), the rest is the audio server client threads (PulseMainloop ~25%) and our resample/ring path. Floor measured earlier: an open audio device alone costs ~1.9%. Startup grew from 147ms because init now also opens the D-Bus session (MPRIS), starts the remote service and loads Roboto plus Font Awesome; not yet profiled.

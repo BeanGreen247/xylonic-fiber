@@ -28,7 +28,11 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--help-dialog")) o.help = true;
         else if (arg("--download-album")) o.download_album = argv[++i];
     }
-    App app(o);
-    if (!app.init()) return 1;
-    return o.selftest ? 0 : app.run();
+    int rc;
+    {
+        App app(o);
+        rc = !app.init() ? 1 : o.selftest ? 0 : app.run();
+    }
+    std::fflush(nullptr);
+    std::_Exit(rc);  // detached scan threads may still be probing; skip static destructors they might touch
 }

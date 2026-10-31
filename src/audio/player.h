@@ -44,6 +44,7 @@ public:
     bool has_next() const { std::lock_guard<std::mutex> lk(next_m_); return next_dec_ != nullptr; }
     // True once playback has actually crossed into the track passed to set_next (poll from the UI thread; clears itself).
     bool take_advanced();
+    void enable_spectrum(bool on) { tap_on_.store(on); }  // the tap costs a pass over the output, so it is off by default
     // Latest spectrum as `n` log-spaced bands in 0..1 (empty/zero when nothing plays).
     void spectrum(float* bands, int n);
 
@@ -89,4 +90,5 @@ private:
     static constexpr size_t kTap = 4096;
     float tap_[kTap] = {};
     std::atomic<size_t> tap_pos_{0};
+    std::atomic<bool> tap_on_{false};
 };

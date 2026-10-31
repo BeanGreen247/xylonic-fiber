@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
         std::string shortp = argc > 2 ? argv[2] : path;
         CHECK(SDL_Init(SDL_INIT_AUDIO) == 0);
         Player p;
-        CHECK(p.load(path)); CHECK(p.play());
+        CHECK(p.load(path)); p.enable_spectrum(true); CHECK(p.play());
         p.set_speed(2.0);
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
         double p0 = p.position_seconds();

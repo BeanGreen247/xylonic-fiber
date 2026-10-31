@@ -260,7 +260,7 @@ private:
     int sel_conn_ = -1;
     Scroll login_scroll_;
     uint32_t scan_gen_ = 0;
-    std::atomic<bool> scan_cancel_{false};
+    std::shared_ptr<std::atomic<bool>> scan_cancel_;
     std::string login_pin_;
     std::vector<DiscoveredServer> discovered_;
 

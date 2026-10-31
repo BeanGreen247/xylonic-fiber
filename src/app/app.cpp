@@ -35,6 +35,7 @@ std::string lower_ext(const std::string& s) {
 App::App(AppOptions o) : opt_(std::move(o)) {}
 
 App::~App() {
+    if (scan_cancel_) scan_cancel_->store(true);
     close_mini();
     save_queue_state();
     player_.stop();

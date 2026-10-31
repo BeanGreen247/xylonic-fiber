@@ -12,15 +12,17 @@ Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255))
 }  // namespace
 
 void App::start_scan() {
-    if (scanning_) { scan_cancel_ = true; }
+    if (scan_cancel_) scan_cancel_->store(true);  // stop the previous scan
     discovered_.clear();
     scanning_ = true;
     uint32_t gen = ++scan_gen_;
-    scan_cancel_ = false;
-    worker_->post([this, gen] {
-        discover_servers([this, gen](const DiscoveredServer& d) { ui_post([this, gen, d] { if (gen == scan_gen_) { discovered_.push_back(d); mark(); } }); }, scan_cancel_);
-        ui_post([this, gen] { if (gen == scan_gen_) { scanning_ = false; mark(); } });
-    });
+    auto cancel = std::make_shared<std::atomic<bool>>(false);
+    scan_cancel_ = cancel;
+    // Detached on purpose: a scan can sit in a 2.5 s ping, and quitting must not wait for it (main() ends with _Exit).
+    std::thread([this, gen, cancel] {
+        discover_servers([this, gen](const DiscoveredServer& d) { ui_post([this, gen, d] { if (gen == scan_gen_) { discovered_.push_back(d); mark(); } }); }, *cancel);
+        if (!cancel->load()) ui_post([this, gen] { if (gen == scan_gen_) { scanning_ = false; mark(); } });
+    }).detach();
     mark();
 }
 

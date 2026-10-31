@@ -17,6 +17,7 @@ std::string upper(std::string s) { for (auto& c : s) if (c >= 'a' && c <= 'z') c
 
 void App::set_car_mode(bool on) {
     car_open_ = on;
+    if (!on) player_.enable_spectrum(false);
     if (on && cfg_.car_keep_on) SDL_DisableScreenSaver(); else SDL_EnableScreenSaver();
     mark();
 }
@@ -193,6 +194,7 @@ void App::draw_pulse_deck(Rect r) {
     const float s = S_;
     const Theme& th = u.th;
     float bands[24];
+    player_.enable_spectrum(true);
     player_.spectrum(bands, 24);
     // lag guard: frame interval average over 45 frames
     uint32_t now = SDL_GetTicks();
