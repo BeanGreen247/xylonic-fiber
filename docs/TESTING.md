@@ -34,3 +34,11 @@ Isolated profile: `XDG_DATA_HOME=/tmp/xf build/xylonic-fiber`.
 ## Checklist for part 3 (exact UI port, in progress)
 
 Run the old app and the new one side by side at 1024x768 and compare: header (logo, Xylonic, github, heart, search, Remote, Mini, globe), icon nav, Discover (4 sections, card hover, scroll arrows, Play All, refresh), Library (Artists/Albums/Songs/Liked toggle, stats pills, Shuffle All, Download All, 4-column grids, song rows, pagination), player bar (progress, transport, speed, quality, volume). Known gaps are listed in docs/port-map.md. Reference screenshots: docs/ui-ref/*.png.
+
+## Checklist for parts 4-8 (login, search, panel, now playing, settings)
+
+- Login screen: the server list fills in by itself (LAN, Tailscale peers, common hostnames); pick one, enter user and password, Test Connection, then Login (Login stays disabled until the test passes). Previous Connections picker keeps the last 10 and can forget one; "Enter Offline Mode" needs a saved account.
+- Search (header field or Ctrl+K): results appear after 300 ms; Best Result rule artist > album > song, Songs (top 5 + Play all), Artists, Albums, More Songs.
+- Right panel: Q opens the queue, H history (Recently Played, 50), P playlists (not yet); Esc closes; drag the grip to reorder; search icon filters.
+- Click the current song in the player bar: Now Playing (Up Next list, seek, transport). Esc or X closes.
+- Settings: appearance mode, accent theme dialog (12 themes, 4 custom slots), sleep timer, streaming and download quality, library default view, performance modes, clear caches, about. Car Mode, Remote, Tech Stack and Licenses rows are placeholders.
