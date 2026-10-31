@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iterator>
 #include <vector>
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -76,6 +77,44 @@ int main(int argc, char** argv) {
         CHECK(p.position_seconds() == hold);
         CHECK(p.play());
         p.stop();
+        SDL_Quit();
+    }
+    { // speed, EQ, spectrum and gapless advance on short tracks
+        std::string shortp = argc > 2 ? argv[2] : path;
+        CHECK(SDL_Init(SDL_INIT_AUDIO) == 0);
+        Player p;
+        CHECK(p.load(path)); CHECK(p.play());
+        p.set_speed(2.0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        double p0 = p.position_seconds();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        double dp = p.position_seconds() - p0;
+        std::printf("speed 2x: advanced %.2fs in 1s\n", dp);
+        CHECK(dp > 1.6 && dp < 2.4);
+        p.set_speed(1.0);
+        p.set_eq(8, -6);  // must not disturb playback
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        float bands[24];
+        p.spectrum(bands, 24);
+        float mx = 0; for (float b : bands) mx = std::max(mx, b);
+        std::printf("spectrum peak %.2f\n", mx);
+        CHECK(mx > 0.5f);  // 440 Hz sine is audible in the tap
+        p.stop();
+        // gapless: a short track followed by a prepared next
+        Player g;
+        CHECK(g.load(shortp)); CHECK(g.play());
+        auto nx = open_decoder(shortp);
+        CHECK(nx != nullptr);
+        g.set_next(std::move(nx), 3.0);
+        CHECK(g.has_next());
+        bool adv = false;
+        for (int i = 0; i < 160 && !adv; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(50)); adv = g.take_advanced(); }
+        CHECK(adv);
+        double pos = g.position_seconds();
+        std::printf("after gapless advance position %.2f\n", pos);
+        CHECK(pos >= 0.0 && pos < 1.5 && g.playing());
+        CHECK(!g.has_next());
+        g.stop();
         SDL_Quit();
     }
     { // streaming from http into a cache file

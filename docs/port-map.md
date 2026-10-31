@@ -12,7 +12,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | DiscoverView.tsx | shell.cpp draw_discover | done: sections, 20 albums, skeletons, arrows, Play All; 5 min cache TTL todo |
 | subsonicApi.ts | src/subsonic | partial: core calls done; playlists, getSong stats, starred list todo |
 | PlayerContext, playerQueue, useQueueActions, playerPersistence | src/app/queue.* | partial: shuffle/repeat/wrap exact; history, play-next UI, neighbours todo |
-| audioPlayer, usePlaybackEngine | src/audio | done: decode, ring, async seek; gapless preload (15 s before end), speed 0.5-2x, ReplayGain todo |
+| audioPlayer, usePlaybackEngine | src/audio | done: decode, resample, EQ shelves, ring, async seek, speed 0.5-2x, gapless preload 15 s before end (rate-converted), spectrum tap; ReplayGain not in the old app |
 | offlineCacheService, downloadManagerService, downloadReconciler | src/app/store, downloads | partial: resumable downloads, verify, offline browse; quality picker, refcount dedup, orphan reconcile todo |
 | imageCacheService, AlbumArt, coverArtDownloader, internetArtworkService | src/app/images.* | partial: disk + LRU; mode-aware sizing, iTunes fallback, placeholder detection todo |
 | persistentCache, metadataCache, searchCacheService, searchWorker | store.* | partial: SWR kv cache; full search index todo |
@@ -23,7 +23,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | SearchResults, SearchContext (server search3, 300 ms debounce, best result rule) | src/app/search.cpp | done; local search index (searchCacheService) todo |
 | RightPanel Queue + History tabs, recentlyPlayedService (50, per account in SQLite) | src/app/panel.cpp | done (layout from reference, drag reorder, search, Q/H/P/Esc); Playlists tab, AddToPlaylistDialog, SongContextMenu todo |
 | DesktopNowPlaying | src/app/nowplaying.cpp | done (static backdrop; the old one animates blobs); NowPlayingOverlay (mobile layout), MiniPlayer (ipc/playerWindow) todo |
-| CarMode (header, art, transport, seek, flip, minimal layout, keep-awake, battery) | src/app/carmode.cpp | done for layout; Pulse Deck spectrum, per-song bass/treble EQ, hi-res art cache, lag guard, orientation lock todo |
+| CarMode (header, art, transport, seek, flip, minimal layout, keep-awake, battery) | src/app/carmode.cpp | done for layout; Pulse Deck (24-band FFT, caps, lag guard), per-song bass/treble EQ by dragging; hi-res art cache and orientation lock todo |
 | SettingsView (all 13 sections), SleepTimerPicker, ThemeSelector + CustomThemeEditor, clear-all-data | src/app/settings.cpp | done for layout; Car Mode, Remote, Tech Stack, Licenses, performance-cache stats rows inert or placeholder; HamburgerMenu, KeyboardHelp todo |
 | lastfmService, LastfmSettings, useScrobbler | todo (plain scrobble call done) | |
 | remote (ipc/remote.js, remoteDiscoveryService, RemoteModeContext, FirewallSetupDialog) | todo | |

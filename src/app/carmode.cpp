@@ -125,12 +125,15 @@ void App::draw_car_mode(float W, float H) {
             T(700, 24, lx, by + 57 * s, 36, at, th.accent, colw, true);
         } else T(700, 24, lx, by, 36, "NO SONG PLAYING", th.sub, colw);
         transport(lx, by + 106 * s, colw, 76 * s, 96 * s, by + 214 * s, true);
-        // art
+        // art or Pulse Deck
         Rect af{ax + (colw - side) / 2, mt + (mh - side) / 2, side, side};
+        if (cfg_.car_pulse && !pulse_off_) draw_pulse_deck(af);
+        else {
         gfx_->fill_round(af, 16 * s, alpha(th.text, 0.21));
         Rect ai{af.x + 1 * s, af.y + 1 * s, af.w - 2 * s, af.h - 2 * s};
         gfx_->fill_round(ai, 15 * s, th.panel2);
         if (cur) if (SDL_Texture* t = cover(cur->cover_art, 450)) gfx_->image_round(t, ai, 15 * s);
+        }
         // footer
         float fy = H - 84 * s;
         Color ft = {static_cast<uint8_t>((th.bg.r * 7 + th.accent.r) / 8 + 6), static_cast<uint8_t>((th.bg.g * 7 + th.accent.g) / 8 + 6), static_cast<uint8_t>((th.bg.b * 7 + th.accent.b) / 8 + 6), 255};
@@ -181,4 +184,63 @@ void App::draw_car_mode(float W, float H) {
         if (b(ex + (cw - 64 * s) / 2, skin::Heart, cur && cur->starred) && cur && client_) { bool on = !cur->starred; worker_->post([c = client_, id = cur->id, on] { std::string e; c->set_star(id, on, e); }); const_cast<Song*>(queue_.current())->starred = on; }
         if (b(ex + cw - 64 * s, skin::Repeat, queue_.repeat() != Repeat::Off)) queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
     }
+}
+
+// Pulse Deck: 24 log-spaced bands with peak caps. Drag horizontally to shape bass (left third) / treble (right third)
+// for the current song; Reset EQ restores flat. Switches itself off if it cannot hold ~30 fps.
+void App::draw_pulse_deck(Rect r) {
+    Ui& u = *ui_;
+    const float s = S_;
+    const Theme& th = u.th;
+    float bands[24];
+    player_.spectrum(bands, 24);
+    // lag guard: frame interval average over 45 frames
+    uint32_t now = SDL_GetTicks();
+    if (pulse_last_ms_) {
+        uint32_t dt = now - pulse_last_ms_;
+        pulse_avg_ms_ = pulse_avg_ms_ * 0.95f + static_cast<float>(dt) * 0.05f;
+        if (++pulse_frames_ > 90 && pulse_avg_ms_ > 45.0f && player_.playing()) { pulse_off_ = true; pulse_toast_ms_ = now + 6000; }
+    }
+    pulse_last_ms_ = now;
+    gfx_->fill_round(r, 16 * s, alpha(th.text, 0.05f));
+    gfx_->stroke_round(r, 16 * s, 1 * s, alpha(th.text, 0.21));
+    float px = r.x + 24 * s, pw = r.w - 48 * s, ph = r.h - 70 * s, py = r.y + 24 * s;
+    float bw = pw / 24.0f;
+    // flowing gradient swell with the bass
+    float bass = (bands[0] + bands[1] + bands[2]) / 3.0f;
+    gfx_->clip(&r);
+    gfx_->radial(r.x + r.w / 2, r.y + r.h, r.w * (0.5f + bass * 0.3f), alpha(th.accent, 0.10f + bass * 0.25f), alpha(th.accent, 0));
+    gfx_->clip(nullptr);
+    for (int i = 0; i < 24; ++i) {
+        float v = bands[i];
+        pulse_caps_[i] = std::max(v, pulse_caps_[i] - 0.012f);
+        float h = std::max(3 * s, v * ph);
+        Rect b{px + i * bw + 3 * s, py + ph - h, bw - 6 * s, h};
+        gfx_->fill_round(b, std::min(5 * s, b.w / 2), th.accent);
+        float cy = py + ph - pulse_caps_[i] * ph;
+        gfx_->fill_round({b.x, cy - 4 * s, b.w, 3 * s}, 1.5f * s, th.text);
+        if (i % 3 == 0) {
+            double f = 40.0 * std::pow(16000.0 / 40.0, i / 24.0);
+            char lb[16];
+            if (f >= 1000) std::snprintf(lb, sizeof lb, "%.1fk", f / 1000.0); else std::snprintf(lb, sizeof lb, "%d", static_cast<int>(f));
+            T(400, 11, b.x, py + ph + 10 * s, 16, lb, th.muted);
+        }
+    }
+    // drag to shape bass / treble for this song
+    if (r.contains(u.in.mx, u.in.my) && u.in.pressed) pulse_drag_ = true;
+    if (pulse_drag_ && u.in.down) {
+        float fx = (u.in.mx - r.x) / r.w, g = (0.5f - (u.in.my - r.y) / r.h) * 24.0f;  // +-12 dB over the height
+        g = std::min(12.0f, std::max(-12.0f, g));
+        if (fx < 0.34f) eq_bass_db_ = g; else if (fx > 0.66f) eq_treble_db_ = g; else { eq_bass_db_ = g; eq_treble_db_ = g; }
+        player_.set_eq(eq_bass_db_, eq_treble_db_);
+    }
+    if (u.in.released) pulse_drag_ = false;
+    if (eq_bass_db_ != 0 || eq_treble_db_ != 0) {
+        Rect rb{r.x + r.w - 130 * s, r.y + 12 * s, 118 * s, 28 * s};
+        gfx_->fill_round(rb, 14 * s, alpha(th.accent, 0.15f));
+        fa(0xf0e2, rb.x + 16 * s, rb.y + 14 * s, 11, th.accent);
+        T(600, 12, rb.x + 30 * s, rb.y, 28, "Reset EQ", th.accent);
+        if (u.clicked(rb)) { eq_bass_db_ = eq_treble_db_ = 0; player_.set_eq(0, 0); }
+    }
+    if (pulse_toast_ms_ > now) T(500, 13, r.x + 20 * s, r.y + r.h - 34 * s, 20, "Pulse Deck turned off \xE2\x80\x94 this device is too slow for it.", th.sub, r.w - 40 * s);
 }

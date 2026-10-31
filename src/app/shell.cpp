@@ -247,7 +247,30 @@ void App::draw_player_bar(Rect r) {
     gfx_->stroke_round(spd, 8 * s, 1 * s, edge, th.panel);
     if (u.hover(spd)) gfx_->fill_round(spd, 8 * s, th.hover);
     fa(skin::Bolt, spd.x + 17 * s, spd.y + spd.h / 2, 11, th.accent);
-    T(600, 12, spd.x + 28 * s, spd.y, 26, "1\xC3\x97", th.sub);
+    {
+        char sb[16];
+        double sp = player_.speed();
+        if (sp == static_cast<int>(sp)) std::snprintf(sb, sizeof sb, "%d\xC3\x97", static_cast<int>(sp)); else if (sp * 100 == static_cast<int>(sp * 100) && static_cast<int>(sp * 100) % 10 == 0) std::snprintf(sb, sizeof sb, "%.1f\xC3\x97", sp); else std::snprintf(sb, sizeof sb, "%.2f\xC3\x97", sp);
+        T(600, 12, spd.x + 28 * s, spd.y, 26, sb, th.sub);
+    }
+    if (u.clicked(spd)) { speed_popup_ = !speed_popup_; mark(); }
+    if (speed_popup_) {
+        static const double opts[7] = {0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0};
+        float pw = 120 * s, ih = 34 * s, ph = 7 * ih + 8 * s;
+        Rect pop{spd.x + spd.w - pw, spd.y - 6 * s - ph, pw, ph};
+        gfx_->fill_round({pop.x - 1, pop.y - 1, pop.w + 2, pop.h + 2}, 13 * s, th.border);
+        gfx_->fill_round(pop, 12 * s, th.bg_light);
+        for (int i = 0; i < 7; ++i) {
+            Rect ir{pop.x + 4 * s, pop.y + 4 * s + i * ih, pop.w - 8 * s, ih};
+            bool on = std::fabs(player_.speed() - opts[i]) < 1e-6;
+            if (u.hover(ir)) gfx_->fill_round(ir, 8 * s, th.hover);
+            if (on) fa(skin::Check, ir.x + 18 * s, ir.y + ih / 2, 11, th.accent);
+            char lb[16]; std::snprintf(lb, sizeof lb, opts[i] == 1.0 ? "Normal" : "%g\xC3\x97", opts[i]);
+            T(on ? 600 : 400, 13, ir.x + 36 * s, ir.y, ih / s, lb, on ? th.accent : th.text);
+            if (u.clicked(ir)) { player_.set_speed(opts[i]); speed_popup_ = false; mark(); }
+        }
+        if (u.in.pressed && !pop.contains(u.in.mx, u.in.my) && !spd.contains(u.in.mx, u.in.my)) speed_popup_ = false;
+    }
     gfx_->fill_round(qual, 16 * s, th.panel);
     gfx_->stroke_round(qual, 16 * s, 1 * s, edge, th.panel);
     if (u.hover(qual)) gfx_->fill_round(qual, 16 * s, th.hover);

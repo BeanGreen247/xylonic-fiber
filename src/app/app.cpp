@@ -226,6 +226,7 @@ void App::on_connected() {
     else if (opt_.nav == "search") set_nav(Nav::Search);
     else if (opt_.nav.rfind("album:", 0) == 0) { push_view(ViewKind::Album, opt_.nav.substr(6), "Album"); load_album(opt_.nav.substr(6)); }
     if (opt_.nowplaying) np_open_ = true;
+    if (opt_.pulse) cfg_.car_pulse = true;
     if (opt_.carmode || cfg_.car_start) set_car_mode(true);
     if (opt_.help) show_help_ = true;
     if (!opt_.panel.empty()) toggle_panel(opt_.panel == "history" ? PanelTab::History : opt_.panel == "playlists" ? PanelTab::Playlists : PanelTab::Queue);
@@ -420,6 +421,11 @@ void App::start_current() {
     if (!s) return;
     Song song = *s;
     uint32_t gen = ++play_gen_;
+    player_.clear_next();
+    eq_bass_db_ = eq_treble_db_ = 0;
+    player_.set_eq(0, 0);
+    preloaded_id_.clear();
+    preloading_ = false;
     track_loading_ = true;
     play_err_.clear();
     player_.stop();
@@ -461,8 +467,57 @@ void App::prev_track() {
     if (queue_.prev()) start_current();
 }
 
+void App::preload_next() {
+    if (preloading_ || queue_.empty() || (!client_ && !downloads_)) return;
+    // the track that follows the current one (repeat-one replays the same song)
+    size_t n = queue_.size();
+    const Song* nx = nullptr;
+    if (queue_.repeat() == Repeat::One) nx = queue_.current();
+    else {
+        // peek without moving: work on a copy of the order via a scratch queue
+        Queue scratch = queue_;
+        nx = scratch.next();
+        if (!nx) return;
+        static Song held;
+        held = *nx;
+        nx = &held;
+    }
+    (void)n;
+    if (!nx || preloaded_id_ == nx->id) return;
+    Song song = *nx;
+    preloading_ = true;
+    preloaded_id_ = song.id;
+    uint32_t gen = play_gen_;
+    std::string e = lower_ext(song.suffix);
+    bool native = e == "mp3" || e == "flac";
+    std::string url = client_ ? client_->stream_url(song.id, e == "flac" ? 0 : cfg_.stream_quality, native ? "" : "mp3") : std::string();
+    worker_->post([this, gen, song, url, c = copt_, perm = perm_path(song), strm = stream_path(song), kind = track_kind(song)] {
+        std::string err;
+        auto dec = std::make_shared<std::unique_ptr<Decoder>>(open_track(url, perm, strm, kind, c, err));
+        ui_post([this, gen, dec, song] {
+            preloading_ = false;
+            if (gen != play_gen_ || !*dec) { if (gen == play_gen_) preloaded_id_.clear(); return; }
+            player_.set_next(std::move(*dec), static_cast<double>(song.duration));
+        });
+    });
+}
+
 void App::tick_player() {
     if (track_loading_) return;
+    if (player_.take_advanced()) {  // gapless switch happened: move the queue on without reloading
+        if (queue_.on_track_end()) {
+            const Song* c = queue_.current();
+            if (c) { history_add(*c); scrobbled_id_.clear(); if (client_) worker_->post([cl = client_, id = c->id] { std::string e; cl->scrobble(id, false, e); }); }
+        }
+        preloaded_id_.clear();
+        eq_bass_db_ = eq_treble_db_ = 0;
+        player_.set_eq(0, 0);
+        mark();
+    }
+    if (player_.playing()) {
+        double d = player_.duration_seconds(), p = player_.position_seconds();
+        if (d > 0 && d - p <= 15.0 && !player_.has_next() && !preloading_) preload_next();  // gapless preload safety-net
+    }
     if (player_.playing() && player_.finished()) {
         if (queue_.on_track_end()) start_current();
         return;
@@ -554,12 +609,13 @@ void App::handle(const SDL_Event& e) {
 int App::run() {
     uint32_t last_draw = 0;
     while (running_) {
-        bool animating = sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_;
+        bool pulse_live = car_open_ && cfg_.car_pulse && !pulse_off_ && player_.playing();
+        bool animating = pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_;
         SDL_Event e;
         bool got;
         if (dirty_) got = SDL_PollEvent(&e) != 0;
         else if (shot_deadline_) got = SDL_WaitEventTimeout(&e, 50) != 0;
-        else if (animating) got = SDL_WaitEventTimeout(&e, 250) != 0;
+        else if (animating) got = SDL_WaitEventTimeout(&e, pulse_live ? 33 : 250) != 0;
         else got = SDL_WaitEvent(&e) != 0;
         while (got) {
             handle(e);
@@ -570,6 +626,7 @@ int App::run() {
         tick_sleep();
         uint32_t now = SDL_GetTicks();
         if (ui_->wants_frames && now - last_draw > 400) mark();
+        if (pulse_live && now - last_draw >= 33) mark();
         if (dirty_) {
             dirty_ = false;
             ui_->wants_frames = false;

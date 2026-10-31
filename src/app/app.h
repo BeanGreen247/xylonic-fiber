@@ -35,6 +35,7 @@ struct AppOptions {
     bool autoplay = false;
     std::string search;     // type this into the search field after login (testing)
     bool help = false;      // open the keyboard help dialog (testing)
+    bool pulse = false;     // Pulse Deck on (testing)
     bool carmode = false;   // open Car Mode (testing)
     bool nowplaying = false; // open Now Playing (testing)
     std::string panel;      // open the right panel: queue|history|playlists (testing)
@@ -106,6 +107,7 @@ private:
     void draw_now_playing(float W, float H);
     void draw_car_mode(float W, float H);
     void set_car_mode(bool on);
+    void draw_pulse_deck(Rect r);
     void toggle_panel(PanelTab tab);
     void pl_load();
     void pl_save();
@@ -156,6 +158,7 @@ private:
     void next_track();
     void prev_track();
     void tick_player();
+    void preload_next();
     void set_volume(float v);
     void save_queue_state();
     std::string track_kind(const Song& s) const;
@@ -204,6 +207,10 @@ private:
     int dropdown_open_ = 0;
     std::function<void()> dropdown_draw_;
     std::pair<int, int> dropdown_choice_{0, -1};
+    float pulse_caps_[24] = {};
+    uint32_t pulse_last_ms_ = 0, pulse_frames_ = 0, pulse_toast_ms_ = 0;
+    float pulse_avg_ms_ = 16.0f, eq_bass_db_ = 0, eq_treble_db_ = 0;
+    bool pulse_off_ = false, pulse_drag_ = false;
     bool car_open_ = false, car_flip_ = false, car_layout_min_ = false;
     bool np_open_ = false;
     Scroll np_scroll_;
@@ -256,6 +263,8 @@ private:
 
     // playback state
     uint32_t play_gen_ = 0;
+    std::string preloaded_id_;
+    bool preloading_ = false, speed_popup_ = false;
     bool track_loading_ = false;
     std::string play_err_;
     float vol_ = 0.8f, seek_drag_v_ = 0;
