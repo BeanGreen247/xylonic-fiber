@@ -193,7 +193,9 @@ private:
     Queue queue_;
     Config cfg_;
     std::string pref_, cfg_path_, perm_dir_, stream_dir_, img_dir_;
-    float S_ = 1.0f;  // device pixels per logical unit
+    float S_ = 1.0f;
+    bool touch_moved_ = false;
+    float touch_accum_ = 0;  // device pixels per logical unit
     bool dirty_ = true, running_ = true;
     uint32_t shot_deadline_ = 0;
 

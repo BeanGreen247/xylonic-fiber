@@ -65,6 +65,12 @@ bool App::init() {
     SDL_GetWindowSize(win_, &ww, &wh);
     SDL_GetRendererOutputSize(ren_, &dw, &dh);
     S_ = ww > 0 ? static_cast<float>(dw) / ww : 1.0f;
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+    {   // phones report pixel sizes with no density scaling: derive the UI scale from the display DPI (reference 160 dpi = 1x)
+        float ddpi = 0;
+        if (SDL_GetDisplayDPI(0, &ddpi, nullptr, nullptr) == 0 && ddpi > 0) S_ = std::min(4.0f, std::max(1.0f, ddpi / 160.0f * 1.0f));
+    }
+#endif
 
     char* p = SDL_GetPrefPath(kOrg, kApp);
     pref_ = p ? p : "./";
@@ -619,8 +625,15 @@ void App::handle(const SDL_Event& e) {
         break;
     case SDL_MOUSEBUTTONUP:
         if (e.button.button == SDL_BUTTON_RIGHT) { in.rclick = true; in.rx = e.button.x * S_; in.ry = e.button.y * S_; mark(); }
-        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * S_; in.my = e.button.y * S_; in.down = false; in.released = true; mark(); }
+        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * S_; in.my = e.button.y * S_; in.down = false; in.released = !touch_moved_; touch_moved_ = false; mark(); }
         break;
+    case SDL_FINGERDOWN: touch_moved_ = false; touch_accum_ = 0; break;
+    case SDL_FINGERMOTION: {  // touch drag scrolls (the synthesized mouse events only click/drag widgets)
+        float dy = e.tfinger.dy * static_cast<float>(ui_->in.screen_h);
+        touch_accum_ += std::fabs(dy) + std::fabs(e.tfinger.dx * static_cast<float>(ui_->in.screen_h));
+        if (touch_accum_ > 14 * S_ && ui_->active == 0) { touch_moved_ = true; in.wheel += dy / (60 * S_); in.hwheel += -e.tfinger.dx * static_cast<float>(ui_->in.screen_h) / (60 * S_) * -1; mark(); }
+        break;
+    }
     case SDL_MOUSEWHEEL:
         if (SDL_GetModState() & KMOD_SHIFT) in.hwheel += e.wheel.preciseY; else in.wheel += e.wheel.preciseY;
         in.hwheel += e.wheel.preciseX;
@@ -714,6 +727,7 @@ void App::frame() {
     int dw, dh;
     SDL_GetRendererOutputSize(ren_, &dw, &dh);
     float W = static_cast<float>(dw), H = static_cast<float>(dh);
+    ui_->in.screen_h = dh;
     if (dl_dirty_) refresh_dl_state();
     gfx_->begin_frame(ui_->th.bg);
     if (screen_ == Screen::Login) draw_login(W, H);

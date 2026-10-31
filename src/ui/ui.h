@@ -39,6 +39,7 @@ struct Input {
     bool released = false;   // went up this frame
     float press_x = 0, press_y = 0;
     float wheel = 0;         // lines, positive = scroll up
+    int screen_h = 768;      // device px, for touch deltas
     bool rclick = false;     // right button released this frame
     float rx = 0, ry = 0;
     float hwheel = 0;        // horizontal wheel / shift+wheel
