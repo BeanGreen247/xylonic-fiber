@@ -7,6 +7,7 @@
 #include <vector>
 #include "../audio/player.h"
 #include "../subsonic/client.h"
+#include "../ui/themes.h"
 #include "../ui/ui.h"
 #include "config.h"
 #include "downloads.h"
@@ -16,7 +17,7 @@
 #include "queue.h"
 #include "worker.h"
 
-enum WidgetId { kUrl = 1, kUser, kPass, kSearch, kSeek = 10, kVol };
+enum WidgetId { kUrl = 1, kUser, kPass, kSearch, kEditName, kEditHex, kSeek = 10, kVol };
 
 struct AppOptions {
     std::string server, user, pass;  // optional auto-login (testing)
@@ -64,6 +65,8 @@ private:
     void pop_view();
     void set_nav(Nav n);
     void mark() { dirty_ = true; }
+    ThemeDef theme_def(int idx) const;
+    void apply_theme();
 
     // session
     void connect(bool trust_pin);
@@ -121,7 +124,10 @@ private:
     struct DlInfo { int state; int64_t bytes, total; };
     std::unordered_map<std::string, DlInfo> dl_state_;
     bool dl_dirty_ = true;
-    Scroll dl_scroll_;
+    Scroll dl_scroll_, settings_scroll_;
+    int edit_slot_ = 0;
+    std::string edit_name_, edit_hex_;
+    bool edit_loaded_ = false;
     uint32_t session_ = 0;
 
     // login form

@@ -5,8 +5,8 @@
 
 bool Ui::button(Rect r, const std::string& label, bool primary) {
     bool h = hover(r);
-    Color bg = primary ? (h ? rgb(0x4fd3e2) : th.accent) : (h ? th.hover : th.panel2);
-    g.fill_round(r, 8, bg);
+    g.fill_round(r, 8, primary ? (h ? th.primary_light : th.accent) : th.panel2);
+    if (h && !primary) g.fill_round(r, 8, th.hover);
     float w = g.measure(f_body, label), lh = g.line_height(f_body);
     g.text(f_body, r.x + (r.w - w) / 2, r.y + (r.h - lh) / 2, label, primary ? th.accent_text : th.text, r.w - 8);
     return clicked(r);

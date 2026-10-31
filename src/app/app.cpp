@@ -78,6 +78,7 @@ bool App::init() {
     gfx_ = std::make_unique<Gfx>();
     if (!gfx_->init(win_, ren_)) return false;
     ui_ = std::make_unique<Ui>(*gfx_);
+    apply_theme();
     char* base = SDL_GetBasePath();
     std::string assets = std::string(base ? base : "./") + "assets/fonts/";
     SDL_free(base);
@@ -383,6 +384,20 @@ void App::prefetch_covers(const std::vector<Song>& songs) {
             images_->prefetch(cover_key(id, dev), [c, id, dev] { return c->cover_url(id, dev); });
         }
     }
+}
+
+ThemeDef App::theme_def(int idx) const {
+    if (idx >= kPresetCount) {
+        const Config::Custom& c = cfg_.custom[(idx - kPresetCount) % kCustomSlots];
+        return make_custom(c.primary, c.name);
+    }
+    return preset(idx);
+}
+
+void App::apply_theme() {
+    bool light = cfg_.theme_mode == 1;  // 0 = follow the system: dark until platform detection lands (docs/port-map.md)
+    ui_->th = make_theme(theme_def(cfg_.theme), light);
+    mark();
 }
 
 void App::push_view(ViewKind k, const std::string& id, const std::string& title) { views_.push_back({k, id, title, {}}); mark(); }

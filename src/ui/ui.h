@@ -3,9 +3,31 @@
 #include <string>
 #include "gfx.h"
 
+// Exact token set of the old app's CSS variables (index.css + ThemeContext), light/dark aware.
 struct Theme {
-    Color bg = rgb(0x12141c), panel = rgb(0x1b1e29), panel2 = rgb(0x242837), text = rgb(0xeef0f6), sub = rgb(0x9aa0b4);
-    Color accent = rgb(0x22c3d6), accent_text = rgb(0x06161a), danger = rgb(0xef5350), hover = rgb(0x2c3044);
+    // Structural tokens
+    Color bg = rgb(0x121212);           // --bg-dark
+    Color bg_medium = rgb(0x1e1e1e);    // --bg-medium
+    Color bg_light = rgb(0x2a2a2a);     // --bg-light
+    Color panel = rgb(0x1e1e1e);        // --surface
+    Color panel2 = rgb(0x2a2a2a);       // --surface-variant
+    Color text = rgb(0xffffff);         // --text-primary
+    Color sub = rgb(0xc7c7c7);          // --text-secondary (derived)
+    Color muted = rgb(0x999999);        // --text-muted (derived)
+    Color border_subtle = {255, 255, 255, 31};
+    Color border = {255, 255, 255, 61};
+    Color border_strong = {255, 255, 255, 102};
+    Color hover = {255, 255, 255, 15};  // --hover-overlay (alpha overlay)
+    Color active = {255, 255, 255, 33}; // --active-overlay
+    Color scrim = {0, 0, 0, 140};
+    // Accent tokens
+    Color accent = rgb(0x00bcd4);       // --primary-color (contrast-adjusted)
+    Color primary_light = rgb(0x4dd0e1), primary_dark = rgb(0x0097a7);
+    Color secondary = rgb(0x03a9f4), secondary_light = rgb(0x4fc3f7), secondary_dark = rgb(0x0288d1);
+    Color accent2 = rgb(0x00e5ff), accent2_light = rgb(0x84ffff);  // --accent-color / --accent-light
+    Color accent_text = rgb(0x000000);  // --on-primary
+    Color danger = rgb(0xef5350);
+    bool light = false;
 };
 
 enum class Icon { Play, Pause, Next, Prev, Shuffle, Repeat, RepeatOne, Heart, HeartFilled, Volume, Mute, Queue, Home, Library, Settings, Search, Close, Back, Download, Plus };
