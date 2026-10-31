@@ -1,5 +1,6 @@
 #include "config.h"
 #include <algorithm>
+#include <ctime>
 #include <cstdio>
 #include "../../third_party/yyjson.h"
 
@@ -18,6 +19,16 @@ bool Config::load(const std::string& path) {
     debug_log = num("debug_log", 0) != 0; be_controlled = num("be_controlled", 1) != 0; control_others = num("control_others", 1) != 0;
     if (theme < 0 || theme > 11) theme = 0;
     if (theme_mode < 0 || theme_mode > 2) theme_mode = 0;
+    size_t ci, cn; yyjson_val* cc;
+    conns.clear();
+    yyjson_arr_foreach(yyjson_obj_get(r, "connections"), ci, cn, cc) {
+        Conn c;
+        yyjson_val* u = yyjson_obj_get(cc, "url"); yyjson_val* us = yyjson_obj_get(cc, "user"); yyjson_val* lu = yyjson_obj_get(cc, "last_used");
+        if (u && yyjson_is_str(u)) c.url = yyjson_get_str(u);
+        if (us && yyjson_is_str(us)) c.user = yyjson_get_str(us);
+        if (lu && yyjson_is_num(lu)) c.last_used = static_cast<int64_t>(yyjson_get_sint(lu));
+        if (!c.url.empty() && !c.user.empty()) conns.push_back(std::move(c));
+    }
     size_t i, n; yyjson_val* c;
     yyjson_arr_foreach(yyjson_obj_get(r, "custom_themes"), i, n, c) {
         if (i >= 4) break;
@@ -58,8 +69,29 @@ bool Config::save(const std::string& path) const {
         yyjson_mut_obj_add_uint(d, e, "primary", c.primary);
     }
     yyjson_mut_obj_add_val(d, o, "custom_themes", ct);
+    yyjson_mut_val* cs = yyjson_mut_arr(d);
+    for (const Conn& c : conns) {
+        yyjson_mut_val* e = yyjson_mut_arr_add_obj(d, cs);
+        yyjson_mut_obj_add_strcpy(d, e, "url", c.url.c_str());
+        yyjson_mut_obj_add_strcpy(d, e, "user", c.user.c_str());
+        yyjson_mut_obj_add_sint(d, e, "last_used", c.last_used);
+    }
+    yyjson_mut_obj_add_val(d, o, "connections", cs);
     std::string tmp = path + ".tmp";
     bool ok = yyjson_mut_write_file(tmp.c_str(), d, YYJSON_WRITE_PRETTY, nullptr, nullptr);
     yyjson_mut_doc_free(d);
     return ok && std::rename(tmp.c_str(), path.c_str()) == 0;
+}
+
+void Config::remember_connection(const std::string& url, const std::string& user) {
+    int64_t now = static_cast<int64_t>(std::time(nullptr)) * 1000;
+    for (auto& c : conns) if (c.url == url && c.user == user) { c.last_used = now; goto sort; }
+    conns.push_back({url, user, now});
+sort:
+    std::sort(conns.begin(), conns.end(), [](const Conn& a, const Conn& b) { return a.last_used > b.last_used; });
+    if (conns.size() > 10) conns.resize(10);
+}
+
+void Config::forget_connection(const std::string& url, const std::string& user) {
+    conns.erase(std::remove_if(conns.begin(), conns.end(), [&](const Conn& c) { return c.url == url && c.user == user; }), conns.end());
 }

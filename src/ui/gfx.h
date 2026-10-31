@@ -40,6 +40,8 @@ public:
     // Soft radial blob (centre colour fading to edge colour) and a vertical two-colour gradient.
     void radial(float cx, float cy, float radius, Color centre, Color edge);
     void vgradient(Rect r, Color top, Color bottom);
+    // Four-corner gradient quad: top-left, top-right, bottom-right, bottom-left colours.
+    void quad_gradient(Rect r, Color tl, Color tr, Color br, Color bl);
     void tri(float x0, float y0, float x1, float y1, float x2, float y2, Color c);
     void line(float x0, float y0, float x1, float y1, float thickness, Color c);
     void circle(float cx, float cy, float r, Color c);

@@ -7,7 +7,9 @@
 #include <unordered_map>
 #include <vector>
 #include "../audio/player.h"
+#include "../net/discovery.h"
 #include "../subsonic/client.h"
+#include <atomic>
 #include "../ui/themes.h"
 #include "../ui/ui.h"
 #include "config.h"
@@ -57,6 +59,9 @@ private:
     void handle(const SDL_Event& e);
     void frame();
     void draw_login(float W, float H);
+    void start_scan();
+    void test_connection();
+    void select_connection(int idx);
     void draw_main(float W, float H);
     void draw_player_bar(Rect r);
     void draw_library(Rect r);
@@ -198,6 +203,13 @@ private:
     // login form
     std::string f_url_, f_user_, f_pass_, login_msg_, cert_fp_;
     bool connecting_ = false, cert_prompt_ = false;
+    bool testing_ = false, test_ok_ = false, show_pass_ = false, offline_check_ = false, scanning_ = false, picker_open_ = false;
+    int sel_conn_ = -1;
+    Scroll login_scroll_;
+    uint32_t scan_gen_ = 0;
+    std::atomic<bool> scan_cancel_{false};
+    std::string login_pin_;
+    std::vector<DiscoveredServer> discovered_;
 
     // data
     std::vector<Album> recent_, random_;

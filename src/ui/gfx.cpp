@@ -202,6 +202,16 @@ void Gfx::radial(float cx, float cy, float rad, Color centre, Color edge) {
     for (int i = 0; i < n; ++i) { idx_.push_back(base); idx_.push_back(base + 1 + i); idx_.push_back(base + 1 + (i + 1) % n); }
 }
 
+void Gfx::quad_gradient(Rect r, Color tl, Color tr, Color br, Color bl) {
+    const float u = 1.0f / aw_, v = 1.0f / ah_;
+    int b = static_cast<int>(v_.size());
+    v_.push_back({{r.x, r.y}, {tl.r, tl.g, tl.b, tl.a}, {u, v}});
+    v_.push_back({{r.x + r.w, r.y}, {tr.r, tr.g, tr.b, tr.a}, {u, v}});
+    v_.push_back({{r.x + r.w, r.y + r.h}, {br.r, br.g, br.b, br.a}, {u, v}});
+    v_.push_back({{r.x, r.y + r.h}, {bl.r, bl.g, bl.b, bl.a}, {u, v}});
+    for (int i : {0, 1, 2, 0, 2, 3}) idx_.push_back(b + i);
+}
+
 void Gfx::vgradient(Rect r, Color top, Color bottom) {
     const float u = 1.0f / aw_, v = 1.0f / ah_;
     int b = static_cast<int>(v_.size());

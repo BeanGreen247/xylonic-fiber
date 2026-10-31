@@ -99,6 +99,7 @@ bool App::init() {
     f_url_ = cfg_.server_url;
     f_user_ = cfg_.username;
     if (!opt_.server.empty()) { f_url_ = opt_.server; f_user_ = opt_.user; f_pass_ = opt_.pass; }
+    if (opt_.server.empty()) start_scan();
     if (opt_.server.empty() && !cfg_.server_url.empty() && !cfg_.username.empty()) {
         std::string saved;
         if (secret_lookup(cfg_.server_url + "|" + cfg_.username, saved)) { f_pass_ = saved; connect(false); }
@@ -123,6 +124,7 @@ void App::connect(bool trust_pin) {
     copt_ = ConnectOptions{};
     copt_.timeout_ms = 10000;
     if (trust_pin) copt_.pin_sha256 = cert_fp_;
+    else if (!login_pin_.empty()) copt_.pin_sha256 = login_pin_;
     else if (url == cfg_.server_url) copt_.pin_sha256 = cfg_.pin_sha256;
     auto client = std::make_shared<SubsonicClient>(url, f_user_, f_pass_, copt_);
     uint32_t sess = ++session_;
@@ -143,6 +145,7 @@ void App::connect(bool trust_pin) {
                 cfg_.server_url = url;
                 cfg_.username = f_user_;
                 cfg_.pin_sha256 = copt_.pin_sha256;
+                cfg_.remember_connection(url, f_user_);
                 cfg_.save(cfg_path_);
                 if (opt_.server.empty()) secret_store(url + "|" + f_user_, f_pass_);  // not for scripted test logins
                 on_connected();

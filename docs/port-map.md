@@ -17,7 +17,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | imageCacheService, AlbumArt, coverArtDownloader, internetArtworkService | src/app/images.* | partial: disk + LRU; mode-aware sizing, iTunes fallback, placeholder detection todo |
 | persistentCache, metadataCache, searchCacheService, searchWorker | store.* | partial: SWR kv cache; full search index todo |
 | secureCredentialService, credentialsService | src/app/secrets.* | done (Linux Secret Service); Android Keystore, Windows, macOS todo |
-| LoginForm, ConnectionTest, ReauthDialog, serverDiscoveryProbe, ipc/serverDiscovery | app.cpp login | partial: login + cert pin; saved connections list, discovery, reauth todo |
+| LoginForm (layout, test-then-login, offline toggle, connection history picker), ipc/serverDiscovery + serverDiscoveryProbe | src/app/login.cpp, src/net/discovery.* | done (discovery tested; LAN, Tailscale CLI, hostnames); ReauthDialog todo |
 | ArtistList, AllAlbumsGrid, AllSongsGrid, LikedSongsView, LibraryViewToggle, ShuffleAll, Pagination | src/app/library.cpp | done (layout from reference); Shuffle All pages 500 songs serially, quality picker for Download All todo |
 | AlbumList (artist page), SongList (album hero + rows) | src/app/pages.cpp | done (layout from reference) |
 | SearchResults, SearchContext (server search3, 300 ms debounce, best result rule) | src/app/search.cpp | done; local search index (searchCacheService) todo |

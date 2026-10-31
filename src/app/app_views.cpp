@@ -14,45 +14,6 @@ std::string mmss(int s) {
 
 // ---------------------------------------------------------------- login
 
-void App::draw_login(float W, float H) {
-    Ui& u = *ui_;
-    const float s = S_;
-    float cw = std::min(W - 40 * s, 440 * s), ch = 440 * s;
-    Rect card{(W - cw) / 2, std::max(20 * s, (H - ch) / 2), cw, ch};
-    gfx_->fill_round(card, 14 * s, u.th.panel);
-    float x = card.x + 32 * s, w = card.w - 64 * s, y = card.y + 28 * s;
-    u.label(u.f_title, x, y, "xylonic-fiber", u.th.text);
-    y += 46 * s;
-    u.label(u.f_small, x, y, "Subsonic / Navidrome server", u.th.sub);
-    y += 32 * s;
-    float fh = 42 * s;
-    u.text_field(kUrl, {x, y, w, fh}, f_url_, "http://192.168.1.100:4533");
-    y += fh + 12 * s;
-    u.text_field(kUser, {x, y, w, fh}, f_user_, "Username");
-    y += fh + 12 * s;
-    u.text_field(kPass, {x, y, w, fh}, f_pass_, "Password", true);
-    y += fh + 20 * s;
-    if (u.in.tab) u.focus = u.focus == kUrl ? kUser : u.focus == kUser ? kPass : kUrl;
-    bool go = u.button({x, y, w, 44 * s}, connecting_ ? "Connecting..." : "Connect", true) || (u.in.enter && u.focus != 0);
-    if (go && !connecting_) connect(false);
-    y += 56 * s;
-    if (!cfg_.server_url.empty() && !cfg_.username.empty() && !connecting_ && !cert_prompt_) {
-        if (u.button({x, y, w, 36 * s}, "Offline mode (downloaded music)")) { enter_offline(); return; }
-        y += 46 * s;
-    }
-    if (cert_prompt_) {
-        u.label(u.f_small, x, y, login_msg_, u.th.danger, w);
-        y += 20 * s;
-        u.label(u.f_small, x, y, "SHA-256 " + cert_fp_.substr(0, 32), u.th.sub, w);
-        y += 18 * s;
-        u.label(u.f_small, x, y, cert_fp_.substr(32), u.th.sub, w);
-        y += 24 * s;
-        if (u.button({x, y, w, 38 * s}, "Trust this certificate and connect")) connect(true);
-    } else if (!login_msg_.empty()) {
-        u.label(u.f_small, x, y, login_msg_, login_msg_ == "Connecting..." ? u.th.sub : u.th.danger, w);
-    }
-}
-
 // ---------------------------------------------------------------- main layout
 
 // ---------------------------------------------------------------- content views
