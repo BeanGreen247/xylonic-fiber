@@ -72,6 +72,7 @@ private:
     void test_connection();
     void select_connection(int idx);
     void draw_main(float W, float H);
+    void draw_render_hud(float W, float H);
     void draw_player_bar(Rect r);
     void draw_library(Rect r);
     void draw_artist(Rect r);
@@ -197,6 +198,8 @@ private:
     bool touch_moved_ = false;
     float touch_accum_ = 0;  // device pixels per logical unit
     bool dirty_ = true, running_ = true;
+    double render_ms_ = 0.0, render_fps_ = 0.0;
+    uint64_t render_frames_ = 0, render_window_start_ = 0;
     uint32_t shot_deadline_ = 0;
 
     Screen screen_ = Screen::Login;

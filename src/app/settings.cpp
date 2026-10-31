@@ -321,7 +321,7 @@ void App::draw_settings(Rect r) {
     y += (1 + 32) * s; row_i = 0;
     // ---- ADVANCED (performance tiers)
     section("ADVANCED");
-    card_fill(y, 274 * s);
+    card_fill(y, 335 * s);
     {
         static const char* names[3] = {"Balanced Mode", "Gaming Mode", "Eco Mode"};
         static const char* descs[3] = {"Default \xE2\x80\x94 60 fps, full GPU effects, standard prefetch",
@@ -334,6 +334,7 @@ void App::draw_settings(Rect r) {
             if (row(icons[m], names[m], descs[m], 1, false, cfg_.perf_mode == m ? "Active" : "", cfg_.perf_mode == m, m == 1 ? 86 : 61)) { cfg_.perf_mode = m; apply_perf_mode(); cfg_.save(cfg_path_); }
         }
         if (row(0xf15b, "Debug Logging", "Writes detailed logs to disk", 1, false, cfg_.debug_log ? "On" : "Off", cfg_.debug_log, 61)) { cfg_.debug_log = !cfg_.debug_log; cfg_.save(cfg_path_); }
+        if (row(0xf201, "Render Timer HUD", "Shows frame time and redraw rate for performance checks", 1, false, cfg_.render_timer ? "On" : "Off", cfg_.render_timer, 61)) { cfg_.render_timer = !cfg_.render_timer; cfg_.save(cfg_path_); mark(); }
     }
     y += (1 + 32) * s; row_i = 0;
     // ---- DANGER ZONE

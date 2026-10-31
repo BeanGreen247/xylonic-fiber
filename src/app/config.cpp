@@ -16,7 +16,8 @@ bool Config::load(const std::string& path) {
     download_quality = num("download_quality", 0); concurrent_downloads = std::min(8, std::max(1, num("concurrent_downloads", 3)));
     default_view = num("default_view", 0); car_minimal = num("car_minimal", 0); perf_mode = num("perf_mode", 0);
     car_keep_on = num("car_keep_on", 1) != 0; car_start = num("car_start", 0) != 0; car_pulse = num("car_pulse", 0) != 0;
-    debug_log = num("debug_log", 0) != 0; be_controlled = num("be_controlled", 1) != 0; control_others = num("control_others", 1) != 0;
+    debug_log = num("debug_log", 0) != 0; render_timer = num("render_timer", 0) != 0;
+    be_controlled = num("be_controlled", 1) != 0; control_others = num("control_others", 1) != 0;
     if (theme < 0 || theme > 11) theme = 0;
     if (theme_mode < 0 || theme_mode > 2) theme_mode = 0;
     size_t ci, cn; yyjson_val* cc;
@@ -58,6 +59,7 @@ bool Config::save(const std::string& path) const {
     yyjson_mut_obj_add_int(d, o, "car_start", car_start);
     yyjson_mut_obj_add_int(d, o, "car_pulse", car_pulse);
     yyjson_mut_obj_add_int(d, o, "debug_log", debug_log);
+    yyjson_mut_obj_add_int(d, o, "render_timer", render_timer);
     yyjson_mut_obj_add_int(d, o, "be_controlled", be_controlled);
     yyjson_mut_obj_add_int(d, o, "control_others", control_others);
     yyjson_mut_obj_add_int(d, o, "theme", theme);

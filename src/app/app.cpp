@@ -724,6 +724,7 @@ int App::run() {
 }
 
 void App::frame() {
+    const uint64_t frame_start = SDL_GetPerformanceCounter();
     int dw, dh;
     SDL_GetRendererOutputSize(ren_, &dw, &dh);
     float W = static_cast<float>(dw), H = static_cast<float>(dh);
@@ -732,9 +733,37 @@ void App::frame() {
     gfx_->begin_frame(ui_->th.bg);
     if (screen_ == Screen::Login) draw_login(W, H);
     else draw_main(W, H);
+    draw_render_hud(static_cast<float>(dw), static_cast<float>(dh));
     gfx_->end_frame();
+    const uint64_t now = SDL_GetPerformanceCounter();
+    const double freq = static_cast<double>(SDL_GetPerformanceFrequency());
+    render_ms_ = freq > 0 ? static_cast<double>(now - frame_start) * 1000.0 / freq : 0.0;
+    ++render_frames_;
+    if (!render_window_start_) render_window_start_ = now;
+    const double window_s = freq > 0 ? static_cast<double>(now - render_window_start_) / freq : 0.0;
+    if (window_s >= 0.5) {
+        render_fps_ = static_cast<double>(render_frames_) / window_s;
+        render_frames_ = 0;
+        render_window_start_ = now;
+    }
     bool want = ui_->focus != 0;
     static bool text_on = false;
     if (want != text_on) { text_on = want; if (want) SDL_StartTextInput(); else SDL_StopTextInput(); }
     ui_->active = ui_->in.down ? ui_->active : 0;
+}
+
+void App::draw_render_hud(float W, float H) {
+    if (!cfg_.render_timer) return;
+    const float s = S_;
+    const Theme& th = ui_->th;
+    const float w = 178 * s, h = 48 * s;
+    Rect b{W - w - 12 * s, H - h - 12 * s, w, h};
+    gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 8 * s, th.border);
+    gfx_->fill_round(b, 7 * s, {0, 0, 0, 205});
+    char line[96];
+    std::snprintf(line, sizeof line, "Render  %5.2f ms   %4.1f FPS", render_ms_, render_fps_);
+    T(500, 11, b.x + 10 * s, b.y + 5 * s, 18, line, th.text);
+    const char* mode = cfg_.perf_mode == 1 ? "Gaming" : cfg_.perf_mode == 2 ? "Eco" : "Balanced";
+    std::snprintf(line, sizeof line, "Mode: %s", mode);
+    T(400, 10, b.x + 10 * s, b.y + 25 * s, 16, line, th.sub);
 }

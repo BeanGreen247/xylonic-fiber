@@ -7,7 +7,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | Old module | New module | Status |
 |---|---|---|
 | utils/colorContrast.ts, types/theme.ts, ThemeContext | src/ui/themes.* | done, exact, ported tests (system mode follows dark until OS detection lands) |
-| Header.tsx, AppNav.tsx (collapsed) | src/app/shell.cpp | done, pixel-checked at 1024x768; expanded nav, Remote and Mini buttons inert |
+| Header.tsx, AppNav.tsx (collapsed) | src/app/shell.cpp | partial: pixel-checked at 1024x768; expanded nav/hamburger todo |
 | PlaybackControls, ProgressBar, VolumeControl, StreamingQualitySelector (bar) | shell.cpp draw_player_bar | partial: layout exact; speed and quality popups todo |
 | DiscoverView.tsx | shell.cpp draw_discover | done: sections, 20 albums, skeletons, arrows, Play All; 5 min cache TTL todo |
 | subsonicApi.ts | src/subsonic | partial: core calls done; playlists, getSong stats, starred list todo |
@@ -21,14 +21,14 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | ArtistList, AllAlbumsGrid, AllSongsGrid, LikedSongsView, LibraryViewToggle, ShuffleAll, Pagination | src/app/library.cpp | done (layout from reference); Shuffle All pages 500 songs serially, quality picker for Download All todo |
 | AlbumList (artist page), SongList (album hero + rows) | src/app/pages.cpp | done (layout from reference) |
 | SearchResults, SearchContext (server search3, 300 ms debounce, best result rule) | src/app/search.cpp | done; local search index (searchCacheService) todo |
-| RightPanel Queue + History tabs, recentlyPlayedService (50, per account in SQLite) | src/app/panel.cpp | done (layout from reference, drag reorder, search, Q/H/P/Esc); Playlists tab, AddToPlaylistDialog, SongContextMenu todo |
-| DesktopNowPlaying | src/app/nowplaying.cpp | done (static backdrop; the old one animates blobs); NowPlayingOverlay (mobile layout), MiniPlayer (ipc/playerWindow) todo |
+| RightPanel Queue + History tabs, recentlyPlayedService (50, per account in SQLite) | src/app/panel.cpp | done (layout from reference, drag reorder, search, Q/H/P/Esc); Playlists tab, AddToPlaylistDialog and SongContextMenu done |
+| DesktopNowPlaying | src/app/nowplaying.cpp | partial: static backdrop; mobile overlay and animated blobs todo; MiniPlayer desktop done |
 | CarMode (header, art, transport, seek, flip, minimal layout, keep-awake, battery) | src/app/carmode.cpp | done for layout; Pulse Deck (24-band FFT, caps, lag guard), per-song bass/treble EQ by dragging; hi-res art cache and orientation lock todo |
-| SettingsView (all 13 sections), SleepTimerPicker, ThemeSelector + CustomThemeEditor, clear-all-data | src/app/settings.cpp | done for layout; Car Mode, Remote, Tech Stack, Licenses, performance-cache stats rows inert or placeholder; HamburgerMenu, KeyboardHelp todo |
+| SettingsView (all 13 sections), SleepTimerPicker, ThemeSelector + CustomThemeEditor, clear-all-data | src/app/settings.cpp | partial: settings/theme/sleep/performance modes and Render Timer HUD done; Car Mode, Remote, Tech Stack, Licenses and performance-cache stats rows still inert/placeholder |
 | lastfmService, LastfmSettings, useScrobbler | todo (plain scrobble call done) | |
 | remote (ipc/remote.js, RemoteModeContext, RemoteDevicePicker) | src/net/remote.*, src/app/remote_ui.cpp | done: UDP presence + multicast, HTTP /cmd server, pairing rules (account match, busy), Be Controlled actions, Control Others picker, player bar routes play/next/prev/seek/volume/shuffle/repeat; wire-compatible with the old app (tested on loopback, TSAN clean); FirewallSetupDialog todo, real two-device test is yours |
 | mpris.js | src/app/mpris.* (sd-bus, own thread) | done: status, metadata + art, transport, seek, volume, shuffle, loop; verified with busctl on the real session bus |
-| CachePreloadDialog, perfModeService (Gaming/Balanced/Eco), RenderTimerHUD | todo | |
+| CachePreloadDialog, perfModeService (Gaming/Balanced/Eco), RenderTimerHUD | partial: performance modes and persistent Render Timer HUD done; cache preload dialog todo | |
 | Android native (capacitorBridge, MusicService, download service) | todo: SDL2 NDK project, owner builds | |
 
 Reference capture tooling lives in the session scratchpad only; to recreate: run the old app with `ELECTRON_IS_DEV=0 electron . --user-data-dir=X --remote-debugging-port=9333`, log in to the fake Subsonic server, drive it over CDP (`Emulation.setDeviceMetricsOverride` 1024x768, `Page.captureScreenshot`, DOM walk with getBoundingClientRect/getComputedStyle).

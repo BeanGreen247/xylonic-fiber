@@ -1,5 +1,9 @@
 # Session summary (git-tracked memory bank)
 
+## 2026-10-31 (continued native port)
+
+Added the persistent Render Timer HUD from the old app: Settings > Advanced > Render Timer HUD stores its state in the native config and displays measured frame time/FPS plus the active performance mode. Corrected the port map for features already implemented in C++ (playlists, add-to-playlist, song context menu, desktop mini player, and performance modes). Next exact-port slice is the cache preload dialog, followed by hamburger/mobile layouts and the remaining inert settings actions.
+
 Updated after every step. Newest first.
 
 ## 2026-10-31 (exact UI port, in progress)
