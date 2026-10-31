@@ -87,6 +87,7 @@ void App::draw_main(float W, float H) {
     }
     gfx_->clip(nullptr);
     draw_player_bar({navw, H - bar, W - navw, bar});
+    draw_right_panel(W, H);
 }
 
 void App::draw_header(float W) {

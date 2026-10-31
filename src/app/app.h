@@ -18,7 +18,7 @@
 #include "skin.h"
 #include "worker.h"
 
-enum WidgetId { kUrl = 1, kUser, kPass, kSearch, kEditName, kEditHex, kSeek = 10, kVol };
+enum WidgetId { kUrl = 1, kUser, kPass, kSearch, kPanelSearch, kEditName, kEditHex, kSeek = 10, kVol };
 
 struct AppOptions {
     std::string server, user, pass;  // optional auto-login (testing)
@@ -27,6 +27,7 @@ struct AppOptions {
     std::string nav;                 // home|library|queue|settings|search (testing)
     bool autoplay = false;
     std::string search;     // type this into the search field after login (testing)
+    std::string panel;      // open the right panel: queue|history|playlists (testing)
     bool selftest = false;  // init and exit
     bool offline = false;   // start in offline mode with the saved account
     std::string download_album;  // enqueue this album after login (testing)
@@ -42,6 +43,8 @@ public:
 
 private:
     enum class Screen { Login, Main };
+    enum class PanelTab : uint8_t { Queue, History, Playlists };
+    struct HistoryEntry { Song song; int64_t at = 0; };
     enum class Nav { Home, Library, Search, Queue, Downloads, Settings };
     enum class ViewKind { Root, Artist, Album };
     struct View { ViewKind kind = ViewKind::Root; std::string id, title; Scroll scroll; };
@@ -74,6 +77,11 @@ private:
     void svg(int which, Rect r, Color tint);
     // Shell
     void draw_header(float W);
+    void draw_right_panel(float W, float H);
+    void toggle_panel(PanelTab tab);
+    void history_load();
+    void history_save();
+    void history_add(const Song& s);
     void play_random_mix();
     void load_albums_page(int page);
     void load_songs_page(int page);
@@ -151,6 +159,12 @@ private:
     bool show_help_ = false, playing_random_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
+    bool panel_open_ = false, panel_search_open_ = false;
+    PanelTab panel_tab_ = PanelTab::Queue;
+    std::string panel_search_;
+    std::vector<HistoryEntry> history_;
+    Scroll panel_scroll_;
+    int panel_drag_ = -1;
     int lib_mode_ = 0, lib_page_[4] = {0, 0, 0, 0};
     std::vector<Album> alb_items_; bool alb_more_ = false, alb_loading_ = false; int alb_loaded_page_ = -1;
     std::vector<Song> song_items_, liked_; bool song_more_ = false, song_loading_ = false, liked_loaded_ = false, liked_loading_ = false, busy_all_ = false;

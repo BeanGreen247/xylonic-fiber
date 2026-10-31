@@ -20,6 +20,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--selftest")) o.selftest = true;
         else if (!std::strcmp(argv[i], "--offline")) o.offline = true;
         else if (arg("--search")) o.search = argv[++i];
+        else if (arg("--panel")) o.panel = argv[++i];
         else if (arg("--download-album")) o.download_album = argv[++i];
     }
     App app(o);

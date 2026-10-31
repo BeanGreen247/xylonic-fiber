@@ -193,6 +193,7 @@ void App::enter_offline() {
     open_account_data();
     queue_.load_songs(pref_ + "queue_" + acct_ + ".json");
     queue_saved_rev_ = queue_.revision();
+    history_load();
     load_home();
     load_artists();
     mark();
@@ -210,6 +211,7 @@ void App::on_connected() {
     std::string acct = acct_;
     queue_.load_songs(pref_ + "queue_" + acct + ".json");
     queue_saved_rev_ = queue_.revision();
+    history_load();
     load_home();
     load_artists();
     if (opt_.nav == "library") set_nav(Nav::Library);
@@ -218,6 +220,7 @@ void App::on_connected() {
     else if (opt_.nav == "downloads") set_nav(Nav::Downloads);
     else if (opt_.nav == "search") set_nav(Nav::Search);
     else if (opt_.nav.rfind("album:", 0) == 0) { push_view(ViewKind::Album, opt_.nav.substr(6), "Album"); load_album(opt_.nav.substr(6)); }
+    if (!opt_.panel.empty()) toggle_panel(opt_.panel == "history" ? PanelTab::History : opt_.panel == "playlists" ? PanelTab::Playlists : PanelTab::Queue);
     if (!opt_.search.empty()) { search_q_ = opt_.search; nav_ = Nav::Search; views_.clear(); views_.push_back({ViewKind::Root, "", "Search", {}}); run_search(); }
     if (!opt_.download_album.empty()) {
         worker_->post([this, c = client_, s = session_, id = opt_.download_album] {
@@ -426,6 +429,7 @@ void App::start_current() {
             player_.set_volume(vol_);
             if (player_.attach(std::move(*dec), static_cast<double>(song.duration))) player_.play();
             scrobbled_id_.clear();
+            history_add(song);
             if (client_) worker_->post([c = client_, id = song.id] { std::string e; c->scrobble(id, false, e); });
             mark();
         });
@@ -514,7 +518,7 @@ void App::handle(const SDL_Event& e) {
         else if (k == SDLK_END) ++in.end;
         else if (k == SDLK_RETURN || k == SDLK_KP_ENTER) ++in.enter;
         else if (k == SDLK_TAB) ++in.tab;
-        else if (k == SDLK_ESCAPE) { ++in.escape; if (typing) ui_->focus = 0; }
+        else if (k == SDLK_ESCAPE) { ++in.escape; if (typing) ui_->focus = 0; else if (panel_open_) panel_open_ = false; }
         else if (in.ctrl && k == SDLK_k && screen_ == Screen::Main) set_nav(Nav::Search);
         else if (!typing && screen_ == Screen::Main) {
             if (k == SDLK_SPACE) toggle_play();
@@ -525,7 +529,9 @@ void App::handle(const SDL_Event& e) {
             else if (k == SDLK_s) queue_.set_shuffle(!queue_.shuffle());
             else if (k == SDLK_r) queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
             else if (k == SDLK_m) set_volume(vol_ > 0 ? 0 : 0.8f);
-            else if (k == SDLK_q) set_nav(Nav::Queue);
+            else if (k == SDLK_q) toggle_panel(PanelTab::Queue);
+            else if (k == SDLK_h) toggle_panel(PanelTab::History);
+            else if (k == SDLK_p) toggle_panel(PanelTab::Playlists);
         }
         mark();
         break;
