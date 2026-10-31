@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
     CHECK(r != nullptr);
     Gfx g;
     CHECK(g.init(w, r));
-    int f = g.add_font("assets/fonts/Inter-Regular.ttf", 18), fb = g.add_font("assets/fonts/Inter-SemiBold.ttf", 28);
+    int f = g.add_font("assets/fonts/Roboto-Regular.ttf", 18), fb = g.add_font("assets/fonts/Roboto-Bold.ttf", 28);
     CHECK(f >= 0 && fb >= 0);
     CHECK(g.add_font("nope.ttf", 12) == -1);
     float w1 = g.measure(f, "Hello"), w2 = g.measure(f, "Hello, world");

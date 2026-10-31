@@ -48,6 +48,8 @@ public:
     float line_height(int font) const;
 
     SDL_Renderer* renderer() const { return ren_; }
+    // Text with a tracking offset (CSS letter-spacing) in pixels.
+    void set_letter_spacing(float px) { spacing_ = px; }
     uint64_t draw_calls() const { return draw_calls_; }
 
 private:
@@ -66,5 +68,7 @@ private:
     std::vector<SDL_Vertex> v_;
     std::vector<int> idx_;
     std::vector<std::unique_ptr<FontFace>> fonts_;
+    std::unordered_map<std::string, std::shared_ptr<std::vector<uint8_t>>> font_data_;
     uint64_t draw_calls_ = 0;
+    float spacing_ = 0;
 };

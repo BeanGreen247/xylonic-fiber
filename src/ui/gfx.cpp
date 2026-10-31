@@ -3,9 +3,10 @@
 #include <cmath>
 #include "../../third_party/stb_truetype.h"
 
+
 class FontFace {
 public:
-    std::vector<uint8_t> data;
+    std::shared_ptr<std::vector<uint8_t>> data;  // shared between sizes of the same file
     stbtt_fontinfo info{};
     float size = 16, scale = 1;
     int ascent = 0, descent = 0, gap = 0;
@@ -37,12 +38,20 @@ int Gfx::add_font(const char* path, float px) {
     SDL_RWops* rw = SDL_RWFromFile(path, "rb");
     if (!rw) return -1;
     auto f = std::make_unique<FontFace>();
-    Sint64 n = SDL_RWsize(rw);
-    if (n <= 0) { SDL_RWclose(rw); return -1; }
-    f->data.resize(static_cast<size_t>(n));
-    size_t got = SDL_RWread(rw, f->data.data(), 1, f->data.size());
-    SDL_RWclose(rw);
-    if (got != f->data.size() || !stbtt_InitFont(&f->info, f->data.data(), stbtt_GetFontOffsetForIndex(f->data.data(), 0))) return -1;
+    auto cached = font_data_.find(path);
+    if (cached != font_data_.end()) {
+        SDL_RWclose(rw);
+        f->data = cached->second;
+    } else {
+        Sint64 n = SDL_RWsize(rw);
+        if (n <= 0) { SDL_RWclose(rw); return -1; }
+        f->data = std::make_shared<std::vector<uint8_t>>(static_cast<size_t>(n));
+        size_t got = SDL_RWread(rw, f->data->data(), 1, f->data->size());
+        SDL_RWclose(rw);
+        if (got != f->data->size()) return -1;
+        font_data_[path] = f->data;
+    }
+    if (!stbtt_InitFont(&f->info, f->data->data(), stbtt_GetFontOffsetForIndex(f->data->data(), 0))) return -1;
     f->size = px;
     f->scale = stbtt_ScaleForPixelHeight(&f->info, px);
     stbtt_GetFontVMetrics(&f->info, &f->ascent, &f->descent, &f->gap);
@@ -222,7 +231,7 @@ float Gfx::measure(int font, const std::string& s) {
     for (size_t i = 0; i < s.size();) {
         uint32_t cp;
         i += utf8(s, i, cp);
-        if (const Glyph* g = glyph(font, cp)) w += g->adv;
+        if (const Glyph* g = glyph(font, cp)) w += g->adv + spacing_;
     }
     return w;
 }
@@ -254,7 +263,7 @@ float Gfx::text(int font, float x, float y, const std::string& s, Color c, float
             float gx = std::floor(pen + g->xoff), gy = std::floor(base + g->yoff);
             quad(gx, gy, gx + g->w, gy + g->h, g->u0, g->v0, g->u1, g->v1, c);
         }
-        pen += g->adv;
+        pen += g->adv + spacing_;
     }
     if (trunc) {
         const Glyph* d = glyph(font, '.');
