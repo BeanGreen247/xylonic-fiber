@@ -23,7 +23,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | SearchResults, SearchContext (server search3, 300 ms debounce, best result rule) | src/app/search.cpp | done; local search index (searchCacheService) todo |
 | RightPanel Queue + History tabs, recentlyPlayedService (50, per account in SQLite) | src/app/panel.cpp | done (layout from reference, drag reorder, search, Q/H/P/Esc); Playlists tab, AddToPlaylistDialog, SongContextMenu todo |
 | DesktopNowPlaying | src/app/nowplaying.cpp | done (static backdrop; the old one animates blobs); NowPlayingOverlay (mobile layout), MiniPlayer (ipc/playerWindow) todo |
-| CarMode, useSongEq, Pulse Deck | todo | |
+| CarMode (header, art, transport, seek, flip, minimal layout, keep-awake, battery) | src/app/carmode.cpp | done for layout; Pulse Deck spectrum, per-song bass/treble EQ, hi-res art cache, lag guard, orientation lock todo |
 | SettingsView (all 13 sections), SleepTimerPicker, ThemeSelector + CustomThemeEditor, clear-all-data | src/app/settings.cpp | done for layout; Car Mode, Remote, Tech Stack, Licenses, performance-cache stats rows inert or placeholder; HamburgerMenu, KeyboardHelp todo |
 | lastfmService, LastfmSettings, useScrobbler | todo (plain scrobble call done) | |
 | remote (ipc/remote.js, remoteDiscoveryService, RemoteModeContext, FirewallSetupDialog) | todo | |

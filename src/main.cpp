@@ -22,6 +22,7 @@ int main(int argc, char** argv) {
         else if (arg("--search")) o.search = argv[++i];
         else if (arg("--panel")) o.panel = argv[++i];
         else if (!std::strcmp(argv[i], "--nowplaying")) o.nowplaying = true;
+        else if (!std::strcmp(argv[i], "--carmode")) o.carmode = true;
         else if (!std::strcmp(argv[i], "--help-dialog")) o.help = true;
         else if (arg("--download-album")) o.download_album = argv[++i];
     }

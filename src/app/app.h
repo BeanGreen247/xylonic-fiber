@@ -35,6 +35,7 @@ struct AppOptions {
     bool autoplay = false;
     std::string search;     // type this into the search field after login (testing)
     bool help = false;      // open the keyboard help dialog (testing)
+    bool carmode = false;   // open Car Mode (testing)
     bool nowplaying = false; // open Now Playing (testing)
     std::string panel;      // open the right panel: queue|history|playlists (testing)
     bool selftest = false;  // init and exit
@@ -82,10 +83,10 @@ private:
     void set_nav(Nav n);
     void mark() { dirty_ = true; }
     // Fonts (Roboto 400/500/700 + Font Awesome), created lazily per size. weight 600 maps to Bold.
-    int F(int weight, float px);
+    int F(int weight, float px, bool italic = false);
     int FA(float px);
     // CSS-like text: y_top/line_height in logical px, glyphs centred in the line box. Returns drawn width.
-    float T(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w = 0, bool center_in = false);
+    float T(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w = 0, bool italic = false);
     void fa(uint32_t cp, float cx, float cy, float px, Color c);   // glyph centred on (cx, cy)
     void svg(int which, Rect r, Color tint);
     // Shell
@@ -103,6 +104,8 @@ private:
     void wipe_all_data();
     void apply_perf_mode();
     void draw_now_playing(float W, float H);
+    void draw_car_mode(float W, float H);
+    void set_car_mode(bool on);
     void toggle_panel(PanelTab tab);
     void pl_load();
     void pl_save();
@@ -201,6 +204,7 @@ private:
     int dropdown_open_ = 0;
     std::function<void()> dropdown_draw_;
     std::pair<int, int> dropdown_choice_{0, -1};
+    bool car_open_ = false, car_flip_ = false, car_layout_min_ = false;
     bool np_open_ = false;
     Scroll np_scroll_;
     bool panel_open_ = false, panel_search_open_ = false;

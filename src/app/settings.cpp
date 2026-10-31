@@ -242,7 +242,7 @@ void App::draw_settings(Rect r) {
     // ---- DRIVING DISPLAY
     section("DRIVING DISPLAY");
     card_fill(y, 311 * s);
-    row(skin::Car, "Car Mode", "A high-contrast widescreen player for your dashboard", 1, true, "Launch", true, 61);
+    if (row(skin::Car, "Car Mode", "A high-contrast widescreen player for your dashboard", 1, true, "Launch", true, 61)) set_car_mode(true);
     { static const char* m[3] = {"Auto", "Always", "Never"}; if (row(0xf422, "Minimal layout", "Automatic: no top and bottom bars on very small screens", 1, false, m[cfg_.car_minimal], cfg_.car_minimal != 2, 61)) { cfg_.car_minimal = (cfg_.car_minimal + 1) % 3; cfg_.save(cfg_path_); } }
     if (row(0xf0eb, "Keep screen on", "Stop the screen from dimming, sleeping or locking while Car Mode is open", 1, false, cfg_.car_keep_on ? "On" : "Off", cfg_.car_keep_on, 61)) { cfg_.car_keep_on = !cfg_.car_keep_on; cfg_.save(cfg_path_); }
     if (row(0xf011, "Start in Car Mode", "Open the driving display automatically when the app starts", 1, false, cfg_.car_start ? "On" : "Off", cfg_.car_start, 61)) { cfg_.car_start = !cfg_.car_start; cfg_.save(cfg_path_); }

@@ -20,12 +20,13 @@ const uint32_t kSectionIcon[4] = {skin::CalendarPlus, skin::History, skin::Fire,
 
 // ---------------------------------------------------------------- fonts and primitives
 
-int App::F(int weight, float px) {
-    int w = weight >= 600 ? 700 : weight >= 500 ? 500 : 400;
-    int key = w * 100000 + static_cast<int>(px * 10);
+int App::F(int weight, float px, bool italic) {
+    int w = weight >= 800 && italic ? 900 : weight >= 600 ? 700 : weight >= 500 ? 500 : 400;
+    int key = w * 100000 + static_cast<int>(px * 10) + (italic ? 50000000 : 0);
     auto it = font_ids_.find(key);
     if (it != font_ids_.end()) return it->second;
-    const char* file = w == 700 ? "Roboto-Bold.ttf" : w == 500 ? "Roboto-Medium.ttf" : "Roboto-Regular.ttf";
+    const char* file = italic ? (w == 900 ? "Roboto-BlackItalic.ttf" : "Roboto-BoldItalic.ttf")
+                              : (w == 700 ? "Roboto-Bold.ttf" : w == 500 ? "Roboto-Medium.ttf" : "Roboto-Regular.ttf");
     int id = gfx_->add_font((assets_dir_ + file).c_str(), px * S_);
     font_ids_[key] = id;
     return id;
@@ -40,8 +41,8 @@ int App::FA(float px) {
     return id;
 }
 
-float App::T(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w, bool) {
-    int f = F(weight, px);
+float App::T(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w, bool italic) {
+    int f = F(weight, px, italic);
     float y = y_top + (line_h * S_ - gfx_->line_height(f)) / 2;
     return gfx_->text(f, x, y, s, c, max_w);
 }
@@ -73,6 +74,7 @@ void App::draw_main(float W, float H) {
     if (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
     struct Restore { App* a; Input saved; ~Restore() { } } restore{this, saved};
     (void)restore;
+    if (car_open_) { draw_car_mode(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } return; }
     if (np_open_) { draw_now_playing(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); } return; }
     draw_nav(H);
     draw_header(W);
