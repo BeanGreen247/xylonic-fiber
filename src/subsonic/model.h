@@ -21,3 +21,8 @@ struct Artist {
     int album_count = 0;
     std::vector<Album> albums;
 };
+
+struct PlaylistInfo {
+    std::string id, name, owner;
+    int song_count = 0;
+};

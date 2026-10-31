@@ -185,6 +185,70 @@ bool SubsonicClient::search_all(const std::string& q, SearchAll& out, std::strin
     });
 }
 
+bool SubsonicClient::parse_playlists(const std::string& body, std::vector<PlaylistInfo>& out, std::string& err) {
+    return with_doc(body, err, [&](yyjson_val* r) {
+        out.clear();
+        size_t i, n; yyjson_val* v;
+        yyjson_arr_foreach(yyjson_obj_get(yyjson_obj_get(r, "playlists"), "playlist"), i, n, v) {
+            PlaylistInfo p;
+            p.id = str(v, "id"); p.name = str(v, "name"); p.owner = str(v, "owner"); p.song_count = num(v, "songCount");
+            out.push_back(std::move(p));
+        }
+    });
+}
+
+bool SubsonicClient::parse_playlist(const std::string& body, PlaylistInfo& info, std::vector<Song>& songs, std::string& err) {
+    return with_doc(body, err, [&](yyjson_val* r) {
+        info = PlaylistInfo{};
+        songs.clear();
+        yyjson_val* p = yyjson_obj_get(r, "playlist");
+        if (!p) return;
+        info.id = str(p, "id"); info.name = str(p, "name"); info.owner = str(p, "owner"); info.song_count = num(p, "songCount");
+        size_t i, n; yyjson_val* v;
+        yyjson_arr_foreach(yyjson_obj_get(p, "entry"), i, n, v) { songs.emplace_back(); to_song(v, songs.back()); }
+    });
+}
+
+bool SubsonicClient::playlists(std::vector<PlaylistInfo>& out, std::string& err) {
+    std::string b;
+    return call("getPlaylists", "", b, err) && parse_playlists(b, out, err);
+}
+
+bool SubsonicClient::playlist(const std::string& id, PlaylistInfo& info, std::vector<Song>& songs, std::string& err) {
+    std::string b;
+    return call("getPlaylist", "id=" + url_encode(id), b, err) && parse_playlist(b, info, songs, err);
+}
+
+bool SubsonicClient::create_playlist(const std::string& name, const std::vector<std::string>& ids, std::string& new_id, std::string& err) {
+    std::string extra = "name=" + url_encode(name);
+    for (auto& id : ids) extra += "&songId=" + url_encode(id);
+    std::string b;
+    if (!call("createPlaylist", extra, b, err)) return false;
+    return with_doc(b, err, [&](yyjson_val* r) { new_id = str(yyjson_obj_get(r, "playlist"), "id"); });
+}
+
+bool SubsonicClient::replace_playlist(const std::string& id, const std::vector<std::string>& ids, std::string& err) {
+    std::string extra = "playlistId=" + url_encode(id);
+    for (auto& s : ids) extra += "&songId=" + url_encode(s);
+    std::string b;
+    return call("createPlaylist", extra, b, err) && parse_envelope(b, err);
+}
+
+bool SubsonicClient::update_playlist(const std::string& id, const std::string& name, const std::vector<std::string>& add,
+                                     const std::vector<int>& rem, std::string& err) {
+    std::string extra = "playlistId=" + url_encode(id);
+    if (!name.empty()) extra += "&name=" + url_encode(name);
+    for (auto& s : add) extra += "&songIdToAdd=" + url_encode(s);
+    for (int i : rem) extra += "&songIndexToRemove=" + std::to_string(i);
+    std::string b;
+    return call("updatePlaylist", extra, b, err) && parse_envelope(b, err);
+}
+
+bool SubsonicClient::delete_playlist(const std::string& id, std::string& err) {
+    std::string b;
+    return call("deletePlaylist", "id=" + url_encode(id), b, err) && parse_envelope(b, err);
+}
+
 bool SubsonicClient::starred(std::vector<Song>& out, std::string& err) {
     std::string b;
     if (!call("getStarred2", "", b, err)) return false;

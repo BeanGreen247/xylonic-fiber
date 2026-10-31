@@ -20,6 +20,12 @@ int main(int argc, char** argv) {
     CHECK(ar.size() == 3 && ar[0].album_count == 3 && ar[2].name == "S");
     CHECK(SubsonicClient::parse_artists(R"({"subsonic-response":{"status":"ok","artists":{}}})", ar, err) && ar.empty());
 
+    std::vector<PlaylistInfo> pls;
+    CHECK(SubsonicClient::parse_playlists(R"({"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"p1","name":"Mix","owner":"me","songCount":3},{"id":"p2","name":"B"}]}}})", pls, err));
+    CHECK(pls.size() == 2 && pls[0].name == "Mix" && pls[0].song_count == 3 && pls[1].owner.empty());
+    PlaylistInfo pi; std::vector<Song> ps;
+    CHECK(SubsonicClient::parse_playlist(R"({"subsonic-response":{"status":"ok","playlist":{"id":"p1","name":"Mix","songCount":2,"entry":[{"id":"s1","title":"One"},{"id":"s2","title":"Two"}]}}})", pi, ps, err));
+    CHECK(pi.id == "p1" && ps.size() == 2 && ps[1].title == "Two");
     SubsonicClient c("http://h:1/", "us er", "pw");
     std::string u = c.stream_url("a b", 128);
     CHECK(u.compare(0, 31, "http://h:1/rest/stream.view?u=u") == 0);
@@ -34,6 +40,14 @@ int main(int argc, char** argv) {
         Album al; CHECK(l.album(art.albums[0].id, al, err) && !al.songs.empty());
         std::vector<Album> lst; CHECK(l.album_list("newest", 5, 0, lst, err) && lst.size() == 5);
         std::vector<Song> ss; CHECK(l.search_songs("", 30, 0, ss, err) && ss.size() == 30);
+        std::string pid;  // playlists round trip (create, add, remove, rename, delete)
+        CHECK(l.create_playlist("Mix", {"s0-0-0", "s0-0-1"}, pid, err) && !pid.empty());
+        PlaylistInfo li; std::vector<Song> ls;
+        CHECK(l.playlist(pid, li, ls, err) && ls.size() == 2 && li.name == "Mix");
+        CHECK(l.update_playlist(pid, "Renamed", {"s0-0-2"}, {0}, err));
+        CHECK(l.playlist(pid, li, ls, err) && ls.size() == 2 && ls[0].id == "s0-0-1" && li.name == "Renamed");
+        std::vector<PlaylistInfo> all; CHECK(l.playlists(all, err) && !all.empty());
+        CHECK(l.delete_playlist(pid, err));
         std::printf("live: %zu artists, album %s has %zu songs (%s)\n", arts.size(), al.name.c_str(), al.songs.size(), err.c_str());
     }
     std::printf(fails ? "FAILED\n" : "OK\n");

@@ -127,7 +127,7 @@ void App::draw_right_panel(float W, float H) {
     if (panel_tab_ == PanelTab::Queue) { for (size_t i = 0; i < queue_.size(); ++i) if (match(queue_.songs()[i])) idx.push_back(static_cast<int>(i)); total = static_cast<int>(queue_.size()); }
     else if (panel_tab_ == PanelTab::History) { for (size_t i = 0; i < history_.size(); ++i) if (match(history_[i].song)) idx.push_back(static_cast<int>(i)); total = static_cast<int>(history_.size()); }
     if (panel_tab_ == PanelTab::Playlists) {
-        T(400, 13, p.x + 16 * s, cy + 16 * s, 20, "Playlists are not available yet.", th.sub, p.w - 32 * s);
+        draw_playlists_tab(p, cy);
         gfx_->clip(nullptr);
         return;
     }
@@ -201,7 +201,7 @@ void App::draw_right_panel(float W, float H) {
                 return u.clicked(b);
             };
             if (panel_tab_ == PanelTab::Queue) {
-                if (ab(a1, skin::CirclePlus, false)) { /* add to playlist: playlists module */ }
+                if (ab(a1, skin::CirclePlus, false)) add_song_ = sg;
                 if (ab(a2, skin::Xmark, true)) {
                     bool was_cur = is_cur;
                     queue_.remove(static_cast<size_t>(i));

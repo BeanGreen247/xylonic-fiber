@@ -3,6 +3,8 @@
 #include <SDL.h>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -23,7 +25,7 @@
 
 constexpr const char* kVersion = "0.1.0";
 constexpr const char* kBuildDate = __DATE__;
-enum WidgetId { kUrl = 1, kUser, kPass, kSearch, kPanelSearch, kEditName, kEditHex, kSeek = 10, kVol };
+enum WidgetId { kUrl = 1, kUser, kPass, kSearch, kPanelSearch, kPlNew, kPlRename, kEditName, kEditHex, kSeek = 10, kVol };
 
 struct AppOptions {
     std::string server, user, pass;  // optional auto-login (testing)
@@ -50,6 +52,7 @@ public:
 private:
     enum class Screen { Login, Main };
     enum class PanelTab : uint8_t { Queue, History, Playlists };
+    struct Playlist { std::string id, name, server_id, owner; std::vector<Song> songs; int64_t created = 0, updated = 0; };
     struct HistoryEntry { Song song; int64_t at = 0; };
     enum class Nav { Home, Library, Search, Queue, Downloads, Settings };
     enum class ViewKind { Root, Artist, Album };
@@ -96,6 +99,17 @@ private:
     void apply_perf_mode();
     void draw_now_playing(float W, float H);
     void toggle_panel(PanelTab tab);
+    void pl_load();
+    void pl_save();
+    Playlist* pl_find(const std::string& id);
+    std::string pl_create(const std::string& name, const std::vector<Song>& songs);
+    void pl_delete(const std::string& id);
+    void pl_rename(const std::string& id, const std::string& name);
+    bool pl_add_song(const std::string& id, const Song& song);
+    void pl_remove_song(const std::string& id, int index);
+    void pl_sync();
+    void draw_playlists_tab(Rect panel, float content_y);
+    void draw_add_to_playlist(float W, float H);
     void history_load();
     void history_save();
     void history_add(const Song& s);
@@ -188,6 +202,11 @@ private:
     PanelTab panel_tab_ = PanelTab::Queue;
     std::string panel_search_;
     std::vector<HistoryEntry> history_;
+    std::vector<Playlist> playlists_;
+    std::set<std::string> pl_syncing_;
+    std::string pl_new_name_, pl_expanded_, pl_rename_id_, pl_rename_text_;
+    bool pl_synced_once_ = false, pl_sync_busy_ = false;
+    std::optional<Song> add_song_;
     Scroll panel_scroll_;
     int panel_drag_ = -1;
     int lib_mode_ = 0, lib_page_[4] = {0, 0, 0, 0};

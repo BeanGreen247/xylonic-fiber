@@ -94,6 +94,7 @@ void App::draw_main(float W, float H) {
     gfx_->clip(nullptr);
     draw_player_bar({navw, H - bar, W - navw, bar});
     draw_right_panel(W, H);
+    if (add_song_) { uin.in = saved; draw_add_to_playlist(W, H); return; }
     if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); }
 }
 

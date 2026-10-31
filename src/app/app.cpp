@@ -197,6 +197,7 @@ void App::enter_offline() {
     queue_.load_songs(pref_ + "queue_" + acct_ + ".json");
     queue_saved_rev_ = queue_.revision();
     history_load();
+    pl_load();
     load_home();
     load_artists();
     mark();
@@ -215,6 +216,7 @@ void App::on_connected() {
     queue_.load_songs(pref_ + "queue_" + acct + ".json");
     queue_saved_rev_ = queue_.revision();
     history_load();
+    pl_load();
     load_home();
     load_artists();
     if (opt_.nav == "library") set_nav(Nav::Library);
