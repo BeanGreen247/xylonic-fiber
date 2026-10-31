@@ -61,7 +61,7 @@ First end-to-end slice (login, home grid with covers, library, album, queue, sea
 | Processes / threads | 7-9 / 84-86 | 1 / 10 | 10 / 97 | 1 / 11 |
 | Startup | 812ms to first text | 147ms to window, renderer and fonts ready (`--selftest`, hyperfine n=15, mean) | | |
 
-Caveats: tiny fake library (20 artists), so memory will grow with a real library; the new app has no keychain, SQLite cache, MPRIS or themes yet; startup definitions differ (old = first text via CDP, new = init complete). Re-measure on the owner's real server and on the G88 before claiming parity.
+Caveats: tiny fake library (20 artists), so memory will grow with a real library; the new app has no keychain, full file-backed search index, MPRIS or themes yet; startup definitions differ (old = first text via CDP, new = init complete). Re-measure on the owner's real server and on the G88 before claiming parity.
 
 ## Re-measure after the exact UI port, audio chain, MPRIS and remote service (2026-10-31)
 

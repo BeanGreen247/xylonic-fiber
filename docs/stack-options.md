@@ -9,7 +9,7 @@ Fixed by owner: UI is SDL2 on all platforms. Open: implementation language, UI l
 | SDL2 floor PSS / init | 33MB / 226ms (measured) | same SDL floor, language-independent; not separately measured | not measurable here: no rustc/cargo installed |
 | Android | SDL2 NDK project, native code direct | same | NDK + cargo-ndk glue on top of SDL2 Java shell |
 | iOS / macOS / Windows | direct | direct | works, extra toolchain per target |
-| Audio/TLS/JSON/SQLite libs (dr_libs, libFLAC/vorbis/opus, mbedTLS or libcurl, yyjson, SQLite) | all native C | all native | via bindings or ports |
+| Audio/TLS/JSON/cache libs (dr_libs, libFLAC/vorbis/opus, mbedTLS or libcurl, yyjson, JSON/file cache) | all native C | all native | via bindings or ports |
 | Build tooling on this box | gcc, clang, CMake-ready | same | needs user-level rustup install |
 | Cost | manual containers/strings, more code for queue/cache logic | containers and RAII, larger binaries | memory safety by construction, slower compile |
 

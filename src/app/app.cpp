@@ -178,7 +178,7 @@ void App::open_account_data() {
     stream_dir_ = pref_ + "stream/" + acct_ + "/";
     mkdirs(perm_dir_); mkdirs(stream_dir_);
     store_ = std::make_unique<Store>();
-    if (!store_->open(pref_ + "data_" + acct_ + ".db")) store_.reset();
+    if (!store_->open(pref_ + "data_" + acct_ + ".json")) store_.reset();
     downloads_.reset();
     if (store_) {
         auto c = client_;

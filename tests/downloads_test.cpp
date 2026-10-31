@@ -64,7 +64,7 @@ int main() {
     std::string base = "http://127.0.0.1:" + std::to_string(ntohs(ad.sin_port));
     std::thread srv(serve, lfd);
     char tmpl[] = "dltestXXXXXX"; std::string dir = mkdtemp(tmpl);
-    std::string dbp = dir + "/t.db";
+    std::string dbp = dir + "/t.json";
     auto urlf = [&](const std::string& id) { return base + "/download?id=" + id; };
     {
         Store st; CHECK(st.open(dbp));

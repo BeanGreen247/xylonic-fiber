@@ -1,120 +1,109 @@
 #include "store.h"
+#include <cstdio>
 #include <ctime>
-#include <sqlite3.h>
+#include "../../third_party/yyjson.h"
 
-Store::~Store() { if (db_) sqlite3_close(db_); }
+namespace {
+std::string str(yyjson_val* o, const char* key) {
+    yyjson_val* v = yyjson_obj_get(o, key);
+    return v && yyjson_is_str(v) ? std::string(yyjson_get_str(v)) : std::string();
+}
+int64_t integer(yyjson_val* o, const char* key, int64_t fallback = 0) {
+    yyjson_val* v = yyjson_obj_get(o, key);
+    return v && yyjson_is_num(v) ? yyjson_get_sint(v) : fallback;
+}
+}
 
-bool Store::exec(const char* sql) { return sqlite3_exec(db_, sql, nullptr, nullptr, nullptr) == SQLITE_OK; }
+Store::~Store() {
+    std::lock_guard<std::mutex> lk(m_);
+    save_locked();
+}
 
 bool Store::open(const std::string& path) {
-    if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) return false;
-    sqlite3_busy_timeout(db_, 2000);
-    return exec("PRAGMA journal_mode=WAL;") && exec("PRAGMA synchronous=NORMAL;") &&
-           exec("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v BLOB NOT NULL, ts INTEGER NOT NULL) WITHOUT ROWID;") &&
-           exec("CREATE TABLE IF NOT EXISTS dl(id TEXT PRIMARY KEY, album_id TEXT NOT NULL, state INTEGER NOT NULL, bytes INTEGER NOT NULL, total INTEGER NOT NULL, path TEXT NOT NULL, song TEXT NOT NULL);") &&
-           exec("CREATE INDEX IF NOT EXISTS dl_album ON dl(album_id);");
+    std::lock_guard<std::mutex> lk(m_);
+    path_ = path; memory_ = path == ":memory:"; kv_.clear(); downloads_.clear();
+    return load_locked();
+}
+
+bool Store::load_locked() {
+    if (memory_) return true;
+    yyjson_read_err err{};
+    yyjson_doc* d = yyjson_read_file(path_.c_str(), 0, nullptr, &err);
+    if (!d) return true;
+    yyjson_val* root = yyjson_doc_get_root(d);
+    yyjson_val* kv = yyjson_obj_get(root, "kv");
+    if (kv && yyjson_is_obj(kv)) {
+        yyjson_obj_iter it = yyjson_obj_iter_with(kv);
+        yyjson_val* key;
+        while ((key = yyjson_obj_iter_next(&it))) {
+            yyjson_val* value = yyjson_obj_iter_get_val(key);
+            if (yyjson_is_obj(value)) kv_[yyjson_get_str(key)] = {str(value, "value"), integer(value, "ts")};
+        }
+    }
+    yyjson_val* dl = yyjson_obj_get(root, "downloads");
+    size_t i, n; yyjson_val* o;
+    yyjson_arr_foreach(dl, i, n, o) {
+        Row r;
+        r.id = str(o, "id"); r.album_id = str(o, "album_id"); r.path = str(o, "path"); r.song_json = str(o, "song");
+        r.state = static_cast<int>(integer(o, "state")); r.bytes = integer(o, "bytes"); r.total = integer(o, "total");
+        if (!r.id.empty()) downloads_[r.id] = std::move(r);
+    }
+    yyjson_doc_free(d);
+    return true;
+}
+
+bool Store::save_locked() const {
+    if (memory_ || path_.empty()) return true;
+    yyjson_mut_doc* d = yyjson_mut_doc_new(nullptr);
+    yyjson_mut_val* root = yyjson_mut_obj(d); yyjson_mut_doc_set_root(d, root);
+    yyjson_mut_val* kv = yyjson_mut_obj(d);
+    for (const auto& item : kv_) {
+        yyjson_mut_val* entry = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_strcpy(d, entry, "value", item.second.first.c_str());
+        yyjson_mut_obj_add_sint(d, entry, "ts", item.second.second);
+        yyjson_mut_obj_add_val(d, kv, item.first.c_str(), entry);
+    }
+    yyjson_mut_obj_add_val(d, root, "kv", kv);
+    yyjson_mut_val* dl = yyjson_mut_arr(d);
+    for (const auto& item : downloads_) {
+        const Row& r = item.second;
+        yyjson_mut_val* o = yyjson_mut_arr_add_obj(d, dl);
+        yyjson_mut_obj_add_strcpy(d, o, "id", r.id.c_str());
+        yyjson_mut_obj_add_strcpy(d, o, "album_id", r.album_id.c_str());
+        yyjson_mut_obj_add_int(d, o, "state", r.state);
+        yyjson_mut_obj_add_sint(d, o, "bytes", r.bytes);
+        yyjson_mut_obj_add_sint(d, o, "total", r.total);
+        yyjson_mut_obj_add_strcpy(d, o, "path", r.path.c_str());
+        yyjson_mut_obj_add_strcpy(d, o, "song", r.song_json.c_str());
+    }
+    yyjson_mut_obj_add_val(d, root, "downloads", dl);
+    std::string tmp = path_ + ".tmp";
+    bool ok = yyjson_mut_write_file(tmp.c_str(), d, YYJSON_WRITE_NOFLAG, nullptr, nullptr);
+    yyjson_mut_doc_free(d);
+    return ok && std::rename(tmp.c_str(), path_.c_str()) == 0;
 }
 
 bool Store::put(const std::string& key, const std::string& value) {
-    std::lock_guard<std::mutex> lk(m_);
-    sqlite3_stmt* st;
-    if (sqlite3_prepare_v2(db_, "INSERT OR REPLACE INTO kv(k,v,ts) VALUES(?,?,?)", -1, &st, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(st, 1, key.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_blob(st, 2, value.data(), static_cast<int>(value.size()), SQLITE_STATIC);
-    sqlite3_bind_int64(st, 3, static_cast<int64_t>(std::time(nullptr)));
-    bool ok = sqlite3_step(st) == SQLITE_DONE;
-    sqlite3_finalize(st);
-    return ok;
+    std::lock_guard<std::mutex> lk(m_); kv_[key] = {value, static_cast<int64_t>(std::time(nullptr))}; return save_locked();
 }
-
 bool Store::get(const std::string& key, std::string& value, int64_t* ts) {
-    std::lock_guard<std::mutex> lk(m_);
-    sqlite3_stmt* st;
-    if (sqlite3_prepare_v2(db_, "SELECT v,ts FROM kv WHERE k=?", -1, &st, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(st, 1, key.c_str(), -1, SQLITE_STATIC);
-    bool ok = sqlite3_step(st) == SQLITE_ROW;
-    if (ok) {
-        value.assign(static_cast<const char*>(sqlite3_column_blob(st, 0)), static_cast<size_t>(sqlite3_column_bytes(st, 0)));
-        if (ts) *ts = sqlite3_column_int64(st, 1);
-    }
-    sqlite3_finalize(st);
-    return ok;
+    std::lock_guard<std::mutex> lk(m_); auto it = kv_.find(key); if (it == kv_.end()) return false;
+    value = it->second.first; if (ts) *ts = it->second.second; return true;
 }
-
 void Store::erase_prefix(const std::string& prefix) {
     std::lock_guard<std::mutex> lk(m_);
-    sqlite3_stmt* st;
-    if (sqlite3_prepare_v2(db_, "DELETE FROM kv WHERE substr(k,1,length(?1))=?1", -1, &st, nullptr) != SQLITE_OK) return;
-    sqlite3_bind_text(st, 1, prefix.c_str(), -1, SQLITE_STATIC);
-    sqlite3_step(st);
-    sqlite3_finalize(st);
+    for (auto it = kv_.begin(); it != kv_.end();) { if (it->first.compare(0, prefix.size(), prefix) == 0) it = kv_.erase(it); else ++it; }
+    save_locked();
 }
-
-bool Store::dl_upsert(const Row& r) {
-    std::lock_guard<std::mutex> lk(m_);
-    sqlite3_stmt* st;
-    if (sqlite3_prepare_v2(db_, "INSERT OR REPLACE INTO dl(id,album_id,state,bytes,total,path,song) VALUES(?,?,?,?,?,?,?)", -1, &st, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(st, 1, r.id.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(st, 2, r.album_id.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_int(st, 3, r.state);
-    sqlite3_bind_int64(st, 4, r.bytes);
-    sqlite3_bind_int64(st, 5, r.total);
-    sqlite3_bind_text(st, 6, r.path.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(st, 7, r.song_json.c_str(), -1, SQLITE_STATIC);
-    bool ok = sqlite3_step(st) == SQLITE_DONE;
-    sqlite3_finalize(st);
-    return ok;
-}
-
+bool Store::dl_upsert(const Row& r) { std::lock_guard<std::mutex> lk(m_); downloads_[r.id] = r; return save_locked(); }
 bool Store::dl_set(const std::string& id, int state, int64_t bytes, int64_t total, const std::string& path) {
-    std::lock_guard<std::mutex> lk(m_);
-    sqlite3_stmt* st;
-    if (sqlite3_prepare_v2(db_, "UPDATE dl SET state=?,bytes=?,total=?,path=? WHERE id=?", -1, &st, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(st, 1, state);
-    sqlite3_bind_int64(st, 2, bytes);
-    sqlite3_bind_int64(st, 3, total);
-    sqlite3_bind_text(st, 4, path.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(st, 5, id.c_str(), -1, SQLITE_STATIC);
-    bool ok = sqlite3_step(st) == SQLITE_DONE;
-    sqlite3_finalize(st);
-    return ok;
+    std::lock_guard<std::mutex> lk(m_); auto it = downloads_.find(id); if (it == downloads_.end()) return false;
+    it->second.state = state; it->second.bytes = bytes; it->second.total = total; it->second.path = path; return save_locked();
 }
-
-static Store::Row read_row(sqlite3_stmt* st) {
-    Store::Row r;
-    auto t = [&](int c) { const unsigned char* p = sqlite3_column_text(st, c); return std::string(p ? reinterpret_cast<const char*>(p) : ""); };
-    r.id = t(0); r.album_id = t(1); r.state = sqlite3_column_int(st, 2); r.bytes = sqlite3_column_int64(st, 3);
-    r.total = sqlite3_column_int64(st, 4); r.path = t(5); r.song_json = t(6);
-    return r;
-}
-
 bool Store::dl_get(const std::string& id, Row& out) {
-    std::lock_guard<std::mutex> lk(m_);
-    sqlite3_stmt* st;
-    if (sqlite3_prepare_v2(db_, "SELECT id,album_id,state,bytes,total,path,song FROM dl WHERE id=?", -1, &st, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_STATIC);
-    bool ok = sqlite3_step(st) == SQLITE_ROW;
-    if (ok) out = read_row(st);
-    sqlite3_finalize(st);
-    return ok;
+    std::lock_guard<std::mutex> lk(m_); auto it = downloads_.find(id); if (it == downloads_.end()) return false; out = it->second; return true;
 }
-
 std::vector<Store::Row> Store::dl_all() {
-    std::lock_guard<std::mutex> lk(m_);
-    std::vector<Row> v;
-    sqlite3_stmt* st;
-    if (sqlite3_prepare_v2(db_, "SELECT id,album_id,state,bytes,total,path,song FROM dl ORDER BY rowid", -1, &st, nullptr) != SQLITE_OK) return v;
-    while (sqlite3_step(st) == SQLITE_ROW) v.push_back(read_row(st));
-    sqlite3_finalize(st);
-    return v;
+    std::lock_guard<std::mutex> lk(m_); std::vector<Row> out; out.reserve(downloads_.size()); for (const auto& x : downloads_) out.push_back(x.second); return out;
 }
-
-bool Store::dl_erase(const std::string& id) {
-    std::lock_guard<std::mutex> lk(m_);
-    sqlite3_stmt* st;
-    if (sqlite3_prepare_v2(db_, "DELETE FROM dl WHERE id=?", -1, &st, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_STATIC);
-    bool ok = sqlite3_step(st) == SQLITE_DONE;
-    sqlite3_finalize(st);
-    return ok;
-}
+bool Store::dl_erase(const std::string& id) { std::lock_guard<std::mutex> lk(m_); if (!downloads_.erase(id)) return false; return save_locked(); }
