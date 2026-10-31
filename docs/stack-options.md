@@ -1,4 +1,4 @@
-# Stack options (awaiting owner pick)
+# Stack (decided 2026-10-31)
 
 Fixed by owner: UI is SDL2 on all platforms. Open: implementation language, UI layer on top of SDL2, and the supporting libraries. Numbers: `docs/baseline.md`.
 
@@ -22,3 +22,11 @@ Recommendation: C++17 restricted to no exceptions/RTTI, built with CMake and cla
 3. Audio decode: own pipeline over SDL audio callback with dr_mp3/dr_flac/stb_vorbis/opus (single owned pipeline, matches the requirement) vs SDL_mixer (rejected by the single-pipeline rule unless you say otherwise).
 4. Network/TLS: libcurl (bigger, battle-tested, system certs) vs mbedTLS + minimal HTTP client (smaller).
 5. Names: project, binary and module names are yours to choose; none used so far.
+
+## Decisions (owner)
+
+- Language: C++17, no exceptions, no RTTI. No Rust.
+- UI: custom on SDL2 (no widget library).
+- Audio: own decode pipeline over the SDL audio callback; open the device only while playing.
+- Network/TLS: own minimal HTTP/1.1 client behind a thin TLS interface (owner delegated). Initial backend mbedTLS (same code on Linux/Android/Windows/macOS/iOS, small), OS root certificates loaded per platform. Native backends (SChannel, Network.framework) only if measured worthwhile. Not yet fetched or built.
+- Naming: project name is the repo name, xylonic-fiber. Source dirs use plain descriptive names (audio, net, ui, cache), not brand names.
