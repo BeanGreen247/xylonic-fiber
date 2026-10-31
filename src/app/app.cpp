@@ -220,6 +220,7 @@ void App::on_connected() {
     else if (opt_.nav == "downloads") set_nav(Nav::Downloads);
     else if (opt_.nav == "search") set_nav(Nav::Search);
     else if (opt_.nav.rfind("album:", 0) == 0) { push_view(ViewKind::Album, opt_.nav.substr(6), "Album"); load_album(opt_.nav.substr(6)); }
+    if (opt_.nowplaying) np_open_ = true;
     if (!opt_.panel.empty()) toggle_panel(opt_.panel == "history" ? PanelTab::History : opt_.panel == "playlists" ? PanelTab::Playlists : PanelTab::Queue);
     if (!opt_.search.empty()) { search_q_ = opt_.search; nav_ = Nav::Search; views_.clear(); views_.push_back({ViewKind::Root, "", "Search", {}}); run_search(); }
     if (!opt_.download_album.empty()) {
@@ -518,7 +519,7 @@ void App::handle(const SDL_Event& e) {
         else if (k == SDLK_END) ++in.end;
         else if (k == SDLK_RETURN || k == SDLK_KP_ENTER) ++in.enter;
         else if (k == SDLK_TAB) ++in.tab;
-        else if (k == SDLK_ESCAPE) { ++in.escape; if (typing) ui_->focus = 0; else if (panel_open_) panel_open_ = false; }
+        else if (k == SDLK_ESCAPE) { ++in.escape; if (typing) ui_->focus = 0; else if (np_open_) np_open_ = false; else if (panel_open_) panel_open_ = false; }
         else if (in.ctrl && k == SDLK_k && screen_ == Screen::Main) set_nav(Nav::Search);
         else if (!typing && screen_ == Screen::Main) {
             if (k == SDLK_SPACE) toggle_play();

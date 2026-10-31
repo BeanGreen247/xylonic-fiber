@@ -27,6 +27,7 @@ struct AppOptions {
     std::string nav;                 // home|library|queue|settings|search (testing)
     bool autoplay = false;
     std::string search;     // type this into the search field after login (testing)
+    bool nowplaying = false; // open Now Playing (testing)
     std::string panel;      // open the right panel: queue|history|playlists (testing)
     bool selftest = false;  // init and exit
     bool offline = false;   // start in offline mode with the saved account
@@ -78,6 +79,7 @@ private:
     // Shell
     void draw_header(float W);
     void draw_right_panel(float W, float H);
+    void draw_now_playing(float W, float H);
     void toggle_panel(PanelTab tab);
     void history_load();
     void history_save();
@@ -159,6 +161,8 @@ private:
     bool show_help_ = false, playing_random_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
+    bool np_open_ = false;
+    Scroll np_scroll_;
     bool panel_open_ = false, panel_search_open_ = false;
     PanelTab panel_tab_ = PanelTab::Queue;
     std::string panel_search_;

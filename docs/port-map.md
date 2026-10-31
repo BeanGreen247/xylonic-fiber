@@ -22,7 +22,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | AlbumList (artist page), SongList (album hero + rows) | src/app/pages.cpp | done (layout from reference) |
 | SearchResults, SearchContext (server search3, 300 ms debounce, best result rule) | src/app/search.cpp | done; local search index (searchCacheService) todo |
 | RightPanel Queue + History tabs, recentlyPlayedService (50, per account in SQLite) | src/app/panel.cpp | done (layout from reference, drag reorder, search, Q/H/P/Esc); Playlists tab, AddToPlaylistDialog, SongContextMenu todo |
-| NowPlayingOverlay, DesktopNowPlaying, MiniPlayer (ipc/playerWindow) | todo | |
+| DesktopNowPlaying | src/app/nowplaying.cpp | done (static backdrop; the old one animates blobs); NowPlayingOverlay (mobile layout), MiniPlayer (ipc/playerWindow) todo |
 | CarMode, useSongEq, Pulse Deck | todo | |
 | SettingsView and sections, HamburgerMenu, SleepTimerPicker, ThemeSelector, CustomThemeEditor, KeyboardHelp | todo (appearance part done) | |
 | lastfmService, LastfmSettings, useScrobbler | todo (plain scrobble call done) | |

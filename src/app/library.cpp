@@ -201,7 +201,7 @@ void App::draw_library(Rect r) {
             if (u.hover(card) && r.contains(u.in.mx, u.in.my)) gfx_->fill_round(card, 16 * s, th.hover);
             Rect cov{px + 16 * s, py + 16 * s, 169 * s, 169 * s};
             std::string cid = a.cover_art.empty() ? a.id : a.cover_art;
-            if (SDL_Texture* t = cover(cid, 169)) gfx_->image(t, cov);
+            if (SDL_Texture* t = cover(cid, 169)) gfx_->image_round(t, cov, 12 * s);
             else gfx_->fill_round(cov, 12 * s, th.panel2);
             int fn = F(600, 16);
             float nw = std::min(gfx_->measure(fn, a.name), cov.w);
@@ -223,7 +223,7 @@ void App::draw_library(Rect r) {
             gfx_->fill_round(card, 16 * s, th.panel);
             if (u.hover(card) && r.contains(u.in.mx, u.in.my)) gfx_->fill_round(card, 16 * s, th.hover);
             Rect cov{px + 16 * s, py + 16 * s, 175 * s, 175 * s};
-            if (SDL_Texture* t = cover(a.cover_art, 175)) gfx_->image(t, cov);
+            if (SDL_Texture* t = cover(a.cover_art, 175)) gfx_->image_round(t, cov, 4 * s);
             else gfx_->fill_round(cov, 4 * s, th.panel2);
             float nw = std::min(gfx_->measure(F(600, 15.2f), a.name), cov.w);
             T(600, 15.2f, cov.x + (cov.w - nw) / 2, py + 203 * s, 23, a.name, th.text, cov.w);
@@ -243,7 +243,7 @@ void App::draw_library(Rect r) {
             if (isplay) gfx_->fill_round(row, 8 * s, alpha(th.accent, 0.12f));
             else if (hov) gfx_->fill_round(row, 8 * s, th.hover);
             Rect art{row.x + 16 * s, row.y + 12 * s, 48 * s, 48 * s};
-            if (SDL_Texture* t = cover(sg.cover_art, 48)) gfx_->image(t, art);
+            if (SDL_Texture* t = cover(sg.cover_art, 48)) gfx_->image_round(t, art, 8 * s);
             else gfx_->fill_round(art, 8 * s, th.panel2);
             if (isplay || hov) {
                 gfx_->fill_round(art, 8 * s, {0, 0, 0, 140});

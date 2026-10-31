@@ -78,7 +78,7 @@ void App::draw_search(Rect r) {
         if (isplay) gfx_->fill_round(row, 8 * s, alpha(th.accent, 0.12f));
         else if (hov) gfx_->fill_round(row, 8 * s, th.hover);
         Rect art{row.x + 16 * s, row.y + 12 * s, 48 * s, 48 * s};
-        if (SDL_Texture* t = cover(sg.cover_art, 48)) gfx_->image(t, art);
+        if (SDL_Texture* t = cover(sg.cover_art, 48)) gfx_->image_round(t, art, 8 * s);
         else gfx_->fill_round(art, 8 * s, th.panel2);
         if (isplay || hov) {
             gfx_->fill_round(art, 8 * s, {0, 0, 0, 140});
@@ -105,7 +105,7 @@ void App::draw_search(Rect r) {
         else { cid = best_song->cover_art; name = best_song->title; type = "Song \xC2\xB7 " + best_song->artist; }
         Rect art{card.x + 20 * s, card.y + 20 * s, 100 * s, 100 * s};
         if (!circle) gfx_->fill_round({art.x, art.y + 8 * s, art.w, art.h}, 10 * s, {0, 0, 0, 60});
-        if (SDL_Texture* t = cover(cid, 100)) gfx_->image(t, art);
+        if (SDL_Texture* t = cover(cid, 100)) gfx_->image_round(t, art, circle ? 50 * s : 8 * s);
         else gfx_->fill_round(art, circle ? 50 * s : 8 * s, th.panel2);
         T(700, 28, card.x + 20 * s, card.y + 136 * s, 31, name, th.text, 300 * s);
         T(600, 13, card.x + 20 * s, card.y + 173 * s, 20, type, th.sub, 300 * s);
@@ -144,7 +144,7 @@ void App::draw_search(Rect r) {
             std::string cid, nm, sub, id;
             if (artists) { const Artist& a = res.artists[i]; cid = a.cover_art.empty() ? a.id : a.cover_art; nm = a.name; id = a.id; sub = a.album_count ? std::to_string(a.album_count) + (a.album_count != 1 ? " albums" : " album") : "Artist"; }
             else { const Album& a = res.albums[i]; cid = a.cover_art; nm = a.name; id = a.id; sub = a.artist; }
-            if (SDL_Texture* t = cover(cid, 124)) gfx_->image(t, art);
+            if (SDL_Texture* t = cover(cid, 124)) gfx_->image_round(t, art, artists ? 62 * s : 8 * s);
             else gfx_->fill_round(art, artists ? 62 * s : 8 * s, th.panel2);
             T(600, 13, art.x, ry + 146 * s, 20, nm, th.text, art.w);
             T(400, 11, art.x, ry + 176 * s, 17, sub, th.sub, art.w);

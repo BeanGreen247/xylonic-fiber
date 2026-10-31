@@ -68,6 +68,7 @@ void App::svg(int which, Rect r, Color tint) {
 
 void App::draw_main(float W, float H) {
     const float s = S_;
+    if (np_open_) { draw_now_playing(W, H); return; }
     draw_nav(H);
     draw_header(W);
     float navw = skin::kNavW * s, top = skin::kHeaderH * s, bar = skin::kPlayerH * s;
@@ -219,8 +220,9 @@ void App::draw_player_bar(Rect r) {
     Rect info{x0 + 10 * s, cy, 200 * s, 44 * s};
     if (cur) {
         Rect cv{info.x, info.y, 44 * s, 44 * s};
-        if (SDL_Texture* t = cover(cur->cover_art, 44)) gfx_->image(t, cv);
+        if (SDL_Texture* t = cover(cur->cover_art, 44)) gfx_->image_round(t, cv, 8 * s);
         else gfx_->fill_round(cv, 8 * s, th.panel2);
+        if (u.clicked({info.x, info.y, 200 * s, 44 * s})) { np_open_ = true; mark(); }
         T(500, 14, info.x + 56 * s, info.y + 1 * s, 21, cur->title, th.text, 144 * s);
         T(400, 11, info.x + 56 * s, info.y + 26 * s, 17, track_loading_ ? "Loading..." : !play_err_.empty() ? play_err_ : cur->artist, play_err_.empty() ? th.sub : th.danger, 144 * s);
     }
@@ -383,7 +385,7 @@ void App::draw_discover(Rect r) {
                 gfx_->fill_round(card, 16 * s, th.panel);
                 if (hov) gfx_->fill_round(card, 16 * s, th.hover);
                 Rect cov{cx + 16 * s, y + 16 * s, 148 * s, 148 * s};
-                if (SDL_Texture* t = cover(a.cover_art, 148)) gfx_->image(t, cov);
+                if (SDL_Texture* t = cover(a.cover_art, 148)) gfx_->image_round(t, cov, 4 * s);
                 else gfx_->fill_round(cov, 4 * s, th.panel2);
                 int fn = F(600, 15.2f);
                 float nw = gfx_->measure(fn, a.name);

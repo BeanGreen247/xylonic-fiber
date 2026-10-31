@@ -190,6 +190,28 @@ void Gfx::stroke_round(Rect r, float rad, float t, Color c, Color) {
     if (h - 2 * Rf > 0) { fill({x0, y0 + Rf, Tf, h - 2 * Rf}, c); fill({x1 - Tf, y0 + Rf, Tf, h - 2 * Rf}, c); }
 }
 
+void Gfx::radial(float cx, float cy, float rad, Color centre, Color edge) {
+    const float u = 1.0f / aw_, v = 1.0f / ah_;
+    int n = 48;
+    int base = static_cast<int>(v_.size());
+    v_.push_back({{cx, cy}, {centre.r, centre.g, centre.b, centre.a}, {u, v}});
+    for (int i = 0; i < n; ++i) {
+        float a = 6.2831853f * i / n;
+        v_.push_back({{cx + std::cos(a) * rad, cy + std::sin(a) * rad}, {edge.r, edge.g, edge.b, edge.a}, {u, v}});
+    }
+    for (int i = 0; i < n; ++i) { idx_.push_back(base); idx_.push_back(base + 1 + i); idx_.push_back(base + 1 + (i + 1) % n); }
+}
+
+void Gfx::vgradient(Rect r, Color top, Color bottom) {
+    const float u = 1.0f / aw_, v = 1.0f / ah_;
+    int b = static_cast<int>(v_.size());
+    v_.push_back({{r.x, r.y}, {top.r, top.g, top.b, top.a}, {u, v}});
+    v_.push_back({{r.x + r.w, r.y}, {top.r, top.g, top.b, top.a}, {u, v}});
+    v_.push_back({{r.x + r.w, r.y + r.h}, {bottom.r, bottom.g, bottom.b, bottom.a}, {u, v}});
+    v_.push_back({{r.x, r.y + r.h}, {bottom.r, bottom.g, bottom.b, bottom.a}, {u, v}});
+    for (int i : {0, 1, 2, 0, 2, 3}) idx_.push_back(b + i);
+}
+
 void Gfx::tri(float x0, float y0, float x1, float y1, float x2, float y2, Color c) {
     const float u = 1.0f / aw_, v = 1.0f / ah_;
     SDL_Color sc{c.r, c.g, c.b, c.a};
@@ -225,6 +247,32 @@ void Gfx::image(SDL_Texture* tex, Rect d, Color tint) {
     SDL_SetTextureAlphaMod(tex, tint.a);
     SDL_FRect dst{d.x, d.y, d.w, d.h};
     SDL_RenderCopyF(ren_, tex, nullptr, &dst);
+    ++draw_calls_;
+}
+
+void Gfx::image_round(SDL_Texture* tex, Rect d, float rad, Color tint) {
+    rad = std::min(rad, std::min(d.w, d.h) / 2);
+    if (rad < 1.5f) { image(tex, d, tint); return; }
+    flush();
+    std::vector<SDL_Vertex> vs;
+    std::vector<int> ix;
+    SDL_Color sc{tint.r, tint.g, tint.b, tint.a};
+    auto uv = [&](float x, float y) { return SDL_FPoint{(x - d.x) / d.w, (y - d.y) / d.h}; };
+    vs.push_back({{d.x + d.w / 2, d.y + d.h / 2}, sc, uv(d.x + d.w / 2, d.y + d.h / 2)});
+    const int segs = std::min(16, std::max(4, static_cast<int>(rad / 2)));
+    const float cx[4] = {d.x + d.w - rad, d.x + rad, d.x + rad, d.x + d.w - rad};
+    const float cy[4] = {d.y + rad, d.y + rad, d.y + d.h - rad, d.y + d.h - rad};
+    int n = 0;
+    for (int k = 0; k < 4; ++k)
+        for (int s = 0; s <= segs; ++s) {
+            float a = (float(k) + float(s) / segs) * 1.5707963f, x = cx[k] + std::cos(a) * rad, y = cy[k] - std::sin(a) * rad;
+            vs.push_back({{x, y}, sc, uv(x, y)});
+            ++n;
+        }
+    for (int i = 0; i < n; ++i) { ix.push_back(0); ix.push_back(1 + i); ix.push_back(1 + (i + 1) % n); }
+    SDL_SetTextureColorMod(tex, 255, 255, 255);
+    SDL_SetTextureAlphaMod(tex, 255);
+    SDL_RenderGeometry(ren_, tex, vs.data(), static_cast<int>(vs.size()), ix.data(), static_cast<int>(ix.size()));
     ++draw_calls_;
 }
 

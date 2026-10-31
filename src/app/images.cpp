@@ -53,6 +53,13 @@ void ImageCache::evict() {
     }
 }
 
+bool ImageCache::average(const std::string& key, uint32_t& rgb) const {
+    auto it = avg_.find(key);
+    if (it == avg_.end()) return false;
+    rgb = it->second;
+    return true;
+}
+
 SDL_Texture* ImageCache::get(const std::string& key, std::function<std::string()> url_fn) {
     auto it = tex_.find(key);
     if (it != tex_.end()) { it->second.tick = ++tick_; return it->second.t; }
@@ -73,8 +80,19 @@ SDL_Texture* ImageCache::get(const std::string& key, std::function<std::string()
         int w = 0, h = 0, n = 0;
         unsigned char* px = have ? stbi_load_from_memory(reinterpret_cast<const unsigned char*>(bytes.data()), static_cast<int>(bytes.size()), &w, &h, &n, 4) : nullptr;
         std::vector<uint8_t> data;
-        if (px) { data.assign(px, px + static_cast<size_t>(w) * h * 4); stbi_image_free(px); }
-        ui_post([this, key, data = std::move(data), w, h] {
+        uint32_t avg = 0;
+        if (px) {
+            data.assign(px, px + static_cast<size_t>(w) * h * 4);
+            stbi_image_free(px);
+            uint64_t r = 0, g = 0, b = 0, n = 0;  // sample a 16x16 grid
+            for (int yy = 0; yy < 16; ++yy)
+                for (int xx = 0; xx < 16; ++xx) {
+                    const uint8_t* q = &data[(static_cast<size_t>(yy * h / 16) * w + static_cast<size_t>(xx * w / 16)) * 4];
+                    r += q[0]; g += q[1]; b += q[2]; ++n;
+                }
+            avg = (static_cast<uint32_t>(r / n) << 16) | (static_cast<uint32_t>(g / n) << 8) | static_cast<uint32_t>(b / n);
+        }
+        ui_post([this, key, data = std::move(data), w, h, avg] {
             pending_.erase(key);
             if (data.empty()) { failed_[key] = SDL_GetTicks() + 30000; return; }
             SDL_Texture* t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, w, h);
@@ -83,6 +101,7 @@ SDL_Texture* ImageCache::get(const std::string& key, std::function<std::string()
             SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
             SDL_SetTextureScaleMode(t, SDL_ScaleModeLinear);
             tex_[key] = {t, ++tick_};
+            avg_[key] = avg;
             evict();
             if (on_ready_) on_ready_();
         });

@@ -78,7 +78,7 @@ void App::draw_artist(Rect r) {
         gfx_->fill_round(card, 16 * s, th.panel);
         if (u.hover(card) && r.contains(u.in.mx, u.in.my)) gfx_->fill_round(card, 16 * s, th.hover);
         Rect cov{px + 16 * s, py + 16 * s, 175 * s, 175 * s};
-        if (SDL_Texture* t = cover(al.cover_art, 175)) gfx_->image(t, cov);
+        if (SDL_Texture* t = cover(al.cover_art, 175)) gfx_->image_round(t, cov, 4 * s);
         else gfx_->fill_round(cov, 4 * s, th.panel2);
         float nw = std::min(gfx_->measure(F(600, 15.2f), al.name), cov.w);
         T(600, 15.2f, cov.x + (cov.w - nw) / 2, py + 203 * s, 23, al.name, th.text, cov.w);
@@ -113,7 +113,7 @@ void App::draw_album(Rect r) {
     Rect hero{x, hy, w, 268 * s};
     gfx_->fill_round({hero.x, hero.y, hero.w, hero.h + 40 * s}, 24 * s, th.panel);  // rounded top; bottom hidden by the bar
     Rect art{x + 24 * s, hy + 24 * s, 220 * s, 220 * s};
-    if (SDL_Texture* t = cover(a->cover_art, 220)) gfx_->image(t, art);
+    if (SDL_Texture* t = cover(a->cover_art, 220)) gfx_->image_round(t, art, 12 * s);
     else gfx_->fill_round(art, 12 * s, th.panel2);
     float ix = x + 272 * s;
     gfx_->set_letter_spacing(0.8f * s);

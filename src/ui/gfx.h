@@ -37,12 +37,17 @@ public:
     // Rounded outline. With `under` (the solid colour behind it) it is drawn as two fills, which stays gap-free on the
     // software renderer; without it, as a triangle strip.
     void stroke_round(Rect r, float radius, float thickness, Color c, Color under = {0, 0, 0, 0});
+    // Soft radial blob (centre colour fading to edge colour) and a vertical two-colour gradient.
+    void radial(float cx, float cy, float radius, Color centre, Color edge);
+    void vgradient(Rect r, Color top, Color bottom);
     void tri(float x0, float y0, float x1, float y1, float x2, float y2, Color c);
     void line(float x0, float y0, float x1, float y1, float thickness, Color c);
     void circle(float cx, float cy, float r, Color c);
     void ring(float cx, float cy, float r, float thickness, Color c);
     // Draws a texture (cover art etc.) stretched into dst; flushes the batch first.
     void image(SDL_Texture* tex, Rect dst, Color tint = {255, 255, 255, 255});
+    // Image with rounded corners (mesh with UVs; flushes the batch like image()).
+    void image_round(SDL_Texture* tex, Rect dst, float radius, Color tint = {255, 255, 255, 255});
     void clip(const Rect* r);  // nullptr clears
 
     // Single-line text, top-left origin. Returns drawn width. max_w > 0 truncates with an ellipsis.

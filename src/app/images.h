@@ -19,6 +19,8 @@ public:
     SDL_Texture* get(const std::string& key, std::function<std::string()> url_fn);
     // Downloads the image to the disk cache only (for offline use); no texture is created.
     void prefetch(const std::string& key, std::function<std::string()> url_fn);
+    // Average colour (0xRRGGBB) of a loaded image, for backdrops; false until it has been decoded.
+    bool average(const std::string& key, uint32_t& rgb) const;
     size_t resident() const { return tex_.size(); }
     void clear_memory();
 
@@ -32,6 +34,7 @@ private:
     ConnectOptions opt_;
     std::function<void()> on_ready_;
     std::unordered_map<std::string, Entry> tex_;
+    std::unordered_map<std::string, uint32_t> avg_;
     std::unordered_map<std::string, uint32_t> failed_;  // key -> tick when it may be retried
     std::unordered_set<std::string> pending_;
     uint64_t tick_ = 0;
