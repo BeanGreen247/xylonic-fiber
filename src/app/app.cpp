@@ -546,7 +546,7 @@ void App::handle(const SDL_Event& e) {
 int App::run() {
     uint32_t last_draw = 0;
     while (running_) {
-        bool animating = player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_;
+        bool animating = sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_;
         SDL_Event e;
         bool got;
         if (dirty_) got = SDL_PollEvent(&e) != 0;
@@ -559,6 +559,7 @@ int App::run() {
         }
         if (screen_ == Screen::Main) tick_player();
         if (search_pending_ && SDL_GetTicks() >= search_due_) run_search();
+        tick_sleep();
         uint32_t now = SDL_GetTicks();
         if (ui_->wants_frames && now - last_draw > 400) mark();
         if (dirty_) {

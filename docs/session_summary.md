@@ -4,6 +4,8 @@ Updated after every step. Newest first.
 
 ## 2026-10-31 (exact UI port, in progress)
 
+Ported since: artist and album pages, search results, right panel (queue, history), desktop now playing, settings page with sleep timer and accent theme dialogs, anti-aliased rounded shapes (atlas masks), rounded cover images. Remaining screens: car mode (+Pulse Deck, EQ), mini player (second window), hamburger menu (narrow layouts), keyboard help dialog, playlists tab, add-to-playlist dialog, song context menu, cache preload dialog, remote picker + firewall dialog, login screen exact (saved connections, discovery), mobile layouts (bottom nav, overlay), splash.
+
 Owner direction: port the old app exactly (behaviour and UI). Method and status table: docs/port-map.md. Reference screenshots and the CDP capture scripts: docs/ui-ref/. Done so far: themes (exact), shell (header, nav, player bar), Discover, Library (4 modes + pagination). Fonts: Roboto 400/500/700 + Font Awesome 7 subset TTF in assets/fonts; SVG icons via nanosvg in assets/icons. Next screens to capture and port: artist page, album page, search results, right panel (queue/history/playlists), now playing overlay, settings and hamburger, mini player, dialogs, car mode. Test checklist for the owner: docs/TESTING.md part 3 (UI parity: compare against the old app side by side).
 
 ## 2026-10-31 (app part 2: metadata cache, downloads, offline)

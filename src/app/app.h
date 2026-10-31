@@ -1,6 +1,7 @@
 // Application shell: owns the window, the UI, the player and the session. Single UI thread; network on workers.
 #pragma once
 #include <SDL.h>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -18,6 +19,8 @@
 #include "skin.h"
 #include "worker.h"
 
+constexpr const char* kVersion = "0.1.0";
+constexpr const char* kBuildDate = __DATE__;
 enum WidgetId { kUrl = 1, kUser, kPass, kSearch, kPanelSearch, kEditName, kEditHex, kSeek = 10, kVol };
 
 struct AppOptions {
@@ -79,6 +82,13 @@ private:
     // Shell
     void draw_header(float W);
     void draw_right_panel(float W, float H);
+    void draw_modal(float W, float H);
+    int dropdown(int id, Rect anchor, const std::vector<std::string>& opts, int current);
+    void set_sleep_timer(int minutes);
+    std::string sleep_remaining() const;
+    void tick_sleep();
+    void wipe_all_data();
+    void apply_perf_mode();
     void draw_now_playing(float W, float H);
     void toggle_panel(PanelTab tab);
     void history_load();
@@ -161,6 +171,12 @@ private:
     bool show_help_ = false, playing_random_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
+    enum class Modal { None, Sleep, Theme, ConfirmWipe };
+    Modal modal_ = Modal::None;
+    uint64_t sleep_end_ms_ = 0;
+    int dropdown_open_ = 0;
+    std::function<void()> dropdown_draw_;
+    std::pair<int, int> dropdown_choice_{0, -1};
     bool np_open_ = false;
     Scroll np_scroll_;
     bool panel_open_ = false, panel_search_open_ = false;

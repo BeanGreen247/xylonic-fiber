@@ -6,6 +6,13 @@ struct Config {
     std::string server_url, username, pin_sha256;  // the password is never written to disk here
     int volume_pct = 80;
     int stream_quality = 0;  // max kbps, 0 = original
+    int download_quality = 0;   // kbps, 0 = original
+    int concurrent_downloads = 3;
+    int default_view = 0;       // Library default: 0 artists, 1 albums, 2 songs, 3 liked
+    int car_minimal = 0;        // 0 auto, 1 always, 2 never
+    bool car_keep_on = true, car_start = false, car_pulse = false, debug_log = false;
+    int perf_mode = 0;          // 0 balanced, 1 gaming, 2 eco
+    bool be_controlled = true, control_others = true;
     int theme = 0;           // 0..7 presets, 8..11 custom slots
     int theme_mode = 0;      // 0 system, 1 light, 2 dark
     struct Custom { std::string name; uint32_t primary = 0x00bcd4; };

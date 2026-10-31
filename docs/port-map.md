@@ -24,7 +24,7 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 | RightPanel Queue + History tabs, recentlyPlayedService (50, per account in SQLite) | src/app/panel.cpp | done (layout from reference, drag reorder, search, Q/H/P/Esc); Playlists tab, AddToPlaylistDialog, SongContextMenu todo |
 | DesktopNowPlaying | src/app/nowplaying.cpp | done (static backdrop; the old one animates blobs); NowPlayingOverlay (mobile layout), MiniPlayer (ipc/playerWindow) todo |
 | CarMode, useSongEq, Pulse Deck | todo | |
-| SettingsView and sections, HamburgerMenu, SleepTimerPicker, ThemeSelector, CustomThemeEditor, KeyboardHelp | todo (appearance part done) | |
+| SettingsView (all 13 sections), SleepTimerPicker, ThemeSelector + CustomThemeEditor, clear-all-data | src/app/settings.cpp | done for layout; Car Mode, Remote, Tech Stack, Licenses, performance-cache stats rows inert or placeholder; HamburgerMenu, KeyboardHelp todo |
 | lastfmService, LastfmSettings, useScrobbler | todo (plain scrobble call done) | |
 | remote (ipc/remote.js, remoteDiscoveryService, RemoteModeContext, FirewallSetupDialog) | todo | |
 | mpris.js | todo | |

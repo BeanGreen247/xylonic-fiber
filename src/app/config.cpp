@@ -1,4 +1,5 @@
 #include "config.h"
+#include <algorithm>
 #include <cstdio>
 #include "../../third_party/yyjson.h"
 
@@ -11,6 +12,10 @@ bool Config::load(const std::string& path) {
     server_url = str("server_url"); username = str("username"); pin_sha256 = str("pin_sha256");
     volume_pct = num("volume_pct", 80); stream_quality = num("stream_quality", 0);
     theme = num("theme", 0); theme_mode = num("theme_mode", 0);
+    download_quality = num("download_quality", 0); concurrent_downloads = std::min(8, std::max(1, num("concurrent_downloads", 3)));
+    default_view = num("default_view", 0); car_minimal = num("car_minimal", 0); perf_mode = num("perf_mode", 0);
+    car_keep_on = num("car_keep_on", 1) != 0; car_start = num("car_start", 0) != 0; car_pulse = num("car_pulse", 0) != 0;
+    debug_log = num("debug_log", 0) != 0; be_controlled = num("be_controlled", 1) != 0; control_others = num("control_others", 1) != 0;
     if (theme < 0 || theme > 11) theme = 0;
     if (theme_mode < 0 || theme_mode > 2) theme_mode = 0;
     size_t i, n; yyjson_val* c;
@@ -33,6 +38,17 @@ bool Config::save(const std::string& path) const {
     yyjson_mut_obj_add_strcpy(d, o, "pin_sha256", pin_sha256.c_str());
     yyjson_mut_obj_add_int(d, o, "volume_pct", volume_pct);
     yyjson_mut_obj_add_int(d, o, "stream_quality", stream_quality);
+    yyjson_mut_obj_add_int(d, o, "download_quality", download_quality);
+    yyjson_mut_obj_add_int(d, o, "concurrent_downloads", concurrent_downloads);
+    yyjson_mut_obj_add_int(d, o, "default_view", default_view);
+    yyjson_mut_obj_add_int(d, o, "car_minimal", car_minimal);
+    yyjson_mut_obj_add_int(d, o, "perf_mode", perf_mode);
+    yyjson_mut_obj_add_int(d, o, "car_keep_on", car_keep_on);
+    yyjson_mut_obj_add_int(d, o, "car_start", car_start);
+    yyjson_mut_obj_add_int(d, o, "car_pulse", car_pulse);
+    yyjson_mut_obj_add_int(d, o, "debug_log", debug_log);
+    yyjson_mut_obj_add_int(d, o, "be_controlled", be_controlled);
+    yyjson_mut_obj_add_int(d, o, "control_others", control_others);
     yyjson_mut_obj_add_int(d, o, "theme", theme);
     yyjson_mut_obj_add_int(d, o, "theme_mode", theme_mode);
     yyjson_mut_val* ct = yyjson_mut_arr(d);
