@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include "app.h"
+#include <ctime>
 #include "../ui/svg.h"
 
 namespace {
@@ -159,7 +160,7 @@ void App::draw_header(float W) {
         T(500, 14, r.x + 46 * s, r.y, r.h / s, label, th.text);
         return u.clicked(r);
     };
-    if (pill({606 * s, 10 * s, 116 * s, 43 * s}, skin::Satellite, "Remote")) { /* remote control lands with the LAN module */ }
+    if (pill({606 * s, 10 * s, 116 * s, 43 * s}, skin::Satellite, remote_mode_ ? "Remote \xE2\x97\x8F" : "Remote")) modal_ = Modal::Remote;
     if (pill({734 * s, 10 * s, 95 * s, 43 * s}, skin::Compress, "Mini")) toggle_mini();
     // offline toggle (globe)
     Rect gl{W - 60 * s, 14 * s, 36 * s, 36 * s};
@@ -204,8 +205,22 @@ void App::draw_player_bar(Rect r) {
     gfx_->fill({r.x, r.y - 4 * s, r.w, 4 * s}, {0, 0, 0, 22});  // shadow above (0 -4px 12px)
     const Song* cur = queue_.current();
     float x0 = r.x + 16 * s, w = r.w - 32 * s;
+    // remote mode: show the controlled device's state instead of the local player
+    bool have_remote = false, rplaying = false;
+    std::string rtitle, rartist, rcover;
+    float rdur = 0, rpos = 0;
+    if (remote_mode_ && remote_)
+        for (auto& d : remote_->devices())
+            if (d.id == remote_target_) {
+                have_remote = true; rplaying = d.playing; rdur = static_cast<float>(d.duration);
+                rpos = static_cast<float>(d.current_time + (d.playing ? (static_cast<double>(std::time(nullptr)) * 1000 - static_cast<double>(d.last_seen_ms)) / 1000.0 : 0.0));
+                if (!d.song_json.empty()) {
+                    Song rs; if (from_json(d.song_json, rs)) { rtitle = rs.title; rartist = rs.artist; rcover = rs.cover_art; }
+                }
+            }
+    bool playing_now = have_remote ? rplaying : player_.playing();
     // progress
-    float dur = static_cast<float>(player_.duration_seconds()), pos = static_cast<float>(player_.position_seconds());
+    float dur = have_remote ? rdur : static_cast<float>(player_.duration_seconds()), pos = have_remote ? std::min(rpos, rdur) : static_cast<float>(player_.position_seconds());
     Rect pb{x0, r.y + 7 * s, w, 6 * s};
     float v = dur > 0 ? std::min(1.0f, pos / dur) : 0;
     bool was = u.active == kSeek;
@@ -215,7 +230,7 @@ void App::draw_player_bar(Rect r) {
     if (u.active == kSeek && (u.in.down || u.in.released)) {
         float nv = std::min(1.0f, std::max(0.0f, (u.in.mx - pb.x) / pb.w));
         seek_drag_v_ = nv; v = nv;
-        if (u.in.released) { u.active = 0; if (dur > 0) player_.seek_seconds(nv * dur); }
+        if (u.in.released) { u.active = 0; if (dur > 0) { if (have_remote) remote_send("seek", "{\"time\":" + std::to_string(nv * dur) + "}"); else player_.seek_seconds(nv * dur); } }
     }
     gfx_->fill_round(pb, 3 * s, {255, 255, 255, 46});
     if (v > 0) gfx_->fill_round({pb.x, pb.y, std::max(6 * s, pb.w * v), pb.h}, 3 * s, th.accent);
@@ -229,7 +244,12 @@ void App::draw_player_bar(Rect r) {
     float cy = r.y + 34 * s;  // controls container top (716 - 682)
     // left: cover + titles
     Rect info{x0 + 10 * s, cy, 200 * s, 44 * s};
-    if (cur) {
+    if (have_remote) {
+        Rect cv{info.x, info.y, 44 * s, 44 * s};
+        if (SDL_Texture* t = cover(rcover, 44)) gfx_->image_round(t, cv, 8 * s); else gfx_->fill_round(cv, 8 * s, th.panel2);
+        T(500, 14, info.x + 56 * s, info.y + 1 * s, 21, rtitle, th.text, 144 * s);
+        T(400, 11, info.x + 56 * s, info.y + 26 * s, 17, rartist, th.accent, 144 * s);
+    } else if (cur) {
         Rect cv{info.x, info.y, 44 * s, 44 * s};
         if (SDL_Texture* t = cover(cur->cover_art, 44)) gfx_->image_round(t, cv, 8 * s);
         else gfx_->fill_round(cv, 8 * s, th.panel2);
@@ -290,7 +310,7 @@ void App::draw_player_bar(Rect r) {
     float vv = vol_;
     Rect vhit{vs.x, vol.y, vs.w, vol.h};
     if (u.in.pressed && vhit.contains(u.in.mx, u.in.my)) u.active = kVol;
-    if (u.active == kVol && (u.in.down || u.in.released)) { vv = std::min(1.0f, std::max(0.0f, (u.in.mx - vs.x) / vs.w)); set_volume(vv); if (u.in.released) u.active = 0; }
+    if (u.active == kVol && (u.in.down || u.in.released)) { vv = std::min(1.0f, std::max(0.0f, (u.in.mx - vs.x) / vs.w)); set_volume(vv); if (have_remote && u.in.released) remote_send("setVolume", "{\"volume\":" + std::to_string(vv) + "}"); if (u.in.released) u.active = 0; }
     gfx_->fill_round(vs, 2 * s, {255, 255, 255, 46});
     gfx_->fill_round({vs.x, vs.y, std::max(4 * s, vs.w * vol_), vs.h}, 2 * s, th.accent);
 
@@ -303,14 +323,15 @@ void App::draw_player_bar(Rect r) {
         fa(ic, b.x + b.w / 2, b.y + b.h / 2, 13.3f, on ? th.accent : th.sub);
         return u.clicked(b);
     };
-    if (cbtn(mid - 102.5f * s, skin::Shuffle, queue_.shuffle())) queue_.set_shuffle(!queue_.shuffle());
+    if (cbtn(mid - 102.5f * s, skin::Shuffle, queue_.shuffle())) { if (have_remote) remote_send("toggleShuffle"); else queue_.set_shuffle(!queue_.shuffle()); }
     if (cbtn(mid - 67.5f * s, skin::StepBack, false)) prev_track();
     Rect pp{mid - 41 * s, cy + 2 * s, 40 * s, 40 * s};
     gfx_->circle(pp.x + 20 * s, pp.y + 20 * s, 20 * s, u.hover(pp) ? rgb(0xe8e8e8) : rgb(0xffffff));
-    fa(player_.playing() ? skin::Pause : skin::Play, pp.x + 20 * s + (player_.playing() ? 0 : 1 * s), pp.y + 20 * s, 16, rgb(0x121212));
+    fa(playing_now ? skin::Pause : skin::Play, pp.x + 20 * s + (playing_now ? 0 : 1 * s), pp.y + 20 * s, 16, rgb(0x121212));
     if (u.clicked(pp)) toggle_play();
     if (cbtn(mid + 25.5f * s, skin::StepFwd, false)) next_track();
-    if (cbtn(mid + 59.5f * s, skin::Repeat, queue_.repeat() != Repeat::Off))
+    if (cbtn(mid + 59.5f * s, skin::Repeat, queue_.repeat() != Repeat::Off) && have_remote) remote_send("toggleRepeat");
+    else if (!have_remote && u.clicked({mid + 59.5f * s - 16.5f * s, cy + 12 * s, 33 * s, 27 * s}))
         queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
     if (queue_.repeat() == Repeat::One) T(700, 8, mid + 59.5f * s + 4 * s, cy + 12 * s, 10, "1", th.accent);
     bool liked = cur && cur->starred;

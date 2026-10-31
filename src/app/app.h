@@ -10,6 +10,7 @@
 #include <vector>
 #include "../audio/player.h"
 #include "../net/discovery.h"
+#include "../net/remote.h"
 #include "../subsonic/client.h"
 #include <atomic>
 #include "../ui/themes.h"
@@ -161,6 +162,14 @@ private:
     void prev_track();
     void tick_player();
     void preload_next();
+    void remote_start();
+    void remote_stop();
+    void remote_push_state();
+    void remote_apply(const std::string& action, const std::string& data_json);
+    void remote_send(const std::string& action, const std::string& data_json = "{}");
+    void remote_connect(const RemoteDevice& dev);
+    void remote_disconnect();
+    void draw_remote_picker(float W, float H);
     void mpris_push();
     void toggle_mini();
     void close_mini();
@@ -209,7 +218,7 @@ private:
     bool show_help_ = false, playing_random_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
-    enum class Modal { None, Sleep, Theme, ConfirmWipe };
+    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote };
     Modal modal_ = Modal::None;
     uint64_t sleep_end_ms_ = 0;
     int dropdown_open_ = 0;
@@ -278,6 +287,11 @@ private:
     std::unique_ptr<Ui> mini_ui_;
     std::unordered_map<int, int> mini_fonts_;
     Theme ui_theme_cache_;
+    std::unique_ptr<RemoteService> remote_;
+    std::mutex remote_m_;
+    RemotePlayerState remote_state_;
+    bool remote_mode_ = false;
+    std::string remote_target_, remote_note_, remote_error_;
     Mpris mpris_;
     std::string mpris_sig_;
     uint32_t mpris_last_ms_ = 0;

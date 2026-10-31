@@ -201,6 +201,7 @@ void App::enter_offline() {
     queue_saved_rev_ = queue_.revision();
     history_load();
     pl_load();
+    remote_start();
     load_home();
     load_artists();
     mark();
@@ -258,6 +259,7 @@ void App::logout() {
     ++session_;
     ++play_gen_;
     save_queue_state();
+    remote_stop();
     client_.reset();
     downloads_.reset();
     store_.reset();
@@ -455,6 +457,7 @@ void App::start_current() {
 }
 
 void App::toggle_play() {
+    if (remote_mode_) { remote_send("togglePlay"); return; }
     if (track_loading_) return;
     if (!queue_.current()) return;
     if (player_.playing()) player_.pause();
@@ -463,9 +466,10 @@ void App::toggle_play() {
     mark();
 }
 
-void App::next_track() { if (queue_.next()) start_current(); }
+void App::next_track() { if (remote_mode_) { remote_send("next"); return; } if (queue_.next()) start_current(); }
 
 void App::prev_track() {
+    if (remote_mode_) { remote_send("previous"); return; }
     if (player_.position_seconds() > 3.0) { player_.seek_seconds(0); mark(); return; }
     if (queue_.prev()) start_current();
 }
@@ -577,6 +581,7 @@ void App::tick_player() {
     int sec = static_cast<int>(player_.position_seconds());
     if (sec != shown_sec_) { shown_sec_ = sec; mark(); }
     mpris_push();
+    remote_push_state();
 }
 
 void App::set_volume(float v) {

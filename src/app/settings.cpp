@@ -61,6 +61,7 @@ void App::draw_modal(float W, float H) {
         gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.danger, 0.9f) : th.danger);
         T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Clear everything")) / 2, go.y, 36, "Clear everything", rgb(0xffffff));
         if (u.clicked(go)) { wipe_all_data(); modal_ = Modal::None; }
+    } else if (modal_ == Modal::Remote) { draw_remote_picker(W, H);
     } else if (modal_ == Modal::Sleep) {
         Rect b = frame(420, 336, 0xf186, "Sleep Timer");
         T(400, 12, b.x + 18 * s, b.y + 52 * s, 18, "Playback stops automatically after the selected time.", th.sub);
@@ -275,9 +276,9 @@ void App::draw_settings(Rect r) {
     // ---- REMOTE
     section("REMOTE");
     card_fill(y, 249 * s);
-    if (row(skin::Satellite, "Be Controlled", "Let other Xylonic devices on your network control playback here", 1, false, cfg_.be_controlled ? "On" : "Off", cfg_.be_controlled, 61)) { cfg_.be_controlled = !cfg_.be_controlled; cfg_.save(cfg_path_); }
+    if (row(skin::Satellite, "Be Controlled", "Let other Xylonic devices on your network control playback here", 1, false, cfg_.be_controlled ? "On" : "Off", cfg_.be_controlled, 61)) { cfg_.be_controlled = !cfg_.be_controlled; cfg_.save(cfg_path_); if (remote_) remote_->set_enabled(cfg_.be_controlled); }
     if (row(0xf11b, "Control Others", "Discover and control other Xylonic devices on your network", 1, false, cfg_.control_others ? "On" : "Off", cfg_.control_others, 61)) { cfg_.control_others = !cfg_.control_others; cfg_.save(cfg_path_); }
-    row(0xf6ff, "Remote Devices", "No devices found yet", 1, true, "", false, 61);
+    if (row(0xf6ff, "Remote Devices", remote_ && !remote_->devices().empty() ? std::to_string(remote_->devices().size()) + " device(s) found" : "No devices found yet", 1, true, "", false, 61)) modal_ = Modal::Remote;
     row(0xf7e4, "Firewall Setup", "Open ports 7766 (UDP) and 7767 (TCP) for remote discovery", 1, true, "", false, 61);
     y += (1 + 32) * s; row_i = 0;
     // ---- STREAMING
