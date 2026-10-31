@@ -55,7 +55,7 @@ bool pump(Reader& r, int64_t n, const BodySink& sink, bool deliver, bool& aborte
 }  // namespace
 
 HttpResult http_get(const std::string& url0, const BodySink& sink, const ConnectOptions& opt,
-                    const std::vector<std::string>& extra) {
+                    const std::vector<std::string>& extra, const HeaderCb& on_headers) {
     HttpResult res;
     std::string url = url0;
     for (int hop = 0; hop <= 3; ++hop) {
@@ -93,6 +93,7 @@ HttpResult http_get(const std::string& url0, const BodySink& sink, const Connect
             url = location;
             continue;
         }
+        if (on_headers) on_headers(res.status, chunked ? -1 : res.content_length);
         bool deliver = res.status >= 200 && res.status < 300, aborted = false;
         bool ok;
         if (chunked) {

@@ -1,18 +1,39 @@
 #include "player.h"
 #include <SDL.h>
 #include <chrono>
+#include <unistd.h>
 #include <vector>
 
 Player::Player() = default;
 Player::~Player() { stop(); }
 
-bool Player::load(const std::string& path) {
+bool Player::load(const std::string& path, const std::string& kind) {
+    duration_hint_ = 0;
     stop();
-    auto d = open_decoder(path);
+    auto d = open_decoder(path, kind);
     if (!d || d->channels() == 0 || d->channels() > 2) return false;
     dec_ = std::move(d);
     channels_ = dec_->channels();
     rate_ = dec_->sample_rate();
+    eof_ = false;
+    played_frames_ = 0;
+    base_frame_ = 0;
+    ring_.clear();
+    return true;
+}
+
+bool Player::load_url(const std::string& url, const std::string& cache_path, const std::string& kind,
+                      const ConnectOptions& opt, double duration_hint, std::string& err) {
+    if (::access(cache_path.c_str(), R_OK) == 0) { duration_hint_ = 0; return load(cache_path, kind); }
+    stop();
+    auto src = std::make_unique<HttpFileSource>(url, cache_path, opt);
+    if (!src->start(opt.timeout_ms, err)) return false;
+    auto d = open_decoder_source(std::move(src), kind);
+    if (!d || d->channels() == 0 || d->channels() > 2) { err = "unsupported or invalid audio stream"; return false; }
+    dec_ = std::move(d);
+    channels_ = dec_->channels();
+    rate_ = dec_->sample_rate();
+    duration_hint_ = duration_hint;
     eof_ = false;
     played_frames_ = 0;
     base_frame_ = 0;
@@ -117,5 +138,5 @@ double Player::position_seconds() const {
 }
 
 double Player::duration_seconds() const {
-    return dec_ && dec_->total_frames() ? static_cast<double>(dec_->total_frames()) / rate_ : 0.0;
+    return dec_ && dec_->total_frames() ? static_cast<double>(dec_->total_frames()) / rate_ : duration_hint_;
 }

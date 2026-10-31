@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Streaming playback from http/https URLs into the cache, cache-first lookup, certificate pinning for self-signed servers.
 - Audio pipeline (mp3/flac decode thread, lock-free ring, SDL callback; device open only while playing).
 - HTTP/1.1 client with TLS (mbedTLS) and URL handling.
 - Subsonic client: auth, library browse, search, starred, scrobble, stream and cover URLs.

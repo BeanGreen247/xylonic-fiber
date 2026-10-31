@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include "source.h"
 
 class Decoder {
 public:
@@ -15,4 +16,8 @@ public:
     virtual bool seek(uint64_t frame) = 0;
 };
 
-std::unique_ptr<Decoder> open_decoder(const std::string& path);
+// kind "mp3"/"flac", or empty to pick by file extension.
+std::unique_ptr<Decoder> open_decoder(const std::string& path, const std::string& kind = "");
+
+// Decode from a (possibly growing) byte source. kind: "mp3" or "flac". Source ownership moves to the decoder.
+std::unique_ptr<Decoder> open_decoder_source(std::unique_ptr<ByteSource> src, const std::string& kind);

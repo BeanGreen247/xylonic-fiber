@@ -8,12 +8,17 @@
 #include <thread>
 #include "decoder.h"
 #include "ring.h"
+#include "source.h"
 
 class Player {
 public:
     Player();
     ~Player();
-    bool load(const std::string& path);   // stops current, opens new, paused
+    bool load(const std::string& path, const std::string& kind = "");   // stops current, opens new, paused
+    // Streams url into cache_path while decoding; if cache_path already exists it plays that file (offline-first).
+    // kind: "mp3" or "flac". duration_hint (seconds) is used while the length is unknown.
+    bool load_url(const std::string& url, const std::string& cache_path, const std::string& kind,
+                  const ConnectOptions& opt, double duration_hint, std::string& err);
     bool play();
     void pause();
     void stop();
@@ -41,6 +46,7 @@ private:
     std::atomic<uint64_t> played_frames_{0};  // frames handed to the device since last seek base
     std::atomic<uint64_t> base_frame_{0};
     std::atomic<float> volume_{1.0f};
+    double duration_hint_ = 0;
     uint32_t device_ = 0;
     uint32_t channels_ = 2;
     uint32_t rate_ = 44100;
