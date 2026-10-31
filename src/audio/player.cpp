@@ -7,38 +7,28 @@
 Player::Player() = default;
 Player::~Player() { stop(); }
 
-bool Player::load(const std::string& path, const std::string& kind) {
-    duration_hint_ = 0;
+bool Player::attach(std::unique_ptr<Decoder> d, double duration_hint) {
     stop();
-    auto d = open_decoder(path, kind);
     if (!d || d->channels() == 0 || d->channels() > 2) return false;
     dec_ = std::move(d);
     channels_ = dec_->channels();
     rate_ = dec_->sample_rate();
+    duration_hint_ = duration_hint;
     eof_ = false;
+    seek_pending_ = false;
     played_frames_ = 0;
     base_frame_ = 0;
     ring_.clear();
     return true;
 }
 
+bool Player::load(const std::string& path, const std::string& kind) { return attach(open_decoder(path, kind), 0); }
+
 bool Player::load_url(const std::string& url, const std::string& cache_path, const std::string& kind,
                       const ConnectOptions& opt, double duration_hint, std::string& err) {
-    if (::access(cache_path.c_str(), R_OK) == 0) { duration_hint_ = 0; return load(cache_path, kind); }
     stop();
-    auto src = std::make_unique<HttpFileSource>(url, cache_path, opt);
-    if (!src->start(opt.timeout_ms, err)) return false;
-    auto d = open_decoder_source(std::move(src), kind);
-    if (!d || d->channels() == 0 || d->channels() > 2) { err = "unsupported or invalid audio stream"; return false; }
-    dec_ = std::move(d);
-    channels_ = dec_->channels();
-    rate_ = dec_->sample_rate();
-    duration_hint_ = duration_hint;
-    eof_ = false;
-    played_frames_ = 0;
-    base_frame_ = 0;
-    ring_.clear();
-    return true;
+    auto d = open_track(url, cache_path, cache_path, kind, opt, err);
+    return d && attach(std::move(d), duration_hint);
 }
 
 void Player::start_thread() {
@@ -55,6 +45,19 @@ void Player::stop_thread() {
 void Player::decode_loop() {
     std::vector<int16_t> tmp(4096 * channels_);
     while (run_.load()) {
+        if (seek_pending_.load()) {
+            uint64_t target = seek_target_.load();
+            dec_->seek(target);  // may wait for the download to reach the target
+            if (playing_.load()) {
+                flush_ack_ = false;
+                flush_req_ = true;  // the audio callback owns the ring's read side
+                while (run_.load() && !flush_ack_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));  // pause() acks if the device closes meanwhile
+            } else {
+                ring_.clear();
+            }
+            if (seek_target_.load() == target) { eof_ = false; seek_pending_ = false; }
+            continue;
+        }
         size_t room = ring_.writable() / channels_;
         if (eof_.load() || room < 4096) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -62,6 +65,7 @@ void Player::decode_loop() {
         }
         uint64_t n = dec_->read(tmp.data(), 4096);
         if (n == 0) { eof_ = true; continue; }
+        if (seek_pending_.load()) continue;  // a seek arrived while decoding: drop this block
         ring_.write(tmp.data(), n * channels_);
     }
 }
@@ -71,6 +75,13 @@ void Player::callback(void* user, uint8_t* stream, int len) {
 }
 
 void Player::fill(int16_t* out, size_t samples) {
+    if (flush_req_.load(std::memory_order_acquire)) {
+        ring_.clear();
+        played_frames_.store(0, std::memory_order_relaxed);
+        flush_req_.store(false, std::memory_order_release);
+        flush_ack_.store(true, std::memory_order_release);
+    }
+    if (seek_pending_.load(std::memory_order_relaxed)) { std::memset(out, 0, samples * sizeof(int16_t)); return; }
     size_t got = ring_.read(out, samples);
     float v = volume_.load(std::memory_order_relaxed);
     if (v < 0.999f)
@@ -108,29 +119,34 @@ void Player::close_device() {
 
 void Player::pause() {
     if (!playing_.exchange(false)) return;
-    close_device();  // no idle device
+    close_device();  // no idle device; the callback can no longer run
+    if (flush_req_.exchange(false)) {  // a seek flush was waiting on the callback: do it here
+        ring_.clear();
+        played_frames_ = 0;
+        flush_ack_ = true;
+    }
 }
 
 void Player::stop() {
     playing_ = false;
     close_device();
     stop_thread();
+    flush_req_ = false;
+    flush_ack_ = true;
+    seek_pending_ = false;
     dec_.reset();
 }
 
 bool Player::seek_seconds(double s) {
     if (!dec_) return false;
-    bool was = playing_.load();
-    if (was) pause();
-    stop_thread();
+    if (s < 0) s = 0;
     uint64_t f = static_cast<uint64_t>(s * rate_);
-    if (!dec_->seek(f)) return false;
-    ring_.clear();
-    eof_ = false;
+    seek_target_ = f;
     base_frame_ = f;
-    played_frames_ = 0;
+    if (!playing_.load()) played_frames_ = 0;  // when playing, the callback zeroes it at the flush
+    seek_pending_ = true;
     start_thread();
-    return was ? play() : true;
+    return true;
 }
 
 double Player::position_seconds() const {

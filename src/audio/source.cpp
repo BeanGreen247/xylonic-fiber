@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "../net/http.h"
+#include "decoder.h"
 
 HttpFileSource::HttpFileSource(std::string url, std::string final_path, ConnectOptions opt)
     : url_(std::move(url)), final_(std::move(final_path)), part_(final_ + ".part"), opt_(std::move(opt)) {}
@@ -82,4 +83,19 @@ bool HttpFileSource::seek(int64_t off, Origin o) {
     if (t < 0) return false;
     pos_ = t;  // reads past the downloaded part block until data arrives
     return true;
+}
+
+std::unique_ptr<Decoder> open_track(const std::string& url, const std::string& permanent_path, const std::string& stream_path,
+                                    const std::string& kind, const ConnectOptions& opt, std::string& err) {
+    if (!permanent_path.empty() && ::access(permanent_path.c_str(), R_OK) == 0) {
+        if (auto d = open_decoder(permanent_path, kind)) return d;  // unreadable permanent copy: fall through to the stream
+    }
+    if (!stream_path.empty() && ::access(stream_path.c_str(), R_OK) == 0) {
+        if (auto d = open_decoder(stream_path, kind)) return d;
+    }
+    auto src = std::make_unique<HttpFileSource>(url, stream_path, opt);
+    if (!src->start(opt.timeout_ms, err)) return nullptr;
+    auto d = open_decoder_source(std::move(src), kind);
+    if (!d) err = "unsupported or invalid audio stream";
+    return d;
 }

@@ -144,6 +144,40 @@ void Gfx::fill_round(Rect r, float rad, Color c) {
     }
 }
 
+void Gfx::tri(float x0, float y0, float x1, float y1, float x2, float y2, Color c) {
+    const float u = 1.0f / aw_, v = 1.0f / ah_;
+    SDL_Color sc{c.r, c.g, c.b, c.a};
+    int b = static_cast<int>(v_.size());
+    v_.push_back({{x0, y0}, sc, {u, v}});
+    v_.push_back({{x1, y1}, sc, {u, v}});
+    v_.push_back({{x2, y2}, sc, {u, v}});
+    idx_.push_back(b); idx_.push_back(b + 1); idx_.push_back(b + 2);
+}
+
+void Gfx::line(float x0, float y0, float x1, float y1, float t, Color c) {
+    float dx = x1 - x0, dy = y1 - y0, l = std::sqrt(dx * dx + dy * dy);
+    if (l < 0.001f) return;
+    float nx = -dy / l * t / 2, ny = dx / l * t / 2;
+    tri(x0 + nx, y0 + ny, x1 + nx, y1 + ny, x1 - nx, y1 - ny, c);
+    tri(x0 + nx, y0 + ny, x1 - nx, y1 - ny, x0 - nx, y0 - ny, c);
+}
+
+void Gfx::circle(float cx, float cy, float r, Color c) {
+    int n = r < 8 ? 12 : r < 24 ? 20 : 32;
+    for (int i = 0; i < n; ++i) {
+        float a0 = 6.2831853f * i / n, a1 = 6.2831853f * (i + 1) / n;
+        tri(cx, cy, cx + std::cos(a0) * r, cy + std::sin(a0) * r, cx + std::cos(a1) * r, cy + std::sin(a1) * r, c);
+    }
+}
+
+void Gfx::ring(float cx, float cy, float r, float t, Color c) {
+    int n = r < 8 ? 12 : r < 24 ? 20 : 32;
+    for (int i = 0; i < n; ++i) {
+        float a0 = 6.2831853f * i / n, a1 = 6.2831853f * (i + 1) / n;
+        line(cx + std::cos(a0) * r, cy + std::sin(a0) * r, cx + std::cos(a1) * r, cy + std::sin(a1) * r, t, c);
+    }
+}
+
 void Gfx::stroke(Rect r, float t, Color c) {
     fill({r.x, r.y, r.w, t}, c);
     fill({r.x, r.y + r.h - t, r.w, t}, c);

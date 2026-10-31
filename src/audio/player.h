@@ -19,10 +19,12 @@ public:
     // kind: "mp3" or "flac". duration_hint (seconds) is used while the length is unknown.
     bool load_url(const std::string& url, const std::string& cache_path, const std::string& kind,
                   const ConnectOptions& opt, double duration_hint, std::string& err);
+    // Takes a decoder prepared on another thread (see open_track), so the UI thread never waits on the network.
+    bool attach(std::unique_ptr<Decoder> d, double duration_hint);
     bool play();
     void pause();
     void stop();
-    bool seek_seconds(double s);
+    bool seek_seconds(double s);  // asynchronous: returns at once, the decode thread performs the seek
     double position_seconds() const;
     double duration_seconds() const;
     bool playing() const { return playing_.load(); }
@@ -43,6 +45,10 @@ private:
     std::atomic<bool> run_{false};
     std::atomic<bool> eof_{false};
     std::atomic<bool> playing_{false};
+    std::atomic<bool> seek_pending_{false};
+    std::atomic<uint64_t> seek_target_{0};
+    std::atomic<bool> flush_req_{false};  // consumer (callback or pause path) clears the ring, then acks
+    std::atomic<bool> flush_ack_{true};
     std::atomic<uint64_t> played_frames_{0};  // frames handed to the device since last seek base
     std::atomic<uint64_t> base_frame_{0};
     std::atomic<float> volume_{1.0f};

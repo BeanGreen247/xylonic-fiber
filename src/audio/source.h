@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include "../net/stream.h"
+class Decoder;
 
 class ByteSource {
 public:
@@ -45,3 +46,8 @@ private:
     std::string error_;
     int64_t pos_ = 0;
 };
+
+// Opens a track for playback: `permanent_path` (downloaded copy) if it exists, else streams `url` into `stream_path`.
+// Blocks on the network, so call it from a worker thread and hand the result to Player::attach.
+std::unique_ptr<Decoder> open_track(const std::string& url, const std::string& permanent_path, const std::string& stream_path,
+                                    const std::string& kind, const ConnectOptions& opt, std::string& err);
