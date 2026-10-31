@@ -214,6 +214,7 @@ void App::draw_right_panel(float W, float H) {
                 if (ab(a2, skin::Xmark, true)) { history_.erase(history_.begin() + i); history_save(); gfx_->clip(nullptr); return; }
             }
         }
+        ctx_hit(row, sg);
         Rect info{tx, row.y, row.w - 45 * s - 112 * s, row.h};
         if (u.clicked(info) && panel_drag_ < 0 && list.contains(u.in.mx, u.in.my)) {
             if (panel_tab_ == PanelTab::Queue) { queue_.jump(static_cast<size_t>(i)); start_current(); }

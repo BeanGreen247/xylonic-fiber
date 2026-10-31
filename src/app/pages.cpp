@@ -165,6 +165,7 @@ void App::draw_album(Rect r) {
         T(400, 13, row.x + row.w - 16 * s - dw, row.y + 25 * s, 20, d, th.sub);
         auto ds = dl_state_.find(sg.id);
         if (ds != dl_state_.end() && ds->second.state == Downloads::Done) fa(skin::Download, row.x + row.w - 16 * s - dw - 24 * s, row.y + 36 * s, 11, th.accent);
+        ctx_hit(row, sg);
         if (u.clicked(row) && r.contains(u.in.mx, u.in.my)) play_songs(a->songs, i, false);
     }
 }

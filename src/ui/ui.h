@@ -39,11 +39,13 @@ struct Input {
     bool released = false;   // went up this frame
     float press_x = 0, press_y = 0;
     float wheel = 0;         // lines, positive = scroll up
+    bool rclick = false;     // right button released this frame
+    float rx = 0, ry = 0;
     float hwheel = 0;        // horizontal wheel / shift+wheel
     std::string text;        // text typed this frame (UTF-8)
     int backspace = 0, del = 0, left = 0, right = 0, home = 0, end = 0, enter = 0, tab = 0, escape = 0;
     bool ctrl = false;
-    void new_frame() { pressed = released = false; wheel = hwheel = 0; text.clear(); backspace = del = left = right = home = end = enter = tab = escape = 0; }
+    void new_frame() { pressed = released = rclick = false; wheel = hwheel = 0; text.clear(); backspace = del = left = right = home = end = enter = tab = escape = 0; }
 };
 
 struct Scroll {

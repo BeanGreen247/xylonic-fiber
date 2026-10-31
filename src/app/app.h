@@ -34,6 +34,7 @@ struct AppOptions {
     std::string nav;                 // home|library|queue|settings|search (testing)
     bool autoplay = false;
     std::string search;     // type this into the search field after login (testing)
+    bool help = false;      // open the keyboard help dialog (testing)
     bool nowplaying = false; // open Now Playing (testing)
     std::string panel;      // open the right panel: queue|history|playlists (testing)
     bool selftest = false;  // init and exit
@@ -91,6 +92,10 @@ private:
     void draw_header(float W);
     void draw_right_panel(float W, float H);
     void draw_modal(float W, float H);
+    void draw_ctx_menu(float W, float H);
+    void draw_help(float W, float H);
+    void open_ctx(const Song& s, float x, float y);
+    bool ctx_hit(Rect r, const Song& s);
     int dropdown(int id, Rect anchor, const std::vector<std::string>& opts, int current);
     void set_sleep_timer(int minutes);
     std::string sleep_remaining() const;
@@ -206,7 +211,8 @@ private:
     std::set<std::string> pl_syncing_;
     std::string pl_new_name_, pl_expanded_, pl_rename_id_, pl_rename_text_;
     bool pl_synced_once_ = false, pl_sync_busy_ = false;
-    std::optional<Song> add_song_;
+    std::optional<Song> add_song_, ctx_song_;
+    float ctx_x_ = 0, ctx_y_ = 0;
     Scroll panel_scroll_;
     int panel_drag_ = -1;
     int lib_mode_ = 0, lib_page_[4] = {0, 0, 0, 0};

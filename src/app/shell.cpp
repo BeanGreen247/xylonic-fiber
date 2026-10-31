@@ -70,10 +70,10 @@ void App::draw_main(float W, float H) {
     const float s = S_;
     Ui& uin = *ui_;
     Input saved = uin.in;
-    if (modal_ != Modal::None) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
+    if (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
     struct Restore { App* a; Input saved; ~Restore() { } } restore{this, saved};
     (void)restore;
-    if (np_open_) { draw_now_playing(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } return; }
+    if (np_open_) { draw_now_playing(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); } return; }
     draw_nav(H);
     draw_header(W);
     float navw = skin::kNavW * s, top = skin::kHeaderH * s, bar = skin::kPlayerH * s;
@@ -95,6 +95,8 @@ void App::draw_main(float W, float H) {
     draw_player_bar({navw, H - bar, W - navw, bar});
     draw_right_panel(W, H);
     if (add_song_) { uin.in = saved; draw_add_to_playlist(W, H); return; }
+    if (show_help_) { uin.in = saved; draw_help(W, H); return; }
+    if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); }
     if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); }
 }
 

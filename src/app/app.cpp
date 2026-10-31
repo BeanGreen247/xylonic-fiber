@@ -226,6 +226,7 @@ void App::on_connected() {
     else if (opt_.nav == "search") set_nav(Nav::Search);
     else if (opt_.nav.rfind("album:", 0) == 0) { push_view(ViewKind::Album, opt_.nav.substr(6), "Album"); load_album(opt_.nav.substr(6)); }
     if (opt_.nowplaying) np_open_ = true;
+    if (opt_.help) show_help_ = true;
     if (!opt_.panel.empty()) toggle_panel(opt_.panel == "history" ? PanelTab::History : opt_.panel == "playlists" ? PanelTab::Playlists : PanelTab::Queue);
     if (!opt_.search.empty()) { search_q_ = opt_.search; nav_ = Nav::Search; views_.clear(); views_.push_back({ViewKind::Root, "", "Search", {}}); run_search(); }
     if (!opt_.download_album.empty()) {
@@ -503,6 +504,7 @@ void App::handle(const SDL_Event& e) {
         if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * S_; in.my = e.button.y * S_; in.down = in.pressed = true; in.press_x = in.mx; in.press_y = in.my; mark(); }
         break;
     case SDL_MOUSEBUTTONUP:
+        if (e.button.button == SDL_BUTTON_RIGHT) { in.rclick = true; in.rx = e.button.x * S_; in.ry = e.button.y * S_; mark(); }
         if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * S_; in.my = e.button.y * S_; in.down = false; in.released = true; mark(); }
         break;
     case SDL_MOUSEWHEEL:

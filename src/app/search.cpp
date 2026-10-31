@@ -89,6 +89,7 @@ void App::draw_search(Rect r) {
         std::string d = mmss(sg.duration);
         float dw = gfx_->measure(F(400, 13), d);
         T(400, 13, row.x + row.w - 16 * s - dw, row.y + 26 * s, 20, d, th.sub);
+        ctx_hit(row, sg);
         if (u.clicked(row) && r.contains(u.in.mx, u.in.my)) play_songs(list, idx, false);
     };
     if (has_top) {
