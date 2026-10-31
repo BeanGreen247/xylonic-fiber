@@ -21,6 +21,7 @@ bool Gfx::init(SDL_Window*, SDL_Renderer* ren) {
     atlas_ = SDL_CreateTexture(ren_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, aw_, ah_);
     if (!atlas_) return false;
     SDL_SetTextureBlendMode(atlas_, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(atlas_, SDL_ScaleModeNearest);
     reset_atlas();
     return true;
 }
@@ -31,6 +32,7 @@ void Gfx::reset_atlas() {
     SDL_UpdateTexture(atlas_, nullptr, blank.data(), aw_ * 4);
     shelf_x_ = 3; shelf_y_ = 0; shelf_h_ = 0;
     shelf_y_ = 3;
+    shapes_.clear();
     for (auto& f : fonts_) f->glyphs.clear();
 }
 
@@ -128,29 +130,64 @@ void Gfx::fill(Rect r, Color c) {
     quad(r.x, r.y, r.x + r.w, r.y + r.h, u, v, u, v, c);
 }
 
-void Gfx::fill_round(Rect r, float rad, Color c) {
-    if (rad > r.w / 2) rad = r.w / 2;
-    if (rad > r.h / 2) rad = r.h / 2;
-    if (rad < 1.5f) { fill(r, c); return; }
-    const int segs = std::min(16, std::max(4, static_cast<int>(rad / 2)));
-    const float u = 1.0f / aw_, v = 1.0f / ah_;
-    SDL_Color sc{c.r, c.g, c.b, c.a};
-    int base = static_cast<int>(v_.size());
-    v_.push_back({{r.x + r.w / 2, r.y + r.h / 2}, sc, {u, v}});  // fan centre
-    const float cx[4] = {r.x + r.w - rad, r.x + rad, r.x + rad, r.x + r.w - rad};
-    const float cy[4] = {r.y + rad, r.y + rad, r.y + r.h - rad, r.y + r.h - rad};
-    int n = 0;
-    for (int k = 0; k < 4; ++k)
-        for (int s = 0; s <= segs; ++s) {
-            float a = (float(k) + float(s) / segs) * 1.5707963f;
-            v_.push_back({{cx[k] + std::cos(a) * rad, cy[k] - std::sin(a) * rad}, sc, {u, v}});
-            ++n;
+const Gfx::Shape* Gfx::shape(int R, int t) {
+    uint64_t key = (static_cast<uint64_t>(R) << 16) | static_cast<uint64_t>(t);
+    auto it = shapes_.find(key);
+    if (it != shapes_.end()) return &it->second;
+    int ax, ay;
+    if (!pack(R + 2, R + 2, ax, ay)) { flush(); reset_atlas(); if (!pack(R + 2, R + 2, ax, ay)) return nullptr; }
+    ax += 1; ay += 1;  // 1px gutter against bleeding
+    std::vector<uint32_t> px(static_cast<size_t>(R) * R);
+    for (int j = 0; j < R; ++j)
+        for (int i = 0; i < R; ++i) {
+            float dx = R - (i + 0.5f), dy = R - (j + 0.5f), d = std::sqrt(dx * dx + dy * dy);
+            float outer = std::min(1.0f, std::max(0.0f, R - d + 0.5f));
+            float inner = t > 0 ? std::min(1.0f, std::max(0.0f, (R - t) - d + 0.5f)) : 0.0f;
+            float cov = outer - inner;
+            px[static_cast<size_t>(j) * R + i] = 0x00FFFFFFu | (static_cast<uint32_t>(std::lround(cov * 255)) << 24);
         }
-    for (int i = 0; i < n; ++i) {
-        idx_.push_back(base);
-        idx_.push_back(base + 1 + i);
-        idx_.push_back(base + 1 + (i + 1) % n);
-    }
+    SDL_Rect rc{ax, ay, R, R};
+    SDL_UpdateTexture(atlas_, &rc, px.data(), R * 4);
+    Shape sh{float(ax) / aw_, float(ay) / ah_, float(ax + R) / aw_, float(ay + R) / ah_};
+    return &(shapes_[key] = sh);
+}
+
+void Gfx::corner(float x, float y, int R, bool fx, bool fy, const Shape& sh, Color c) {
+    float u0 = fx ? sh.u1 : sh.u0, u1 = fx ? sh.u0 : sh.u1, v0 = fy ? sh.v1 : sh.v0, v1 = fy ? sh.v0 : sh.v1;
+    quad(x, y, x + R, y + R, u0, v0, u1, v1, c);
+}
+
+void Gfx::fill_round(Rect r, float rad, Color c) {
+    float x0 = std::round(r.x), y0 = std::round(r.y), x1 = std::round(r.x + r.w), y1 = std::round(r.y + r.h);
+    float w = x1 - x0, h = y1 - y0;
+    if (w <= 0 || h <= 0) return;
+    int R = static_cast<int>(std::lround(std::min(rad, std::min(w, h) / 2)));
+    if (R < 2 || R > 160) { fill({x0, y0, w, h}, c); return; }
+    const Shape* sh = shape(R, 0);
+    if (!sh) { fill({x0, y0, w, h}, c); return; }
+    corner(x0, y0, R, false, false, *sh, c);
+    corner(x1 - R, y0, R, true, false, *sh, c);
+    corner(x0, y1 - R, R, false, true, *sh, c);
+    corner(x1 - R, y1 - R, R, true, true, *sh, c);
+    if (w - 2 * R > 0) { fill({x0 + R, y0, w - 2 * R, R}, c); fill({x0 + R, y1 - R, w - 2 * R, R}, c); }
+    if (h - 2 * R > 0) fill({x0, y0 + R, w, h - 2 * R}, c);
+}
+
+void Gfx::stroke_round(Rect r, float rad, float t, Color c, Color) {
+    float x0 = std::round(r.x), y0 = std::round(r.y), x1 = std::round(r.x + r.w), y1 = std::round(r.y + r.h);
+    float w = x1 - x0, h = y1 - y0;
+    int T = std::max(1, static_cast<int>(std::lround(t)));
+    int R = static_cast<int>(std::lround(std::min(rad, std::min(w, h) / 2)));
+    if (R < 2 || R > 160) { stroke({x0, y0, w, h}, static_cast<float>(T), c); return; }
+    const Shape* sh = shape(R, T);
+    if (!sh) { stroke({x0, y0, w, h}, static_cast<float>(T), c); return; }
+    corner(x0, y0, R, false, false, *sh, c);
+    corner(x1 - R, y0, R, true, false, *sh, c);
+    corner(x0, y1 - R, R, false, true, *sh, c);
+    corner(x1 - R, y1 - R, R, true, true, *sh, c);
+    const float Tf = static_cast<float>(T), Rf = static_cast<float>(R);
+    if (w - 2 * Rf > 0) { fill({x0 + Rf, y0, w - 2 * Rf, Tf}, c); fill({x0 + Rf, y1 - Tf, w - 2 * Rf, Tf}, c); }
+    if (h - 2 * Rf > 0) { fill({x0, y0 + Rf, Tf, h - 2 * Rf}, c); fill({x1 - Tf, y0 + Rf, Tf, h - 2 * Rf}, c); }
 }
 
 void Gfx::tri(float x0, float y0, float x1, float y1, float x2, float y2, Color c) {
@@ -171,52 +208,9 @@ void Gfx::line(float x0, float y0, float x1, float y1, float t, Color c) {
     tri(x0 + nx, y0 + ny, x1 - nx, y1 - ny, x0 - nx, y0 - ny, c);
 }
 
-void Gfx::circle(float cx, float cy, float r, Color c) {
-    int n = std::min(64, std::max(12, static_cast<int>(r * 1.2f)));
-    for (int i = 0; i < n; ++i) {
-        float a0 = 6.2831853f * i / n, a1 = 6.2831853f * (i + 1) / n;
-        tri(cx, cy, cx + std::cos(a0) * r, cy + std::sin(a0) * r, cx + std::cos(a1) * r, cy + std::sin(a1) * r, c);
-    }
-}
+void Gfx::circle(float cx, float cy, float r, Color c) { fill_round({cx - r, cy - r, 2 * r, 2 * r}, r, c); }
 
-void Gfx::ring(float cx, float cy, float r, float t, Color c) {
-    int n = std::min(64, std::max(12, static_cast<int>(r * 1.2f)));
-    for (int i = 0; i < n; ++i) {
-        float a0 = 6.2831853f * i / n, a1 = 6.2831853f * (i + 1) / n;
-        line(cx + std::cos(a0) * r, cy + std::sin(a0) * r, cx + std::cos(a1) * r, cy + std::sin(a1) * r, t, c);
-    }
-}
-
-void Gfx::stroke_round(Rect r, float rad, float t, Color c, Color under) {
-    rad = std::min(rad, std::min(r.w, r.h) / 2);
-    if (under.a) {
-        auto mixc = [](uint8_t f, uint8_t b, float a) { return static_cast<uint8_t>(std::lround(f * a + b * (1 - a))); };
-        float a = c.a / 255.0f;
-        Color solid{mixc(c.r, under.r, a), mixc(c.g, under.g, a), mixc(c.b, under.b, a), 255};
-        fill_round(r, rad, solid);
-        fill_round({r.x + t, r.y + t, r.w - 2 * t, r.h - 2 * t}, std::max(0.0f, rad - t), under);
-        return;
-    }
-    if (rad < 1.5f) { stroke(r, t, c); return; }
-    const int segs = std::min(16, std::max(4, static_cast<int>(rad / 2)));
-    const float u = 1.0f / aw_, v = 1.0f / ah_;
-    SDL_Color sc{c.r, c.g, c.b, c.a};
-    int base = static_cast<int>(v_.size()), n = 0;
-    const float ri = std::max(0.0f, rad - t);
-    const float cx[4] = {r.x + r.w - rad, r.x + rad, r.x + rad, r.x + r.w - rad};
-    const float cy[4] = {r.y + rad, r.y + rad, r.y + r.h - rad, r.y + r.h - rad};
-    for (int k = 0; k < 4; ++k)
-        for (int s = 0; s <= segs; ++s) {
-            float a = (float(k) + float(s) / segs) * 1.5707963f, ca = std::cos(a), sa = -std::sin(a);
-            v_.push_back({{cx[k] + ca * rad, cy[k] + sa * rad}, sc, {u, v}});
-            v_.push_back({{cx[k] + ca * ri, cy[k] + sa * ri}, sc, {u, v}});
-            ++n;
-        }
-    for (int i = 0; i < n; ++i) {
-        int a = base + 2 * i, b = base + 2 * ((i + 1) % n);
-        for (int q : {a, a + 1, b, a + 1, b + 1, b}) idx_.push_back(q);
-    }
-}
+void Gfx::ring(float cx, float cy, float r, float t, Color c) { stroke_round({cx - r, cy - r, 2 * r, 2 * r}, r, t, c); }
 
 void Gfx::stroke(Rect r, float t, Color c) {
     fill({r.x, r.y, r.w, t}, c);

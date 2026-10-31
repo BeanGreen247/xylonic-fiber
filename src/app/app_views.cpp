@@ -127,44 +127,6 @@ void App::draw_song_rows(Rect r, const std::vector<Song>& songs, Scroll& sc, boo
     (void)base_id;
 }
 
-void App::draw_artist(Rect r) {
-    Ui& u = *ui_;
-    View& v = views_.back();
-    auto it = artist_cache_.find(v.id);
-    if (it == artist_cache_.end() || it->second.id.empty()) { u.label(u.f_body, r.x + 24 * S_, r.y + 10 * S_, "Loading...", u.th.sub); return; }
-    float dummy = 0;
-    if (u.hover(r)) v.scroll.y -= u.in.wheel * 60 * S_;
-    v.scroll.clamp(it->second.albums.size() / 4.0f * 260 * S_ + 300 * S_, r.h);
-    draw_album_grid(r, it->second.albums, r.y - v.scroll.y + 8 * S_, dummy);
-}
-
-void App::draw_album(Rect r) {
-    Ui& u = *ui_;
-    const float s = S_;
-    View& v = views_.back();
-    auto it = album_cache_.find(v.id);
-    if (it == album_cache_.end() || it->second.id.empty()) { u.label(u.f_body, r.x + 24 * s, r.y + 10 * s, "Loading...", u.th.sub); return; }
-    const Album& a = it->second;
-    float hh = 150 * s;
-    if (SDL_Texture* t = cover(a.cover_art, 132)) gfx_->image(t, {r.x + 24 * s, r.y + 8 * s, 132 * s, 132 * s});
-    else gfx_->fill_round({r.x + 24 * s, r.y + 8 * s, 132 * s, 132 * s}, 8 * s, u.th.panel2);
-    float tx = r.x + 172 * s;
-    u.label(u.f_title, tx, r.y + 8 * s, a.name, u.th.text, r.w - tx - 24 * s);
-    u.label(u.f_body, tx, r.y + 46 * s, a.artist + (a.year ? "  -  " + std::to_string(a.year) : ""), u.th.sub, r.w - tx - 24 * s);
-    u.label(u.f_small, tx, r.y + 70 * s, std::to_string(a.songs.size()) + " songs  -  " + mmss(a.duration), u.th.sub);
-    if (u.button({tx, r.y + 98 * s, 100 * s, 38 * s}, "Play", true)) play_songs(a.songs, 0, false);
-    if (u.button({tx + 112 * s, r.y + 98 * s, 100 * s, 38 * s}, "Shuffle")) play_songs(a.songs, 0, true);
-    if (downloads_ && !offline_) {
-        int done = 0;
-        for (const Song& sg : a.songs) { auto d = dl_state_.find(sg.id); if (d != dl_state_.end() && d->second.state == Downloads::Done) ++done; }
-        bool all = done == static_cast<int>(a.songs.size()) && done > 0;
-        if (u.button({tx + 224 * s, r.y + 98 * s, 150 * s, 38 * s}, all ? "Downloaded" : done ? "Download rest" : "Download")) { if (!all) { downloads_->enqueue(a.songs); prefetch_covers(a.songs); } }
-    }
-    Rect list{r.x, r.y + hh, r.w, r.h - hh};
-    gfx_->clip(&list);
-    draw_song_rows(list, a.songs, v.scroll, false, 100);
-}
-
 void App::draw_search(Rect r) {
     Ui& u = *ui_;
     const float s = S_;

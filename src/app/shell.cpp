@@ -73,10 +73,8 @@ void App::draw_main(float W, float H) {
     float navw = skin::kNavW * s, top = skin::kHeaderH * s, bar = skin::kPlayerH * s;
     Rect content{navw, top, W - navw, H - top - bar};
     View& v = views_.back();
-    Ui& u = *ui_;
     Rect body{content.x, content.y, content.w, content.h};
     gfx_->clip(&body);
-    bool root = views_.size() == 1;
     if (v.kind == ViewKind::Artist) draw_artist(body);
     else if (v.kind == ViewKind::Album) draw_album(body);
     else switch (nav_) {
@@ -88,7 +86,6 @@ void App::draw_main(float W, float H) {
         case Nav::Settings: draw_settings(body); break;
     }
     gfx_->clip(nullptr);
-    if (!root && u.icon_button({content.x + 8 * s, content.y + 8 * s, 32 * s, 32 * s}, Icon::Back)) pop_view();
     draw_player_bar({navw, H - bar, W - navw, bar});
 }
 

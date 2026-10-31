@@ -59,6 +59,10 @@ private:
     friend class FontFace;
     struct Glyph { float u0, v0, u1, v1; float xoff, yoff, w, h, adv; };
     const Glyph* glyph(int font, uint32_t cp);
+    struct Shape { float u0, v0, u1, v1; };
+    // Anti-aliased quarter-circle masks (fill or ring) packed into the atlas; every rounded shape is built from them.
+    const Shape* shape(int radius, int thickness);
+    void corner(float x, float y, int r, bool flip_x, bool flip_y, const Shape& sh, Color c);
     void flush();
     void quad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, Color c);
     void reset_atlas();
@@ -72,6 +76,7 @@ private:
     std::vector<int> idx_;
     std::vector<std::unique_ptr<FontFace>> fonts_;
     std::unordered_map<std::string, std::shared_ptr<std::vector<uint8_t>>> font_data_;
+    std::unordered_map<uint64_t, Shape> shapes_;
     uint64_t draw_calls_ = 0;
     float spacing_ = 0;
 };
