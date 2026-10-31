@@ -21,7 +21,8 @@ public:
     bool scrobble(const std::string& id, bool submission, std::string& err);
 
     // URLs embed auth (per Subsonic spec) so they must not be logged.
-    std::string stream_url(const std::string& id, int max_bitrate = 0) const;
+    // format: ask the server to transcode (e.g. "mp3") when the source codec is not decodable here.
+    std::string stream_url(const std::string& id, int max_bitrate = 0, const std::string& format = "") const;
     std::string download_url(const std::string& id) const;
     std::string cover_url(const std::string& cover_id, int size = 0) const;
 

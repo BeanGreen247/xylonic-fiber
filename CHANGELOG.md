@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- App shell: login with certificate pinning, home, library, album, search, queue, settings, player bar, shortcuts, queue restore (docs/TESTING.md).
 - Streaming playback from http/https URLs into the cache, cache-first lookup, certificate pinning for self-signed servers.
 - Audio pipeline (mp3/flac decode thread, lock-free ring, SDL callback; device open only while playing).
 - HTTP/1.1 client with TLS (mbedTLS) and URL handling.

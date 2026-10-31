@@ -48,3 +48,17 @@ Minimal C program: SDL2 window 1024x768, accelerated vsync renderer, one clear+p
 Init to window+renderer+audio ready: 226ms. Finding: merely opening the audio device costs ~1.85% CPU on this box (PipeWire/Pulse shim); open it only while playing. The ~33MB PSS is the SDL + Mesa/Wayland floor and does not depend on the implementation language.
 
 Ratio vs old app, playing PSS: 330MB vs 33MB floor, i.e. headroom of 10x before any app code; real app will land above the floor and must be measured per slice.
+
+## New app vs old (measured 2026-10-31, same machine, same fake server)
+
+First end-to-end slice (login, home grid with covers, library, album, queue, search, player bar, streaming). Release build, GL renderer on Wayland, 1024x768, 24+24 album covers on Home, one 10-min mp3 playing. Sampled by PID, 30s windows.
+
+| Metric | Old app idle | New idle | Old playing | New playing |
+|---|---|---|---|---|
+| PSS (MB) | 295-300 | 35 | 329-338 | 36 |
+| RSS (MB) | 677-691 | 87 | 774-783 | 88 |
+| CPU (% of one core) | 0.5-3.1 | 0.03 | 11.9-12.7 | 0.47 |
+| Processes / threads | 7-9 / 84-86 | 1 / 10 | 10 / 97 | 1 / 11 |
+| Startup | 812ms to first text | 147ms to window, renderer and fonts ready (`--selftest`, hyperfine n=15, mean) | | |
+
+Caveats: tiny fake library (20 artists), so memory will grow with a real library; the new app has no keychain, SQLite cache, MPRIS or themes yet; startup definitions differ (old = first text via CDP, new = init complete). Re-measure on the owner's real server and on the G88 before claiming parity.

@@ -188,8 +188,8 @@ bool SubsonicClient::scrobble(const std::string& id, bool submission, std::strin
     return call("scrobble", "id=" + url_encode(id) + "&submission=" + (submission ? "true" : "false"), b, err) && parse_envelope(b, err);
 }
 
-std::string SubsonicClient::stream_url(const std::string& id, int max_bitrate) const {
-    return url_for("stream", "id=" + url_encode(id) + (max_bitrate > 0 ? "&maxBitRate=" + std::to_string(max_bitrate) : ""));
+std::string SubsonicClient::stream_url(const std::string& id, int max_bitrate, const std::string& format) const {
+    return url_for("stream", "id=" + url_encode(id) + (max_bitrate > 0 ? "&maxBitRate=" + std::to_string(max_bitrate) : "") + (format.empty() ? "" : "&format=" + url_encode(format)));
 }
 std::string SubsonicClient::download_url(const std::string& id) const { return url_for("download", "id=" + url_encode(id)); }
 std::string SubsonicClient::cover_url(const std::string& c, int size) const {

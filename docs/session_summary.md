@@ -2,6 +2,10 @@
 
 Updated after every step. Newest first.
 
+## 2026-10-31 (app part 1: shell, library, playback)
+
+Owner wants to test each main part against a real server himself: see docs/TESTING.md (updated per part). I never contact his real server. Done: Worker pool + UI mailbox, cover ImageCache (disk + LRU textures), Config, App shell with Login (pin prompt), Home, Library, Artist, Album, Search, Queue, Settings, player bar, keyboard shortcuts, scrobble, queue restore, cache-first playback, async seek. Measured: idle 35MB PSS / 0.03% CPU, playing 36MB / 0.47% (old: 298 / 0.5-3 and 333 / 12), selftest startup 147ms. Next: credentials in OS keychain (libsecret), SQLite metadata cache + offline downloads UI, themes, MPRIS2, mini player, sleep timer, Last.fm, remote control, car mode, Android (SDL2 project; owner builds). Slow-device work for the G88: measure with cpulimit/cgroup caps; avoid per-frame allocations; keep damage-based redraw.
+
 ## 2026-10-31 (http/https + streaming)
 
 Owner: http and https must both work; playback order = permanent cache first, else web URL. Done: Player::load_url(url, cache_path, kind, opt, duration_hint): plays cache file if present, else streams into cache_path.part while decoding (blocking reads, seek beyond downloaded part waits), renames to cache_path on completion, removes the partial on failure/cancel. Self-signed servers: ConnectOptions.pin_sha256 + fetch_cert_fingerprint() for a trust-this-certificate prompt. Verified http and https (pinned self-signed) end to end against the fake server, ASAN/UBSAN/TSAN clean, 6 ctest green. Open: Range requests (seek currently waits for the sequential download), Windows Winsock shim, OS cert store on Windows/macOS/iOS (Linux and Android paths done).
