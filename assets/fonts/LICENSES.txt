@@ -1,0 +1,2 @@
+Roboto (Regular, Medium, Bold): Apache License 2.0, copyright Google. https://github.com/googlefonts/roboto
+Font Awesome Free 7 (solid subset, fa-solid-subset.ttf): fonts under SIL OFL 1.1, icons under CC BY 4.0, copyright Fonticons, Inc. https://fontawesome.com/license/free
