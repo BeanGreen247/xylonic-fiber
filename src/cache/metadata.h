@@ -63,6 +63,8 @@ struct SongView {
     const std::string& album_name() const;
     const std::string& format() const;
     const std::string& codec() const;
+    const std::string& id() const;
+    const std::string& album_artist_name() const;
 };
 
 class MetadataSnapshot {

@@ -45,6 +45,60 @@ void App::draw_now_playing(float W, float H) {
     if (u.hover(cl)) gfx_->fill_round(cl, 18 * s, th.hover);
     fa(skin::Xmark, cl.x + 18 * s, cl.y + 18 * s, 18, th.sub);
     if (u.clicked(cl) || u.in.escape) { np_open_ = false; mark(); return; }
+    // The desktop reference uses two columns, but that geometry cannot fit on
+    // a phone-sized window. Keep the overlay modal and put the same controls in
+    // a single, touch-friendly column for narrow displays.
+    if (W / s < 900.0f) {
+        float top = 78 * s;
+        float art_size = std::min({280.0f * s, W - 48 * s, H - 360 * s});
+        art_size = std::max(120.0f * s, art_size);
+        Rect ar{(W - art_size) / 2, top + 12 * s, art_size, art_size};
+        if (cur) {
+            if (SDL_Texture* t = cover(cur->cover_art, static_cast<int>(art_size / s))) gfx_->image_round(t, ar, 10 * s);
+            else gfx_->fill_round(ar, 10 * s, th.panel2);
+            T(700, 21, 24 * s, ar.y + ar.h + 16 * s, 26, cur->title, th.text, W - 48 * s);
+            T(400, 14, 24 * s, ar.y + ar.h + 47 * s, 20, cur->artist, th.sub, W - 48 * s);
+            Rect lk{W - 62 * s, ar.y + ar.h + 15 * s, 38 * s, 38 * s};
+            fa(skin::Heart, lk.x + 19 * s, lk.y + 19 * s, 20, cur->starred ? th.accent : th.sub);
+            if (u.clicked(lk) && client_) {
+                bool on = !cur->starred;
+                worker_->post([c = client_, id = cur->id, on] { std::string e; c->set_star(id, on, e); });
+                const_cast<Song*>(queue_.current())->starred = on;
+            }
+        }
+        float cy = H - 136 * s, px = 24 * s, pw = W - 48 * s;
+        float dur = static_cast<float>(player_.duration_seconds()), pos = static_cast<float>(player_.position_seconds());
+        Rect pb{px, cy, pw, 6 * s}, hit{px, cy - 8 * s, pw, 22 * s};
+        float v = dur > 0 ? std::min(1.0f, pos / dur) : 0;
+        if (u.in.pressed && hit.contains(u.in.mx, u.in.my)) u.active = kSeek;
+        if (u.active == kSeek && (u.in.down || u.in.released)) {
+            float nv = std::min(1.0f, std::max(0.0f, (u.in.mx - pb.x) / pb.w));
+            seek_drag_v_ = nv; v = nv;
+            if (u.in.released) { u.active = 0; if (dur > 0) player_.seek_seconds(nv * dur); }
+        }
+        gfx_->fill_round(pb, 3 * s, {255, 255, 255, 46});
+        if (v > 0) gfx_->fill_round({pb.x, pb.y, std::max(6 * s, pb.w * v), pb.h}, 3 * s, th.accent);
+        T(400, 10, px, cy + 12 * s, 15, mmss(static_cast<int>((u.active == kSeek ? seek_drag_v_ * dur : pos))), th.sub);
+        std::string total = mmss(static_cast<int>(dur));
+        T(400, 10, px + pw - gfx_->measure(F(400, 10), total), cy + 12 * s, 15, total, th.sub);
+        float ry = cy + 33 * s, mid = W / 2;
+        auto cb = [&](float cx, uint32_t ic, float size, bool on) {
+            Rect b{cx - 23 * s, ry + 20 * s, 46 * s, 46 * s};
+            if (u.hover(b)) gfx_->fill_round(b, 23 * s, th.hover);
+            fa(ic, b.x + 23 * s, b.y + 23 * s, size, on ? th.accent : th.sub);
+            return u.clicked(b);
+        };
+        if (cb(mid - 112 * s, skin::Shuffle, 16, queue_.shuffle())) queue_.set_shuffle(!queue_.shuffle());
+        if (cb(mid - 58 * s, skin::StepBack, 18, false)) prev_track();
+        Rect pp{mid - 30 * s, ry + 12 * s, 60 * s, 60 * s};
+        gfx_->circle(pp.x + 30 * s, pp.y + 30 * s, 30 * s, th.accent);
+        fa(player_.playing() ? skin::Pause : skin::Play, pp.x + 31 * s, pp.y + 30 * s, 22, rgb(0x000000));
+        if (u.clicked(pp)) toggle_play();
+        if (cb(mid + 58 * s, skin::StepFwd, 18, false)) next_track();
+        if (cb(mid + 112 * s, skin::Repeat, 16, queue_.repeat() != Repeat::Off))
+            queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
+        return;
+    }
     float body_top = 80 * s, body_h = H - 80 * s - 139 * s;
     // left column
     float lw = 432 * s, lx = 32 * s;

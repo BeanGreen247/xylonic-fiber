@@ -20,7 +20,13 @@ void App::run_search() {
     size_t b = q.find_first_not_of(" \t"), e = q.find_last_not_of(" \t");
     q = b == std::string::npos ? std::string() : q.substr(b, e - b + 1);
     if (q.empty()) { search_res_.artists.clear(); search_res_.albums.clear(); search_res_.songs.clear(); search_done_q_.clear(); mark(); return; }
-    if (!client_ || offline_) return;
+    if (!client_ || offline_) {
+        search_res_ = SubsonicClient::SearchAll{};
+        if (store_) search_res_.songs = store_->local_search(q);
+        search_done_q_ = q;
+        mark();
+        return;
+    }
     search_loading_ = true;
     worker_->post([this, c = client_, s = session_, q] {
         SubsonicClient::SearchAll r; std::string e;

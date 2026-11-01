@@ -78,6 +78,12 @@ bool Journal::recover(std::vector<JournalRecord>& records) const {
     return true;
 }
 
+bool Journal::compact() const {
+    const std::string temp = path_ + ".tmp";
+    { std::ofstream out(temp, std::ios::binary | std::ios::trunc); if (!out) return false; out.flush(); if (!out) { std::remove(temp.c_str()); return false; } }
+    return std::rename(temp.c_str(), path_.c_str()) == 0;
+}
+
 bool write_snapshot(const std::string& path, const std::string& payload) {
     const std::string temp = path + ".tmp";
     const std::string data = record(kData, 0, 0, payload);

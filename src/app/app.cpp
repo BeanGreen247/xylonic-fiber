@@ -186,7 +186,9 @@ void App::open_account_data() {
     downloads_.reset();
     if (store_) {
         auto c = client_;
-        downloads_ = std::make_unique<Downloads>(*store_, perm_dir_, [c](const std::string& id) { return c ? c->download_url(id) : std::string(); }, copt_, 2);
+        downloads_ = std::make_unique<Downloads>(*store_, perm_dir_, [c, q = cfg_.download_quality](const std::string& id) {
+            return c ? c->download_url(id, q) : std::string();
+        }, copt_, cfg_.concurrent_downloads);
         downloads_->set_on_change([this] { ui_post([this] { dl_dirty_ = true; mark(); }); });
     }
     dl_dirty_ = true;
@@ -333,7 +335,7 @@ void App::load_artist(const std::string& id) {
         bool ok = c->artist(id, a, e);
         ui_post([this, s, id, a = std::move(a), ok] {
             if (s != session_) return;
-            if (ok) { artist_cache_[id] = a; if (store_) store_->put("artist:" + id, to_json(a)); }
+            if (ok) { artist_cache_[id] = a; if (store_) { store_->put("artist:" + id, to_json(a)); for (const Album& al : a.albums) store_->index_album(al); } }
             else if (artist_cache_[id].id.empty()) artist_cache_.erase(id);
             mark();
         });
@@ -355,7 +357,7 @@ void App::load_album(const std::string& id) {
         bool ok = c->album(id, a, e);
         ui_post([this, s, id, a = std::move(a), ok] {
             if (s != session_) return;
-            if (ok) { album_cache_[id] = a; if (store_) store_->put("album:" + id, to_json(a)); }
+            if (ok) { album_cache_[id] = a; if (store_) { store_->put("album:" + id, to_json(a)); store_->index_album(a); } }
             else if (album_cache_[id].id.empty()) album_cache_.erase(id);
             mark();
         });

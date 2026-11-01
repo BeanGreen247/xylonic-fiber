@@ -11,6 +11,7 @@
 #include <thread>
 #include "../src/app/downloads.h"
 #include "../src/app/model_json.h"
+#include "../src/cache/journal.h"
 
 static int fails = 0;
 #define CHECK(c) do { if (!(c)) { std::printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); ++fails; } } while (0)
@@ -26,7 +27,7 @@ static void handle(int c) {
         size_t total = has("id=slow") ? 400000 : 50000;
         std::string h = "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(total) + "\r\n\r\n";
         send(c, h.data(), h.size(), MSG_NOSIGNAL);
-        std::string chunk(10000, 'x');
+        std::string chunk(10000, has("id=3") ? '3' : 'x');
         for (size_t off = 0; off < total; off += chunk.size()) {
             if (send(c, chunk.data(), chunk.size(), MSG_NOSIGNAL) <= 0) break;
             if (has("id=slow")) sleep_ms(60);
@@ -57,6 +58,26 @@ int main() {
       CHECK(s.put("home:newest", "[1]") && s.get("home:newest", v, &ts) && v == "[1]" && ts > 0);
       s.put("album:1", "x"); s.put("album:2", "y"); s.erase_prefix("album:"); CHECK(!s.get("album:1", v) && s.get("home:newest", v)); }
 
+    { Store s; CHECK(s.open(":memory:"));
+      Album indexed; indexed.id = "indexed"; indexed.name = "Cached Album"; indexed.artist = "Cached Artist";
+      indexed.songs = {mk("needle", "indexed")}; indexed.songs[0].title = "Needle Song";
+      CHECK(s.put("album:indexed", to_json(indexed)));
+      auto hits = s.local_search("needle");
+      CHECK(hits.size() == 1 && hits[0].id == "needle");
+    }
+
+    { char tmpl[] = "journal-store-XXXXXX"; int fd = mkstemp(tmpl); close(fd); unlink(tmpl);
+      std::string path = tmpl;
+      { Store s; CHECK(s.open(path)); }
+      { xf::cache::Journal j(path + ".journal"); std::string p(1, 'P'); uint32_t n = 13;
+        for (int i = 0; i < 4; ++i) p.push_back(static_cast<char>(n >> (i * 8)));
+        p += "album:journalpersisted"; CHECK(j.append_transaction(1, 1, {p})); }
+      // The JSON snapshot is removed to simulate a crash after the journal commit.
+      unlink(path.c_str());
+      { Store s; CHECK(s.open(path)); std::string v; CHECK(s.get("album:journal", v) && v == "persisted"); }
+      unlink(path.c_str()); unlink((path + ".journal").c_str());
+    }
+
     int lfd = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in ad{}; ad.sin_family = AF_INET; ad.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     bind(lfd, reinterpret_cast<sockaddr*>(&ad), sizeof ad); listen(lfd, 16);
@@ -78,6 +99,7 @@ int main() {
         CHECK(done == 3 && failed == 1);
         std::string p = d.path_if_done("1");
         struct stat sb{}; CHECK(!p.empty() && stat(p.c_str(), &sb) == 0 && sb.st_size == 50000);
+        CHECK(d.path_if_done("2") == p);  // identical bytes share one canonical file
         CHECK(d.path_if_done("missing").empty());
         auto albums = d.done_albums();
         CHECK(albums.size() == 2 && (albums[0].songs.size() + albums[1].songs.size()) == 3);
@@ -90,9 +112,12 @@ int main() {
         d.resume("slow");
         CHECK(wait_for([&] { return !d.path_if_done("slow").empty(); }));
         // remove
-        d.remove("2"); CHECK(d.path_if_done("2").empty() && access((dir + "/files/2.mp3").c_str(), F_OK) != 0);
+        std::string survivor = d.path_if_done("1");
+        d.remove("2"); CHECK(d.path_if_done("2").empty() && access(survivor.c_str(), F_OK) == 0);
         // verify drops rows whose file vanished
-        unlink((dir + "/files/3.mp3").c_str()); CHECK(d.verify() == 1 && d.path_if_done("3").empty());
+        std::string missing = d.path_if_done("3"); unlink(missing.c_str()); CHECK(d.verify() == 1 && d.path_if_done("3").empty());
+        FILE* orphan = std::fopen((dir + "/files/orphan.mp3").c_str(), "wb"); if (orphan) { std::fputs("orphan", orphan); std::fclose(orphan); }
+        CHECK(d.reconcile() == 1 && access((dir + "/files/orphan.mp3").c_str(), F_OK) != 0);
     }
     { // persistence across restart
         Store st; CHECK(st.open(dbp));

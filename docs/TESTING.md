@@ -33,6 +33,14 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 
 Reference capture tooling lives in the session scratchpad only; to recreate: run the old app with `ELECTRON_IS_DEV=0 electron . --user-data-dir=X --remote-debugging-port=9333`, log in to the fake Subsonic server, drive it over CDP (`Emulation.setDeviceMetricsOverride` 1024x768, `Page.captureScreenshot`, DOM walk with getBoundingClientRect/getComputedStyle).
 
+For native screenshots, use the executable's `--shot output.bmp --shot-after 1500 --size 1024x768` flags after starting the same fake server and login state. Compare the result pixel-for-pixel with:
+
+```sh
+tools/compare-screenshot.sh docs/ui-ref/home.png native-home.bmp native-home-diff.png
+```
+
+The command fails on any differing pixel and writes a visual diff when the third argument is supplied. Exact parity comparisons must use the same server fixture, account data, viewport, font assets, and settled wait time.
+
 ## Checklist for part 9 (audio features, MPRIS, mini player, remote)
 
 - Speed: click the 1x chip, pick 0.5x to 2x (pitch follows speed). Gapless: let a track end with another queued, no gap; the next track is prepared 15 s before the end.

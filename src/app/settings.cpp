@@ -427,6 +427,7 @@ void App::draw_settings(Rect r) {
     if (row(skin::Sync, "Preload Library Cache", "Fetches metadata and cover art for faster browsing", 1, false, "Start", true, 61)) start_cache_preload();
     if (row(0xf1f8, "Clear All Caches", "Deletes artwork, offline data, and precache flags", 2, false, "", false, 61)) {
         images_->clear_memory();
+        images_->clear_disk();
         if (store_) { store_->erase_prefix("home:"); store_->erase_prefix("artist"); store_->erase_prefix("album"); }
         album_cache_.clear(); artist_cache_.clear();
     }

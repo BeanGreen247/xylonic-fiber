@@ -25,6 +25,7 @@ public:
     void set_max_textures(size_t n) { max_ = n; evict(); }
     size_t resident() const { return tex_.size(); }
     void clear_memory();
+    int clear_disk();
 
 private:
     struct Entry { SDL_Texture* t; uint64_t tick; };

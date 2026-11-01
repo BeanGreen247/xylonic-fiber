@@ -2,9 +2,12 @@
 #include <chrono>
 #include <cstdio>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <unistd.h>
+#include <set>
 #include "../net/http.h"
 #include "model_json.h"
+#include <mbedtls/sha256.h>
 
 namespace {
 uint32_t now_ms() {
@@ -17,6 +20,8 @@ Downloads::Downloads(Store& store, std::string dir, std::function<std::string(co
     if (!dir_.empty() && dir_.back() != '/') dir_ += '/';
     for (auto& r : store_.dl_all())  // an interrupted run leaves rows Active: requeue them
         if (r.state == Active) store_.dl_set(r.id, Queued, 0, r.total, r.path);
+    reconcile();
+    verify();
     for (int i = 0; i < threads; ++i) th_.emplace_back([this] { loop(); });
 }
 
@@ -86,7 +91,9 @@ void Downloads::remove(const std::string& id) {
     }
     Store::Row r;
     if (store_.dl_get(id, r)) {
-        ::unlink(r.path.c_str());
+        bool shared = false;
+        for (const auto& other : store_.dl_all()) if (other.id != id && other.path == r.path) { shared = true; break; }
+        if (!shared) ::unlink(r.path.c_str());
         ::unlink((r.path + ".part").c_str());
         store_.dl_erase(id);
     }
@@ -107,6 +114,27 @@ int Downloads::verify() {
     }
     if (dropped) { last_notify_ = 0; changed(); }
     return dropped;
+}
+
+int Downloads::reconcile() {
+    if (dir_.empty()) return 0;
+    DIR* dir = ::opendir(dir_.c_str());
+    if (!dir) return 0;
+    std::set<std::string> owned;
+    for (const auto& r : store_.dl_all()) {
+        owned.insert(r.path);
+        owned.insert(r.path + ".part");
+    }
+    int removed = 0;
+    while (dirent* e = ::readdir(dir)) {
+        if (e->d_name[0] == '.') continue;
+        std::string path = dir_ + e->d_name;
+        struct stat st{};
+        if (::stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        if (owned.find(path) == owned.end() && ::unlink(path.c_str()) == 0) ++removed;
+    }
+    ::closedir(dir);
+    return removed;
 }
 
 std::string Downloads::path_if_done(const std::string& id) const {
@@ -192,7 +220,24 @@ bool Downloads::fetch(const Store::Row& row) {
     if (!still) { ::unlink(part.c_str()); changed(); return false; }
     if (ok && !canceled) {
         ::rename(part.c_str(), row.path.c_str());
-        store_.dl_set(row.id, Done, got, got, row.path);
+        unsigned char digest[32]{};
+        mbedtls_sha256_context sha; mbedtls_sha256_init(&sha); mbedtls_sha256_starts(&sha, 0);
+        FILE* in = std::fopen(row.path.c_str(), "rb");
+        char buf[16384]; size_t n = 0;
+        while (in && (n = std::fread(buf, 1, sizeof buf, in)) > 0) mbedtls_sha256_update(&sha, reinterpret_cast<const unsigned char*>(buf), n);
+        if (in) std::fclose(in);
+        mbedtls_sha256_finish(&sha, digest); mbedtls_sha256_free(&sha);
+        char hex[65]; for (int i = 0; i < 32; ++i) std::snprintf(hex + i * 2, 3, "%02x", digest[i]); hex[64] = 0;
+        std::string hash = hex, final_path = row.path;
+        // Serialize the hash lookup and publication so two workers finishing
+        // identical content cannot both become canonical files.
+        std::lock_guard<std::mutex> publish_lk(m_);
+        for (const auto& other : store_.dl_all()) {
+            if (other.id == row.id || other.state != Done || other.content_hash != hash || other.path == row.path) continue;
+            if (::access(other.path.c_str(), R_OK) == 0) { final_path = other.path; break; }
+        }
+        if (final_path != row.path) ::unlink(row.path.c_str());
+        store_.dl_set(row.id, Done, got, got, final_path, hash);
     } else if (canceled && !stop_) {
         store_.dl_set(row.id, Paused, 0, total, row.path);
         ::unlink(part.c_str());

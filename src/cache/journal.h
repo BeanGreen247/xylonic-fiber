@@ -18,6 +18,7 @@ public:
     explicit Journal(std::string path) : path_(std::move(path)) {}
     bool append_transaction(uint64_t transaction, uint64_t generation, const std::vector<std::string>& payloads) const;
     bool recover(std::vector<JournalRecord>& records) const;
+    bool compact() const;
 private:
     std::string path_;
 };

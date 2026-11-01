@@ -31,6 +31,8 @@ const std::string& SongView::artist_name() const { return valid() ? strings->get
 const std::string& SongView::album_name() const { return valid() ? strings->get(packed->album_name) : empty_string(); }
 const std::string& SongView::format() const { return valid() ? strings->get(packed->format) : empty_string(); }
 const std::string& SongView::codec() const { return valid() ? strings->get(packed->codec) : empty_string(); }
+const std::string& SongView::id() const { return valid() ? strings->get(packed->id) : empty_string(); }
+const std::string& SongView::album_artist_name() const { return valid() ? strings->get(packed->album_artist_name) : empty_string(); }
 
 std::string MetadataSnapshot::normalize(const std::string& value) {
     std::string out; out.reserve(value.size()); bool space = false;

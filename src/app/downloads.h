@@ -28,6 +28,7 @@ public:
     void remove(const std::string& id);          // cancels and deletes file + row
     void clear_all();
     int verify();                                // drops rows whose file is gone or short; returns how many
+    int reconcile();                             // removes unowned files and stale partials
     std::string path_if_done(const std::string& id) const;
     std::vector<Item> snapshot() const;
     int pending() const;                         // queued + active
