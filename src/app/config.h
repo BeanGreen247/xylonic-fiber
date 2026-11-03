@@ -7,13 +7,14 @@ struct Config {
     std::string server_url, username, pin_sha256;  // the password is never written to disk here
     int volume_pct = 80;
     int stream_quality = 0;  // max kbps, 0 = original
-    int download_quality = 0;   // kbps, 0 = original
+    int download_quality = 320;   // kbps, 0 = original (the original app defaults to 320)
     int concurrent_downloads = 3;
     int default_view = 0;       // Library default: 0 artists, 1 albums, 2 songs, 3 liked
     int car_minimal = 0;        // 0 auto, 1 always, 2 never
     bool car_keep_on = true, car_start = false, car_pulse = false, debug_log = false, render_timer = false;
     int perf_mode = 0;          // 0 balanced, 1 gaming, 2 eco
     bool be_controlled = true, control_others = true;
+    bool auto_offline_metered = false;   // switch to offline mode on a metered connection when songs are downloaded
     struct Conn { std::string url, user; int64_t last_used = 0; };   // connectionHistoryService: newest first, max 10
     std::vector<Conn> conns;
     void remember_connection(const std::string& url, const std::string& user);

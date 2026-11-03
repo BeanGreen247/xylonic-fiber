@@ -8,7 +8,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "../cache/metadata.h"
+#include "../cache/batch.h"
+#include "../cache/generation.h"
 #include "../cache/journal.h"
 #include "../subsonic/model.h"
 
@@ -19,14 +20,28 @@ public:
     bool put(const std::string& key, const std::string& value);
     bool get(const std::string& key, std::string& value, int64_t* ts = nullptr);
     void erase_prefix(const std::string& prefix);
-    struct Row { std::string id, album_id, path, song_json, content_hash; int state = 0; int64_t bytes = 0, total = 0; };
+    struct Row { std::string id, album_id, path, song_json, content_hash; int state = 0; int64_t bytes = 0, total = 0; int quality = -1; };   // quality kbps, 0 original, -1 default setting
     bool dl_upsert(const Row& r);
     bool dl_set(const std::string& id, int state, int64_t bytes, int64_t total, const std::string& path, const std::string& content_hash = "");
     bool dl_get(const std::string& id, Row& out);
     std::vector<Row> dl_all();
     bool dl_erase(const std::string& id);
     void index_album(const Album& album);
+    void index_songs(const std::vector<Song>& songs);   // e.g. the starred list from the server
     std::vector<Song> local_search(const std::string& query, size_t limit = 50) const;
+    // Query API over the indexed metadata (likes, playlists, per-song technical fields).
+    bool song(const std::string& id, Song& out) const;
+    void set_liked(const std::string& id, bool liked);
+    bool liked(const std::string& id) const;
+    std::vector<Song> liked_songs() const;
+    void set_playlist(const std::string& id, const std::vector<Song>& songs);
+    bool playlist_contains(const std::string& playlist_id, const std::string& song_id) const;
+    uint64_t metadata_generation() const;
+    struct Stats { size_t songs = 0, liked = 0, downloads = 0, kv_entries = 0, artists = 0, albums = 0; uint64_t generation = 0, index_bytes = 0; };
+    std::unordered_map<std::string, std::string> cover_alias() const;   // song cover id -> album cover id, from the cached albums
+    void clear_library();            // cached artists/albums and the search index (downloads and flags stay)
+    void compact_metadata();         // fold the journal into the snapshot and persist the search index
+    Stats stats() const;
 
 private:
     bool load_locked();
@@ -45,8 +60,11 @@ private:
     std::unique_ptr<xf::cache::Journal> journal_;
     uint64_t transaction_ = 0;
     uint64_t generation_ = 0;
-    xf::cache::MetadataSnapshot metadata_;
-    std::unordered_map<std::string, Song> indexed_songs_;
-    void rebuild_index_locked();
-    void index_song_locked(const Song& song);
+    std::unique_ptr<xf::cache::MetadataStore> meta_;
+    void index_songs_locked(const std::vector<Song>& songs) const;
+    mutable bool index_stale_ = false;   // set when an album refresh dropped songs; rebuilt on the next search
+    int unsaved_ops_ = 0;                // journal-covered mutations since the last full JSON write
+    void rebuild_index_locked() const;
+    void ensure_index_locked() const { if (index_stale_) rebuild_index_locked(); }
+    bool maybe_save_locked();
 };

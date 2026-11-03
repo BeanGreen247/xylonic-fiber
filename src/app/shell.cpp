@@ -72,21 +72,27 @@ void App::draw_main(float W, float H) {
     const float s = S_;
     Ui& uin = *ui_;
     Input saved = uin.in;
-    if (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
+    if (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_ || pre_open_ || newcontent_open_ || prompt_ != Prompt::None) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
+    mobile_ = W / s <= 767.0f;   // LayoutModeContext COMPACT_MAX; decided before any full-screen view
     struct Restore { App* a; Input saved; ~Restore() { } } restore{this, saved};
     (void)restore;
     if (car_open_) { draw_car_mode(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } return; }
     if (np_open_) { draw_now_playing(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); } return; }
-    draw_nav(H);
+    mobile_ = W / s <= 767.0f;   // LayoutModeContext COMPACT_MAX
+    banner_h_ = (missing_banner_ && !offline_) ? (mobile_ ? 47.0f : 60.0f) * s : 0.0f;
+    if (!mobile_) draw_nav(H);
     draw_header(W);
-    float navw = (nav_expanded_ ? 200.0f : skin::kNavW) * s, top = skin::kHeaderH * s, bar = skin::kPlayerH * s;
-    Rect content{navw, top, W - navw, H - top - bar};
+    const float hh = (mobile_ ? 56.0f : static_cast<float>(skin::kHeaderH)) * s;
+    { float bh = 0; draw_missing_banner(W, hh, bh); }
+    const float bnav = mobile_ ? 56 * s : 0;
+    float navw = mobile_ ? 0.0f : (nav_expanded_ ? 200.0f : skin::kNavW) * s, top = hh, bar = (mobile_ ? 60.0f : skin::kPlayerH) * s;
+    Rect content{navw, top + banner_h_, W - navw, H - top - banner_h_ - bar - bnav};
     View& v = views_.back();
     Rect body{content.x, content.y, content.w, content.h};
     // The player bar is drawn after the page, so shield the page from the same
     // mouse release. This also keeps an active seek/volume drag from reaching
     // rows underneath when the pointer leaves the bar.
-    const bool player_input = (uin.in.mx >= navw && uin.in.my >= H - bar) || uin.active == kSeek || uin.active == kVol;
+    const bool player_input = (uin.in.mx >= navw && uin.in.my >= H - bar - bnav) || uin.active == kSeek || uin.active == kVol;
     if (player_input) {
         uin.in.mx = uin.in.my = -1000;
         uin.in.pressed = uin.in.released = uin.in.rclick = false;
@@ -106,12 +112,14 @@ void App::draw_main(float W, float H) {
     }
     gfx_->clip(nullptr);
     uin.in = saved;
-    draw_player_bar({navw, H - bar, W - navw, bar});
+    if (mobile_) { draw_player_bar_mobile({0, H - bar - bnav, W, bar}); uin.in = saved; draw_bottom_nav(W, H); }
+    else draw_player_bar({navw, H - bar, W - navw, bar});
     draw_right_panel(W, H);
     if (hamburger_open_) { uin.in = saved; draw_hamburger(W, H); }
     if (add_song_) { uin.in = saved; draw_add_to_playlist(W, H); return; }
     if (show_help_) { uin.in = saved; draw_help(W, H); return; }
     if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); }
+    if (client_ && modal_ == Modal::None && !offline_ && client_->auth_failed()) { modal_ = Modal::Reauth; reauth_pass_.clear(); reauth_msg_.clear(); }
     if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); }
 }
 
@@ -119,31 +127,46 @@ void App::draw_header(float W) {
     Ui& u = *ui_;
     const float s = S_;
     const Theme& th = u.th;
-    Rect hdr{0, 0, W, skin::kHeaderH * s};
+    const bool mob = W / s <= 767.0f;
+    Rect hdr{0, 0, W, (mob ? 56.0f : static_cast<float>(skin::kHeaderH)) * s};
     gfx_->fill(hdr, th.panel);
     gfx_->fill({0, hdr.h, W, 1 * s}, {0, 0, 0, 77});   // elevation-2 shadow, approximated by three fading rows
     gfx_->fill({0, hdr.h + s, W, 2 * s}, {0, 0, 0, 38});
     gfx_->fill({0, hdr.h + 3 * s, W, 2 * s}, {0, 0, 0, 16});
     // brand
-    svg(0, {24 * s, 18 * s, 28 * s, 28 * s}, {255, 255, 255, 255});
-    gfx_->set_letter_spacing(-0.5f * s);
-    T(600, 24, 64 * s, 14 * s, 36, "Xylonic", th.accent);
-    gfx_->set_letter_spacing(0);
+    const bool brand_text = true;
+    if (mob) {   // .header (compact): 56 px, padding 0 12, logo + 20 px title; search, Remote, Mini and the links are hidden
+        svg(0, {12 * s, 14 * s, 28 * s, 28 * s}, {255, 255, 255, 255});
+        gfx_->set_letter_spacing(-0.5f * s);
+        T(600, 20, 52 * s, 10 * s, 36, "Xylonic", th.accent);
+        gfx_->set_letter_spacing(0);
+    } else {
+        svg(0, {24 * s, 18 * s, 28 * s, 28 * s}, {255, 255, 255, 255});
+        gfx_->set_letter_spacing(-0.5f * s);
+        T(600, 24, 64 * s, 14 * s, 36, "Xylonic", th.accent);
+        gfx_->set_letter_spacing(0);
+    }
+    (void)brand_text;
     auto round_btn = [&](Rect r, float hover_r) {
         if (u.hover(r)) gfx_->fill_round(r, hover_r, th.hover);
         return u.clicked(r);
     };
-    Rect gh{155 * s, 10 * s, 44 * s, 44 * s};
-    if (round_btn(gh, 22 * s)) SDL_OpenURL("https://github.com/BeanGreen247/xylonic-fiber");
-    svg(1, {gh.x + 13 * s, gh.y + 13 * s, 18 * s, 18 * s}, th.sub);
-    Rect sup{215 * s, 10 * s, 44 * s, 44 * s};
-    if (round_btn(sup, 22 * s)) SDL_OpenURL("https://github.com/sponsors/BeanGreen247");
-    fa(skin::Heart, sup.x + 22 * s, sup.y + 22 * s, 18, th.sub);
+    if (!mob) {
+        Rect gh{155 * s, 10 * s, 44 * s, 44 * s};
+        if (round_btn(gh, 22 * s)) SDL_OpenURL("https://github.com/BeanGreen247/xylonic-fiber");
+        svg(1, {gh.x + 13 * s, gh.y + 13 * s, 18 * s, 18 * s}, th.sub);
+        Rect sup{215 * s, 10 * s, 44 * s, 44 * s};
+        if (round_btn(sup, 22 * s)) SDL_OpenURL("https://github.com/sponsors/BeanGreen247");
+        fa(skin::Heart, sup.x + 22 * s, sup.y + 22 * s, 18, th.sub);
+    }
 
+    if (!mob) {
     // centre group: search, Remote, Mini (measured: 200 + 12 + 116 + 12 + 95, centred in the header centre area)
-    float gx = 394 * s;
+    const bool mid = W / s < 900;   // 768-899 px: the search shrinks to 160 and the group re-centres (measured on the original at 850 px)
+    const float sw = (mid ? 160.0f : 200.0f) * s;
+    float gx = mid ? ((259.0f + (W / s - 24 - 36)) / 2 - (160 + 12 + 116 + 12 + 95) / 2.0f) * s : 394 * s;
     Color edge = alpha(th.primary_light, 0.464f);
-    Rect sb{gx, 14 * s, 200 * s, 35 * s};
+    Rect sb{gx, 14 * s, sw, 35 * s};
     gfx_->fill_round(sb, 17.5f * s, th.panel);
     gfx_->stroke_round(sb, 17.5f * s, 1 * s, edge, th.panel);
     fa(skin::Search, sb.x + 16 * s, sb.y + sb.h / 2, 12, th.sub);
@@ -154,7 +177,7 @@ void App::draw_header(float W) {
         bool changed = u.text_field(kSearch, fld, search_q_, "Search", false, false, 36 * s, F(400, 13));
         if (u.focus == kSearch && nav_ != Nav::Search) { search_prev_nav_ = nav_; nav_ = Nav::Search; views_.clear(); views_.push_back({ViewKind::Root, "", "Search", {}}); }
         if (changed || search_q_ != before) { search_pending_ = true; search_due_ = SDL_GetTicks() + 300; if (search_q_.empty()) run_search(); }
-        if (nav_ != Nav::Search && search_q_.empty() && u.focus != kSearch) {
+        if (!mob && nav_ != Nav::Search && search_q_.empty() && u.focus != kSearch) {
             T(400, 11, sb.x + 36 * s + 46 * s, sb.y + 1 * s, 35, "Ctrl+K", alpha(th.sub, 0.7f));
         }
         if (!search_q_.empty()) {
@@ -172,18 +195,44 @@ void App::draw_header(float W) {
         T(500, 14, r.x + 46 * s, r.y, r.h / s, label, th.text);
         return u.clicked(r);
     };
-    if (W / s >= 900) {
-        if (pill({606 * s, 10 * s, 116 * s, 43 * s}, skin::Satellite, remote_mode_ ? "Remote \xE2\x97\x8F" : "Remote")) modal_ = Modal::Remote;
-        if (pill({734 * s, 10 * s, 95 * s, 43 * s}, skin::Compress, "Mini")) toggle_mini();
-    } else {
-        Rect menu{W - 112 * s, 10 * s, 44 * s, 44 * s};
-        if (round_btn(menu, 22 * s)) { hamburger_open_ = !hamburger_open_; mark(); }
-        fa(skin::List, menu.x + 22 * s, menu.y + 22 * s, 17, hamburger_open_ ? th.accent : th.sub);
+    {
+        const Rect rb{gx + sw + 12 * s, 10 * s, 116 * s, 43 * s}, mb{rb.x + rb.w + 12 * s, 10 * s, 95 * s, 43 * s};
+        if (pill(rb, skin::Satellite, remote_mode_ ? "Remote \xE2\x97\x8F" : "Remote")) modal_ = Modal::Remote;
+        const bool has_song = queue_.current() != nullptr;           // Mini Player is disabled until a song is loaded
+        if (pill(mb, skin::Compress, "Mini") && has_song) toggle_mini();
+        if (!has_song) gfx_->fill_round(mb, 21.5f * s, {th.panel.r, th.panel.g, th.panel.b, 150});
     }
-    // offline toggle (globe)
-    Rect gl{W - 60 * s, 14 * s, 36 * s, 36 * s};
-    if (round_btn(gl, 18 * s)) { offline_ = !offline_; load_home(); load_artists(); for (int i = 0; i < 4; ++i) load_section(i); }
-    fa(skin::Globe, gl.x + 18 * s, gl.y + 18 * s, 14, offline_ ? th.accent : th.sub);
+    }
+    // .header-right: offline toggle (globe; plane + "Offline" when active), then the Gaming/Eco badge
+    {
+        float right = W - (mob ? 12.0f : 24.0f) * s;
+        const float hy = ((mob ? 56.0f : 64.0f) - 36.0f) / 2 * s;
+        if (cfg_.perf_mode != 0) {
+            const bool gaming = cfg_.perf_mode == 1;
+            Rect bd{right - 36 * s, hy, 36 * s, 36 * s};
+            const Color col = gaming ? rgb(0xff9f0a) : rgb(0x1db954);
+            gfx_->circle(bd.x + 18 * s, bd.y + 18 * s, 18 * s, alpha(col, 0.12f));
+            gfx_->ring(bd.x + 18 * s, bd.y + 18 * s, 18 * s, 1 * s, alpha(col, 0.35f));
+            fa(gaming ? 0xf11bu : 0xf06cu, bd.x + 18 * s, bd.y + 18 * s, 15, col);
+            right -= 36 * s + 12 * s;
+        }
+        const int fl = F(600, 12);
+        const float lw = offline_ ? gfx_->measure(fl, "Offline") + 6 * s : 0;
+        const float gw = offline_ ? 10 * s + 14 * s + lw + 12 * s : 36 * s;
+        Rect gl{right - gw, hy, gw, 36 * s};
+        if (offline_) {
+            gfx_->fill_round(gl, 18 * s, alpha(th.accent, u.hover(gl) ? 0.22f : 0.14f));
+            gfx_->stroke_round(gl, 18 * s, 1 * s, alpha(th.accent, 0.45f), th.panel);
+            fa(0xf072, gl.x + 10 * s + 7 * s, gl.y + 18 * s, 14, th.accent);
+            gfx_->set_letter_spacing(0.3f * s);
+            T(600, 12, gl.x + 10 * s + 20 * s, gl.y, 36, "Offline", th.accent);
+            gfx_->set_letter_spacing(0);
+        } else {
+            if (u.hover(gl)) gfx_->fill_round(gl, 18 * s, th.hover);
+            fa(skin::Globe, gl.x + 18 * s, gl.y + 18 * s, 14, th.sub);
+        }
+        if (u.clicked(gl)) toggle_offline();
+    }
 }
 
 void App::draw_hamburger(float W, float H) {
@@ -191,7 +240,7 @@ void App::draw_hamburger(float W, float H) {
     const float s = S_;
     const Theme& th = u.th;
     const float mw = 320 * s;
-    const float mh = 7 * 48 * s + 16 * s;
+    const float mh = 10 * 48 * s + 16 * s;
     Rect menu{std::max(8 * s, W - mw - 8 * s), skin::kHeaderH * s + 8 * s, mw, std::min(mh, H - skin::kHeaderH * s - 16 * s)};
     if (u.in.escape || (u.in.pressed && !menu.contains(u.in.mx, u.in.my))) { hamburger_open_ = false; return; }
     gfx_->fill_round({menu.x - 1, menu.y - 1, menu.w + 2, menu.h + 2}, 13 * s, th.border);
@@ -201,9 +250,10 @@ void App::draw_hamburger(float W, float H) {
         {skin::Satellite, "Remote devices", 0}, {skin::Compress, "Mini player", 1},
         {skin::Download, "Downloads", 2}, {skin::Gear, "Settings", 3},
         {skin::CircleQuestion, "Keyboard help", 4}, {skin::Globe, "Offline mode", 5},
+        {skin::ListUl, "Queue", 7}, {skin::History, "Recently played", 8}, {skin::Music, "Playlists", 9},
         {skin::SignOut, "Sign out", 6}
     };
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < 10; ++i) {
         Rect row{menu.x + 8 * s, menu.y + 8 * s + i * 48 * s, menu.w - 16 * s, 44 * s};
         if (u.hover(row)) gfx_->fill_round(row, 9 * s, th.hover);
         fa(items[i].icon, row.x + 24 * s, row.y + 22 * s, 16, th.accent);
@@ -216,8 +266,11 @@ void App::draw_hamburger(float W, float H) {
         case 2: set_nav(Nav::Downloads); break;
         case 3: set_nav(Nav::Settings); break;
         case 4: show_help_ = true; break;
-        case 5: offline_ = !offline_; load_home(); load_artists(); for (int j = 0; j < 4; ++j) load_section(j); break;
+        case 5: toggle_offline(); break;
         case 6: logout(); break;
+        case 7: toggle_panel(PanelTab::Queue); break;
+        case 8: toggle_panel(PanelTab::History); break;
+        case 9: toggle_panel(PanelTab::Playlists); break;
         default: break;
         }
         mark();
@@ -230,7 +283,7 @@ void App::draw_nav(float H) {
     const float s = S_;
     const Theme& th = u.th;
     const bool expanded = nav_expanded_;
-    const float top = skin::kHeaderH * s;
+    const float top = skin::kHeaderH * s + banner_h_;
     const float nw = (expanded ? 200.0f : skin::kNavW) * s;
     gfx_->fill({0, top, nw, H - top}, th.panel);
     struct Item { Nav n; uint32_t icon; const char* tip; };
@@ -330,6 +383,20 @@ void App::draw_player_bar(Rect r) {
     }
     // right: speed, quality, volume
     float right = x0 + w - 10 * s;
+    // Queue, History, Playlists panel toggles (same tabs as the Q/H/P keys), far right of the bar.
+    // Narrower windows keep the 1024x768 reference layout; the same panels are in the menu and on Q/H/P.
+    if ((r.x + r.w) / s >= 1100.0f) {
+        const struct { uint32_t icon; PanelTab tab; } tabs[3] = {{skin::ListUl, PanelTab::Queue}, {skin::History, PanelTab::History}, {skin::Music, PanelTab::Playlists}};
+        for (int i = 0; i < 3; ++i) {
+            Rect b{right - (3 - i) * 34 * s + 2 * s, cy + 7 * s, 30 * s, 30 * s};
+            const bool on = panel_open_ && panel_tab_ == tabs[i].tab;
+            if (on) gfx_->fill_round(b, 8 * s, alpha(th.accent, 0.16f));
+            else if (u.hover(b)) gfx_->fill_round(b, 8 * s, th.hover);
+            fa(tabs[i].icon, b.x + b.w / 2, b.y + b.h / 2, 14, on ? th.accent : th.sub);
+            if (u.clicked(b)) toggle_panel(tabs[i].tab);
+        }
+        right -= 108 * s;
+    }
     Rect vol{right - 80 * s, cy + 10 * s, 80 * s, 24 * s};
     Rect qual{vol.x - 16 * s - 120 * s, cy + 6 * s, 120 * s, 32 * s};
     Rect spd{qual.x - 16 * s - 52 * s, cy + 9 * s, 52 * s, 26 * s};
@@ -408,7 +475,7 @@ void App::draw_player_bar(Rect r) {
     gfx_->fill_round({vs.x, vs.y, std::max(4 * s, vs.w * vol_), vs.h}, 2 * s, th.accent);
 
     // centre: transport, centred between the info block and the right controls
-    float gap_l = info.x + 200 * s, gap_r = right - 366 * s;
+    float gap_l = info.x + 200 * s, gap_r = right - 366 * s;  // right already excludes the panel toggles
     float mid = (gap_l + gap_r) / 2 + 3 * s;  // group centre: measured 464 at 1024 wide
     auto cbtn = [&](float cx, uint32_t ic, bool on) {
         Rect b{cx - 16.5f * s, cy + 12 * s, 33 * s, 27 * s};
@@ -429,11 +496,107 @@ void App::draw_player_bar(Rect r) {
     if (queue_.repeat() == Repeat::One) T(700, 8, mid + 59.5f * s + 4 * s, cy + 12 * s, 10, "1", th.accent);
     bool liked = cur && cur->starred;
     if (cbtn(mid + 102.5f * s, skin::Heart, liked) && cur && client_) {
-        Song sg = *cur;
-        bool on = !sg.starred;
-        worker_->post([c = client_, id = sg.id, on] { std::string e; c->set_star(id, on, e); });
-        const_cast<Song*>(queue_.current())->starred = on;
+        set_current_liked(!cur->starred);
     }
+}
+
+// Compact player bar (PlaybackControls at <=680 px): 2 px progress line, 40 px cover, title/artist, previous, 52 px play, next.
+// Tapping it while a song is loaded opens Now Playing.
+void App::draw_player_bar_mobile(Rect r) {
+    Ui& u = *ui_;
+    const float s = S_;
+    const Theme& th = u.th;
+    gfx_->fill(r, th.panel);
+    gfx_->fill({r.x, r.y - 4 * s, r.w, 4 * s}, {0, 0, 0, 22});
+    const Song* cur = queue_.current();
+    const float dur = static_cast<float>(player_.duration_seconds()), pos = static_cast<float>(player_.position_seconds());
+    gfx_->fill({r.x, r.y, r.w, 2 * s}, {255, 255, 255, 46});
+    if (dur > 0) gfx_->fill({r.x, r.y, r.w * std::min(1.0f, pos / dur), 2 * s}, th.accent);
+    const float row_y = r.y + 2 * s, row_h = 58 * s;
+    const float right = r.x + r.w - 12 * s;
+    Rect nb{right - 44 * s, row_y + 7 * s, 44 * s, 44 * s};
+    Rect pb{nb.x - 8 * s - 52 * s, row_y + 3 * s, 52 * s, 52 * s};
+    Rect vb{pb.x - 8 * s - 44 * s, row_y + 7 * s, 44 * s, 44 * s};
+    Rect cv{r.x + 12 * s, row_y + 9 * s, 40 * s, 40 * s};
+    const float tx = cv.x + cv.w + 12 * s, tw = vb.x - 12 * s - tx;
+    if (cur) {
+        if (SDL_Texture* t = cover(cur->cover_art, 40, cur->artist, cur->album)) gfx_->image_round(t, cv, 8 * s); else draw_art_fallback(cv, cur->cover_art, 8 * s);
+        T(600, 13, tx, row_y + 11 * s, 19.5f, cur->title, th.text, tw);
+        T(400, 11, tx, row_y + 30 * s, 16.5f, track_loading_ ? "Loading..." : !play_err_.empty() ? play_err_ : cur->artist, play_err_.empty() ? th.sub : th.danger, tw);
+    } else {
+        gfx_->fill_round(cv, 8 * s, th.panel2);
+        fa(skin::Music, cv.x + cv.w / 2, cv.y + cv.h / 2, 16, {255, 255, 255, 90});
+        T(600, 13, tx, row_y + 11 * s, 19.5f, "No song playing", th.text, tw);
+        T(400, 11, tx, row_y + 30 * s, 16.5f, "\xE2\x80\x94", th.sub);
+    }
+    if (cur && u.clicked({r.x, r.y, vb.x - r.x, r.h})) { np_open_ = true; mark(); }
+    auto round_btn = [&](Rect b, uint32_t icon, float px, bool enabled) {
+        if (enabled && u.hover(b)) gfx_->fill_round(b, b.w / 2, th.hover);
+        fa(icon, b.x + b.w / 2, b.y + b.h / 2, px, enabled ? th.text : alpha(th.text, 0.4f));
+        return enabled && u.clicked(b);
+    };
+    if (round_btn(vb, skin::StepBack, 18, cur != nullptr)) prev_track();
+    const bool playing = player_.playing();
+    gfx_->circle(pb.x + 26 * s, pb.y + 26 * s, 26 * s, cur ? (u.hover(pb) ? rgb(0xe8e8e8) : rgb(0xffffff)) : rgb(0x2d2d2d));
+    fa(playing ? skin::Pause : skin::Play, pb.x + 26 * s + (playing ? 0 : 1 * s), pb.y + 26 * s, 20, cur ? rgb(0x121212) : alpha(th.text, 0.35f));
+    if (cur && u.clicked(pb)) toggle_play();
+    if (round_btn(nb, skin::StepFwd, 18, cur != nullptr)) next_track();
+}
+
+// MobileBottomNav: Home (disabled offline), Library, Search, Queue (submenu: Queue / History / Playlists), Settings.
+void App::draw_bottom_nav(float W, float H) {
+    Ui& u = *ui_;
+    const float s = S_;
+    const Theme& th = u.th;
+    Rect r{0, H - 56 * s, W, 56 * s};
+    gfx_->fill({r.x, r.y - 4 * s, r.w, 4 * s}, {0, 0, 0, 40});
+    gfx_->fill(r, th.panel);
+    gfx_->fill({r.x, r.y, r.w, 1 * s}, {255, 255, 255, 33});
+    static const struct { PanelTab tab; uint32_t icon; const char* label; } panel_items[3] = {{PanelTab::Queue, skin::ListUl, "Queue"}, {PanelTab::History, skin::History, "History"}, {PanelTab::Playlists, skin::Music, "Playlists"}};
+    int active_tab = 0; for (int i = 0; i < 3; ++i) if (panel_items[i].tab == panel_tab_) active_tab = i;
+    const float iw = W / 5;
+    auto item = [&](int i, uint32_t icon, const char* label, bool active, bool disabled) {
+        Rect ir{r.x + i * iw, r.y, iw, r.h};
+        const Color col = disabled ? alpha(th.sub, 0.35f) : active ? th.accent : th.sub;
+        fa(icon, ir.x + iw / 2, ir.y + 21 * s, 20, col);
+        const int f = F(500, 10);
+        gfx_->set_letter_spacing(0.2f * s);
+        gfx_->text(f, ir.x + (iw - gfx_->measure(f, label)) / 2, ir.y + 33 * s, label, col);
+        gfx_->set_letter_spacing(0);
+        return !disabled && u.clicked(ir);
+    };
+    const bool searching = nav_ == Nav::Search && !panel_open_;
+    if (item(0, skin::House, "Home", nav_ == Nav::Home && !panel_open_ && !searching && views_.size() <= 1, offline_)) { panel_open_ = false; bottom_menu_open_ = false; set_nav(Nav::Home); }
+    if (item(1, skin::BookOpen, "Library", nav_ == Nav::Library && !panel_open_ && !searching, false)) { panel_open_ = false; bottom_menu_open_ = false; set_nav(Nav::Library); }
+    if (item(2, skin::Search, "Search", searching, false)) { panel_open_ = false; bottom_menu_open_ = false; set_nav(Nav::Search); ui_->focus = kSearch; }
+    if (item(3, panel_open_ ? panel_items[active_tab].icon : skin::ListUl, panel_open_ ? panel_items[active_tab].label : "Queue", panel_open_ || bottom_menu_open_, false)) bottom_menu_open_ = !bottom_menu_open_;
+    if (item(4, skin::Gear, "Settings", nav_ == Nav::Settings && !panel_open_, false)) { panel_open_ = false; bottom_menu_open_ = false; set_nav(Nav::Settings); }
+    if (bottom_menu_open_) {   // .mobile-nav-submenu: 148+ wide, 3 rows of 43, 8 px above the nav, centred over the Queue button
+        const float mw = 148 * s, rh = 43 * s;
+        Rect m{r.x + 3 * iw + iw / 2 - mw / 2, r.y - 8 * s - rh * 3, mw, rh * 3};
+        m.x = std::min(m.x, W - mw - 4 * s);
+        gfx_->fill_round({m.x - 1, m.y - 1, m.w + 2, m.h + 2}, 12 * s, {255, 255, 255, 61});
+        gfx_->fill_round(m, 12 * s, th.panel);
+        bool picked = false;
+        for (int i = 0; i < 3; ++i) {
+            Rect ir{m.x, m.y + i * rh, m.w, rh};
+            const bool on = panel_open_ && panel_tab_ == panel_items[i].tab;
+            if (u.hover(ir)) gfx_->fill(ir, th.hover);
+            if (i) gfx_->fill({ir.x, ir.y, ir.w, 1 * s}, {255, 255, 255, 15});
+            fa(panel_items[i].icon, ir.x + 16 * s + 9 * s, ir.y + rh / 2, 16, on ? th.accent : th.sub);
+            T(500, 14, ir.x + 16 * s + 28 * s, ir.y, 43, panel_items[i].label, on ? th.accent : th.sub);
+            if (u.clicked(ir)) { toggle_panel(panel_items[i].tab); picked = true; }
+        }
+        if (picked || (u.in.pressed && !m.contains(u.in.mx, u.in.my) && !Rect{r.x + 3 * iw, r.y, iw, r.h}.contains(u.in.mx, u.in.my))) { bottom_menu_open_ = false; mark(); }
+    }
+}
+
+void App::set_current_liked(bool on) {
+    const Song* cur = queue_.current();
+    if (!cur || !client_) return;
+    worker_->post([c = client_, id = cur->id, on] { std::string e; c->set_star(id, on, e); });
+    const_cast<Song*>(cur)->starred = on;
+    if (store_) store_->set_liked(cur->id, on);
 }
 
 // ---------------------------------------------------------------- Discover
@@ -471,21 +634,38 @@ void App::draw_discover(Rect r) {
     const float s = S_;
     const Theme& th = u.th;
     if (offline_) {
-        // offline: the old app shows a single message; here the downloaded albums are listed instead (Discover needs a server)
+        // DiscoverView offline: a single centred message (.discover-offline: padding 80, gap 16, icon 52)
+        const float cx = r.x + r.w / 2, top = r.y + (mobile_ ? 12.0f : 24.0f) * s + 80 * s;
+        fa(0xf05e, cx, top + 26 * s, 52, {th.sub.r, th.sub.g, th.sub.b, 150});
+        const std::string m = "Discover requires an online connection";
+        T(400, 16, cx - gfx_->measure(F(400, 16), m) / 2, top + (52 + 16) * s, 24, m, th.sub);
+        return;
     }
-    const float pad = skin::kContentPad * s;
-    float cw = skin::kCardW * s, ch = skin::kCardH * s, gap = skin::kCardGap * s;
-    float total = 48 * s + 32 * s + 4 * (32 * s + 16 * s + 254 * s + 48 * s);
+    // Compact (<=767 px): main-content padding 12, h2 24 px, 180x133 cards (5 px padding, 170x100 cover, 11 px name only), no arrows.
+    const bool cp = mobile_;
+    const float pad = (cp ? 12.0f : static_cast<float>(skin::kContentPad)) * s;
+    float cw = (cp ? 180.0f : skin::kCardW) * s, ch = (cp ? 133.0f : skin::kCardH) * s, gap = (cp ? 24.0f : skin::kCardGap) * s;
+    const float row_h = (cp ? 148.0f : 254.0f) * s;
+    float total = (cp ? 52.0f : 80.0f) * s + 4 * (32 * s + 16 * s + row_h + 48 * s);
     if (u.hover(r)) discover_scroll_.y -= u.in.wheel * 60 * s;
     discover_scroll_.clamp(total + 2 * pad, r.h);
     float x = r.x + pad, y = r.y + pad - discover_scroll_.y, w = r.w - 2 * pad - 12 * s;  // 12px scrollbar gutter
     // title row
-    gfx_->circle(x + 18 * s, y + 24 * s, 17 * s, th.accent);
-    fa(skin::Compass, x + 18 * s, y + 24 * s, 22, th.accent_text);
-    gfx_->set_letter_spacing(-0.32f * s);
-    T(700, 32, x + 52 * s, y, 48, "Discover", th.text);
-    gfx_->set_letter_spacing(0);
-    y += 80 * s;
+    if (cp) {
+        gfx_->circle(x + 14 * s, y + 18 * s, 13 * s, th.accent);
+        fa(skin::Compass, x + 14 * s, y + 18 * s, 17, th.accent_text);
+        gfx_->set_letter_spacing(-0.24f * s);
+        T(700, 24, x + 40 * s, y, 36, "Discover", th.text);
+        gfx_->set_letter_spacing(0);
+        y += 52 * s;
+    } else {
+        gfx_->circle(x + 18 * s, y + 24 * s, 17 * s, th.accent);
+        fa(skin::Compass, x + 18 * s, y + 24 * s, 22, th.accent_text);
+        gfx_->set_letter_spacing(-0.32f * s);
+        T(700, 32, x + 52 * s, y, 48, "Discover", th.text);
+        gfx_->set_letter_spacing(0);
+        y += 80 * s;
+    }
     for (int i = 0; i < 4; ++i) {
         Section& sec = sections_[i];
         // header
@@ -504,7 +684,7 @@ void App::draw_discover(Rect r) {
         }
         y += 48 * s;
         // scroll row
-        Rect row{x, y, w, 254 * s};
+        Rect row{x, y, w, row_h};
         float content_w = sec.albums.size() * (cw + gap) - gap;
         float max_sx = std::max(0.0f, content_w - w);
         sec.scroll_x = std::min(std::max(0.0f, sec.scroll_x), max_sx);
@@ -530,16 +710,29 @@ void App::draw_discover(Rect r) {
                 const Album& a = sec.albums[k];
                 Rect card{cx, y, cw, ch};
                 bool hov = u.hover(card) && row.contains(u.in.mx, u.in.my);
-                gfx_->fill_round(card, 16 * s, th.panel);
-                if (hov) gfx_->fill_round(card, 16 * s, th.hover);
+                gfx_->fill_round(card, (cp ? 12.0f : 16.0f) * s, th.panel);
+                if (hov) gfx_->fill_round(card, (cp ? 12.0f : 16.0f) * s, th.hover);
+                if (cp) {   // cover object-fit: cover into 170x100: the square art is cropped through a clip
+                    Rect cov{cx + 5 * s, y + 5 * s, 170 * s, 100 * s};
+                    const float cx0 = std::max(cov.x, row.x), cx1 = std::min(cov.x + cov.w, row.x + row.w);
+                    Rect vis{cx0, cov.y, std::max(0.0f, cx1 - cx0), cov.h};
+                    gfx_->clip(&vis);
+                    Rect sq{cov.x, cov.y - 35 * s, 170 * s, 170 * s};
+                    if (SDL_Texture* t = cover(a.cover_art, 170, a.artist, a.name)) gfx_->image_round(t, sq, 4 * s);
+                    else draw_art_fallback(sq, a.cover_art, 4 * s);
+                    gfx_->clip(&row);
+                    const int fn = F(600, 11);
+                    T(600, 11, cov.x + std::max(0.0f, (cov.w - std::min(gfx_->measure(fn, a.name), cov.w)) / 2), y + 109 * s, 17, a.name, th.text, cov.w);
+                } else {
                 Rect cov{cx + 16 * s, y + 16 * s, 148 * s, 148 * s};
-                if (SDL_Texture* t = cover(a.cover_art, 148)) gfx_->image_round(t, cov, 4 * s);
-                else gfx_->fill_round(cov, 4 * s, th.panel2);
+                if (SDL_Texture* t = cover(a.cover_art, 148, a.artist, a.name)) gfx_->image_round(t, cov, 4 * s);
+                else draw_art_fallback(cov, a.cover_art, 4 * s);
                 int fn = F(600, 15.2f);
                 float nw = gfx_->measure(fn, a.name);
                 T(600, 15.2f, cov.x + std::max(0.0f, (cov.w - std::min(nw, cov.w)) / 2), y + 176 * s, 23, a.name, th.text, cov.w);
                 std::string sub = (a.year ? std::to_string(a.year) + " \xC2\xB7 " : std::string()) + a.artist;
                 T(400, 13.6f, cov.x, y + 203 * s, 20, sub, th.sub, cov.w);
+                }
                 if (u.clicked(card) && row.contains(u.in.mx, u.in.my)) { push_view(ViewKind::Album, a.id, a.name); load_album(a.id); }
             }
             gfx_->clip(&r);
@@ -551,12 +744,12 @@ void App::draw_discover(Rect r) {
                 fa(icon, ar.x + 18 * s, ar.y + 18 * s, 13, th.text);
                 if (u.clicked(ar)) sec.scroll_x += delta;
             };
-            if (sec.scroll_x > 1) arrow(x + 6 * s, skin::ChevLeft, -560 * s);
-            if (sec.scroll_x < max_sx - 1) arrow(x + w - 42 * s, skin::ChevRight, 560 * s);
+            if (!cp && sec.scroll_x > 1) arrow(x + 6 * s, skin::ChevLeft, -560 * s);
+            if (!cp && sec.scroll_x < max_sx - 1) arrow(x + w - 42 * s, skin::ChevRight, 560 * s);
             // wheel + shift scrolls the row under the cursor horizontally
             if (row.contains(u.in.mx, u.in.my) && u.in.hwheel != 0) sec.scroll_x -= u.in.hwheel * 60 * s;
         }
-        y += 254 * s + 48 * s;
+        y += row_h + 48 * s;
     }
 }
 

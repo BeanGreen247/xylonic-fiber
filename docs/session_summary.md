@@ -45,3 +45,11 @@ Stack decided (C++17, custom SDL2 UI, own audio pipeline, own HTTP + mbedTLS); s
 Was open: owner pick on language, UI layer, audio decode, TLS (see stack-options.md). No scaffolding until answered.
 
 Finding: opening an SDL audio device costs ~1.85% CPU on this box even when idle; open only while playing.
+
+2026-11-03: cache foundation continued. Profiled with perf (Hotspot recordings in claude-memory-bank): `MetadataSnapshot::upsert` re-sorted the whole search index per song (quadratic) and `Store::put("album:")` rebuilt the full index and rewrote the full JSON per call. Fixed (O(1) upsert, incremental merge, lazy index, JSON save every 64 journaled ops, slice-by-8 CRC, fread journal reads). Added generation publishing, PageCache, MediaCache manifest, SWR policy, Subsonic batch adapter, tests and benchmarks (numbers in cache-design.md). Still open: wire `MetadataStore`/`MediaCache` into the app, search index persistence, fsync adapter.
+
+2026-11-03 (second pass): wired `MetadataStore` (likes, playlists, search, technical fields) and `MediaCache` (artwork, downloads) into the app, added the persisted search index and the fsync adapter (fsync'd snapshots/manifest, durable or group-committed journal), open-addressing `StringTable`, and measured the app against the 33 MB floor (numbers in cache-design.md). Tests: 20/20 plus store/media/generation cases.
+
+2026-11-03 (third pass, owner authorised the main server for read-only checks with a scratch profile; credentials were not stored anywhere): fixed global font scale (em instead of line height), screenshot read-back, mobile shell and Library header, placeholder detection + iTunes fallback + mode-aware cover sizes, neighbour cover prefetch, NetworkManager auto-offline. Real library (79 artists, 503 albums, 5026 songs): Shuffle/Download All paging 2207 ms sequential vs 328 ms with 3 parallel workers (second run, warm server cache).
+
+2026-11-03 (fourth pass): after the owner asked twice to read the original code instead of guessing, the image cache, the first-run/library-change cache prestep, the iTunes rule and the Settings cache stats were rewritten from `/home/bean/xylonic/src` (see docs/port-map.md). Earlier guesses removed: pixel-based placeholder test, iTunes for placeholders, Cache Statistics dialog, Cover art fallback toggle.

@@ -36,6 +36,7 @@ void App::draw_now_playing(float W, float H) {
     blob((870 + std::cos(t * 0.17f) * 62) * s, (742 + std::sin(t * 0.21f) * 34) * s, 318 * s, 0.26f);
     blob((553 + std::sin(t * 0.13f + 1.4f) * 46) * s, (855 + std::cos(t * 0.16f) * 30) * s, 266 * s, 0.24f);
     gfx_->radial(W / 2, H / 2, std::max(W, H) * 0.8f, {0, 0, 0, 0}, {0, 0, 0, 120});  // vignette
+    if (mobile_) { draw_now_playing_compact(W, H, cur); return; }   // NowPlayingOverlay at <=767 px
     // handle + top bar
     gfx_->fill_round({494 * s, 10 * s, 36 * s, 4 * s}, 2 * s, {255, 255, 255, 105});
     gfx_->set_letter_spacing(1.04f * s);
@@ -62,8 +63,7 @@ void App::draw_now_playing(float W, float H) {
             fa(skin::Heart, lk.x + 19 * s, lk.y + 19 * s, 20, cur->starred ? th.accent : th.sub);
             if (u.clicked(lk) && client_) {
                 bool on = !cur->starred;
-                worker_->post([c = client_, id = cur->id, on] { std::string e; c->set_star(id, on, e); });
-                const_cast<Song*>(queue_.current())->starred = on;
+                set_current_liked(on);
             }
         }
         float cy = H - 136 * s, px = 24 * s, pw = W - 48 * s;
@@ -118,8 +118,7 @@ void App::draw_now_playing(float W, float H) {
         fa(skin::Heart, lk.x + 22 * s, lk.y + 17 * s, 22, liked ? th.accent : rgb(0xb5b5b5));
         if (u.clicked(lk) && client_) {
             bool on = !cur->starred;
-            worker_->post([c = client_, id = cur->id, on] { std::string e; c->set_star(id, on, e); });
-            const_cast<Song*>(queue_.current())->starred = on;
+            set_current_liked(on);
         }
     }
     // divider + Up Next
@@ -189,4 +188,173 @@ void App::draw_now_playing(float W, float H) {
     if (cb(mid + 64 * s, skin::StepFwd, 18, false)) next_track();
     if (cb(mid + 120 * s, skin::Repeat, 16, queue_.repeat() != Repeat::Off))
         queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
+}
+
+// NowPlayingOverlay (compact): handle, header, square art, title/artist with like and playlist buttons, progress, transport,
+// quality + speed selectors, and the audio stats row (Format, Bitrate, Sample Rate, Bit Depth, File Size). Geometry from the CSS.
+void App::draw_now_playing_compact(float W, float H, const Song* cur) {
+    Ui& u = *ui_;
+    const float s = S_;
+    const Theme& th = u.th;
+    const float lw = W / s, lh = H / s;
+    gfx_->fill_round({W / 2 - 18 * s, 10 * s, 36 * s, 4 * s}, 2 * s, {255, 255, 255, 89});
+    Rect cl{8 * s, 18 * s, 44 * s, 44 * s};
+    if (u.hover(cl)) gfx_->fill_round(cl, 22 * s, th.hover);
+    fa(0xf078, cl.x + 22 * s, cl.y + 22 * s, 18, {255, 255, 255, 217});
+    if (u.clicked(cl) || u.in.escape) { np_open_ = false; mark(); return; }
+    gfx_->set_letter_spacing(1.32f * s);
+    const float lblw = gfx_->measure(F(700, 11), "NOW PLAYING");
+    T(700, 11, W / 2 - lblw / 2, 18 * s, 44, "NOW PLAYING", {255, 255, 255, 153});
+    gfx_->set_letter_spacing(0);
+    // art: max(320, min(100vh - 406, 100vw - 16)) (tighter below 680 px of height)
+    const bool short_h = lh <= 680;
+    const float art_px = short_h ? std::max(180.0f, std::min(lh - 335, lw - 16)) : std::max(320.0f, std::min(lh - 406, lw - 16));
+    const float wrap_h = short_h ? std::max(188.0f, std::min(lh - 327, lw - 8)) : std::max(332.0f, std::min(lh - 390, lw - 8));
+    float y = 70 * s;
+    Rect ar{(W - art_px * s) / 2, y, art_px * s, art_px * s};
+    if (cur) { if (SDL_Texture* t = cover(cur->cover_art, static_cast<int>(art_px), cur->artist, cur->album)) gfx_->image_round(t, ar, 6 * s); else draw_art_fallback(ar, cur->cover_art, 6 * s); }
+    else gfx_->fill_round(ar, 6 * s, {255, 255, 255, 15});
+    y += wrap_h * s;
+    // info row
+    y += 6 * s;
+    const float bx_pl = W - 22 * s - 44 * s, bx_like = bx_pl - 12 * s - 44 * s;
+    const float title_px = short_h ? 17.0f : 20.0f;
+    T(700, title_px, 22 * s, y, title_px * 1.25f, cur ? cur->title : "No song playing", rgb(0xffffff), bx_like - 34 * s);
+    T(400, short_h ? 13.0f : 14.0f, 22 * s, y + (title_px * 1.25f + 3) * s, 21, cur ? cur->artist : "\xE2\x80\x94", {255, 255, 255, 166}, bx_like - 34 * s);
+    const float cy_row = y + 24.5f * s;
+    Rect lk{bx_like, cy_row - 22 * s, 44 * s, 44 * s}, pl{bx_pl, cy_row - 22 * s, 44 * s, 44 * s};
+    const bool liked = cur && cur->starred;
+    fa(skin::Heart, lk.x + 22 * s, lk.y + 22 * s, 22, liked ? th.accent : Color{255, 255, 255, 140});
+    fa(skin::ListUl, pl.x + 22 * s, pl.y + 22 * s, 18, {255, 255, 255, 140});
+    if (cur && u.clicked(lk) && client_) set_current_liked(!cur->starred);
+    if (cur && u.clicked(pl)) add_song_ = *cur;
+    y += 53 * s;                                   // row bottom (title block + 4)
+    // progress: 10 px full-width bar
+    y += 8 * s;
+    const float dur = static_cast<float>(player_.duration_seconds()), pos = static_cast<float>(player_.position_seconds());
+    Rect pb{22 * s, y, W - 44 * s, 10 * s}, hit{pb.x, pb.y - 8 * s, pb.w, 26 * s};
+    float v = dur > 0 ? std::min(1.0f, pos / dur) : 0;
+    if (u.in.pressed && hit.contains(u.in.mx, u.in.my)) u.active = kSeek;
+    if (u.active == kSeek && (u.in.down || u.in.released)) {
+        const float nv = std::min(1.0f, std::max(0.0f, (u.in.mx - pb.x) / pb.w));
+        seek_drag_v_ = nv; v = nv;
+        if (u.in.released) { u.active = 0; if (dur > 0) player_.seek_seconds(nv * dur); }
+    }
+    gfx_->fill_round(pb, 5 * s, {255, 255, 255, 46});
+    if (v > 0) gfx_->fill_round({pb.x, pb.y, std::max(10 * s, pb.w * v), pb.h}, 5 * s, th.accent);
+    y += 10 * s;
+    // controls: space-between inside 16 px side padding, widths 56 56 72 56 56
+    y += short_h ? 8 * s : 20 * s;
+    const float ctrl_h = short_h ? 62.0f : 72.0f, small = short_h ? 48.0f : 56.0f;
+    const float inner = W - 32 * s, total_w = (small * 4 + ctrl_h) * s, gapw = (inner - total_w) / 4;
+    const float ccy = y + ctrl_h * s / 2;
+    float cx = 16 * s;
+    auto slot = [&](float w_) { const float c = cx + w_ * s / 2; cx += w_ * s + gapw; return c; };
+    auto glyph = [&](float c, uint32_t ic, float px, Color col, float box) {
+        Rect b{c - box * s / 2, ccy - box * s / 2, box * s, box * s};
+        if (u.hover(b)) gfx_->fill_round(b, box * s / 2, {255, 255, 255, 15});
+        fa(ic, c, ccy, px, col);
+        return u.clicked(b);
+    };
+    if (glyph(slot(small), skin::Shuffle, 20, queue_.shuffle() ? th.accent : Color{255, 255, 255, 128}, small)) queue_.set_shuffle(!queue_.shuffle());
+    if (glyph(slot(small), skin::StepBack, 22, {255, 255, 255, 230}, small)) prev_track();
+    {
+        const float c = slot(ctrl_h);
+        Rect b{c - ctrl_h * s / 2, ccy - ctrl_h * s / 2, ctrl_h * s, ctrl_h * s};
+        gfx_->fill_round({b.x - 2 * s, b.y + 6 * s, b.w + 4 * s, b.h + 4 * s}, b.w / 2, {0, 0, 0, 60});
+        gfx_->circle(c, ccy, ctrl_h * s / 2, u.hover(b) ? rgb(0xffffff) : Color{255, 255, 255, 242});
+        fa(player_.playing() ? skin::Pause : skin::Play, c + (player_.playing() ? 0 : 1.5f * s), ccy, short_h ? 20 : 26, rgb(0x111111));
+        if (u.clicked(b)) toggle_play();
+    }
+    if (glyph(slot(small), skin::StepFwd, 22, {255, 255, 255, 230}, small)) next_track();
+    {
+        const bool on = queue_.repeat() != Repeat::Off;
+        const float c = slot(small);
+        if (glyph(c, skin::Repeat, 20, on ? th.accent : Color{255, 255, 255, 128}, small)) queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
+        if (queue_.repeat() == Repeat::One) T(800, 9, c + 12 * s, ccy - 22 * s, 12, "1", th.accent);
+    }
+    y += ctrl_h * s + (short_h ? 10.0f : 24.0f) * s;
+    // selectors row (quality, speed): padding 4 22 0, gap 8, 12 px/600
+    y += 4 * s;
+    const float sw = (W - 44 * s - 8 * s) / 2, sh = 38 * s;
+    Rect qb{22 * s, y, sw, sh}, sp{22 * s + sw + 8 * s, y, sw, sh};
+    for (Rect* r : {&qb, &sp}) {
+        gfx_->fill_round(*r, 6 * s, {255, 255, 255, u.hover(*r) ? 41 : 33});
+        gfx_->stroke_round(*r, 6 * s, 1 * s, {255, 255, 255, 102});
+    }
+    {
+        const std::string ql = cfg_.stream_quality ? std::to_string(cfg_.stream_quality) + "k" : "Original";
+        const int fq = F(600, 12);
+        const float tw = gfx_->measure(fq, ql), total = 38 * s + 14 * s + 5 * s + tw;
+        float bx = qb.x + (qb.w - total) / 2;
+        const int bars = cfg_.stream_quality == 0 ? 6 : cfg_.stream_quality >= 320 ? 5 : cfg_.stream_quality >= 256 ? 4 : cfg_.stream_quality >= 192 ? 3 : cfg_.stream_quality >= 128 ? 2 : 1;
+        for (int i = 0; i < 6; ++i) { const float bh = (4 + 2.4f * i) * s; gfx_->fill_round({bx + i * 5.5f * s, qb.y + qb.h / 2 + 7 * s - bh, 3 * s, bh}, 1.5f * s, i < bars ? th.accent : Color{255, 255, 255, 64}); }
+        fa(skin::Cloud, bx + 38 * s + 7 * s, qb.y + qb.h / 2, 13, th.accent);
+        T(600, 12, bx + 38 * s + 19 * s, qb.y, sh / s, ql, {255, 255, 255, 191});
+        char sb[16]; const double spd = player_.speed();
+        if (spd == static_cast<int>(spd)) std::snprintf(sb, sizeof sb, "%d\xC3\x97", static_cast<int>(spd)); else std::snprintf(sb, sizeof sb, "%g\xC3\x97", spd);
+        const float stw = gfx_->measure(fq, sb);
+        fa(skin::Bolt, sp.x + (sp.w - stw - 16 * s) / 2 + 5 * s, sp.y + sp.h / 2, 11, th.accent);
+        T(600, 12, sp.x + (sp.w - stw - 16 * s) / 2 + 16 * s, sp.y, sh / s, sb, {255, 255, 255, 191});
+    }
+    if (u.clicked(qb)) { quality_popup_ = !quality_popup_; speed_popup_ = false; }
+    if (u.clicked(sp)) { speed_popup_ = !speed_popup_; quality_popup_ = false; }
+    y += sh;
+    // audio stats: Format, Bitrate, Sample Rate, Bit Depth, File Size (song data, else getSong)
+    if (cur && np_meta_id_ != cur->id) {
+        np_meta_id_ = cur->id; np_meta_ = Song{};
+        if (client_ && !offline_ && cur->suffix.empty() && cur->bit_rate == 0 && cur->size == 0 && cur->sampling_rate == 0 && cur->bit_depth == 0)
+            worker_->post([this, c = client_, id = cur->id, s2 = session_] { Song sg; std::string e; if (c->song(id, sg, e)) ui_post([this, s2, id, sg] { if (s2 == session_ && np_meta_id_ == id) { np_meta_ = sg; mark(); } }); });
+    }
+    const Song m = cur ? *cur : Song{};
+    auto pick = [&](auto a, auto b) { return a ? a : b; };
+    const std::string suffix = !m.suffix.empty() ? m.suffix : np_meta_.suffix;
+    const int br = pick(m.bit_rate, np_meta_.bit_rate), sr = pick(m.sampling_rate, np_meta_.sampling_rate), bd = pick(m.bit_depth, np_meta_.bit_depth);
+    const uint64_t size = m.size ? m.size : np_meta_.size;
+    std::string f_fmt = suffix.empty() ? "\xE2\x80\x94" : suffix; for (auto& ch : f_fmt) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    char tmp[48];
+    const std::string f_br = br ? std::to_string(br) + " kbps" : "\xE2\x80\x94";
+    std::string f_sr = "\xE2\x80\x94"; if (sr) { if (sr >= 1000) std::snprintf(tmp, sizeof tmp, "%.1f kHz", sr / 1000.0); else std::snprintf(tmp, sizeof tmp, "%d Hz", sr); f_sr = tmp; }
+    const std::string f_bd = bd ? std::to_string(bd) + "-bit" : "\xE2\x80\x94";
+    std::string f_sz = "\xE2\x80\x94"; if (size) { if (size >= 1073741824ull) std::snprintf(tmp, sizeof tmp, "%.1f GB", size / 1073741824.0); else if (size >= 1048576ull) std::snprintf(tmp, sizeof tmp, "%.1f MB", size / 1048576.0); else std::snprintf(tmp, sizeof tmp, "%.0f KB", size / 1024.0); f_sz = tmp; }
+    const char* labels[5] = {"FORMAT", "BITRATE", "SAMPLE RATE", "BIT DEPTH", "FILE SIZE"};
+    const std::string vals[5] = {f_fmt, f_br, f_sr, f_bd, f_sz};
+    y += (short_h ? 4.0f : 10.0f) * s;
+    const float colw = (W - 44 * s - 4 * 4 * s) / 5;
+    for (int i = 0; i < 5; ++i) {
+        const float x0 = 22 * s + i * (colw + 4 * s), cxm = x0 + colw / 2;
+        gfx_->set_letter_spacing(0.48f * s);
+        const float lw2 = gfx_->measure(F(700, short_h ? 7.0f : 8.0f), labels[i]);
+        T(700, short_h ? 7.0f : 8.0f, cxm - lw2 / 2, y, 12, labels[i], {255, 255, 255, 89}, colw);
+        gfx_->set_letter_spacing(0);
+        const float vw = std::min(colw, gfx_->measure(F(600, short_h ? 10.0f : 11.0f), vals[i]));
+        T(600, short_h ? 10.0f : 11.0f, cxm - vw / 2, y + 13 * s, 16.5f, vals[i], {255, 255, 255, 179}, colw);
+    }
+    // popups above the selectors
+    auto popup = [&](Rect anchor, const std::vector<std::string>& labels2, int cur_i, bool& open, const std::function<void(int)>& on_pick) {
+        if (!open) return;
+        const float pw = std::max(anchor.w, 140 * s), ih = 36 * s, ph = labels2.size() * ih + 8 * s;
+        Rect pop{anchor.x + anchor.w - pw, anchor.y - 6 * s - ph, pw, ph};
+        gfx_->fill_round({pop.x - 1, pop.y - 1, pop.w + 2, pop.h + 2}, 13 * s, th.border);
+        gfx_->fill_round(pop, 12 * s, th.bg_light);
+        for (size_t i = 0; i < labels2.size(); ++i) {
+            Rect ir{pop.x + 4 * s, pop.y + 4 * s + i * ih, pop.w - 8 * s, ih};
+            const bool on = static_cast<int>(i) == cur_i;
+            if (u.hover(ir)) gfx_->fill_round(ir, 8 * s, th.hover);
+            if (on) fa(skin::Check, ir.x + 16 * s, ir.y + ih / 2, 11, th.accent);
+            T(on ? 600 : 400, 13, ir.x + 34 * s, ir.y, 36, labels2[i], on ? th.accent : th.text);
+            if (u.clicked(ir)) { on_pick(static_cast<int>(i)); open = false; mark(); }
+        }
+        if (u.in.pressed && !pop.contains(u.in.mx, u.in.my) && !anchor.contains(u.in.mx, u.in.my)) open = false;
+    };
+    static const int qvals[] = {0, 320, 256, 192, 128, 64};
+    int qi = 0; for (int i = 0; i < 6; ++i) if (qvals[i] == cfg_.stream_quality) qi = i;
+    popup(qb, {"Original", "320 kbps", "256 kbps", "192 kbps", "128 kbps", "64 kbps"}, qi, quality_popup_, [&](int i) {
+        cfg_.stream_quality = qvals[i]; cfg_.save(cfg_path_);
+        np_toast_ = std::string("Quality \xE2\x86\x92 ") + (qvals[i] ? std::to_string(qvals[i]) + " kbps" : "Original") + " (next track)"; np_toast_until_ = SDL_GetTicks() + 3500;
+    });
+    static const double svals[] = {0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0};
+    int si = 2; for (int i = 0; i < 7; ++i) if (std::fabs(player_.speed() - svals[i]) < 1e-6) si = i;
+    popup(sp, {"0.5\xC3\x97", "0.75\xC3\x97", "Normal", "1.25\xC3\x97", "1.5\xC3\x97", "1.75\xC3\x97", "2\xC3\x97"}, si, speed_popup_, [&](int i) { player_.set_speed(svals[i]); });
+    if (SDL_GetTicks() < np_toast_until_) { T(500, 11, W / 2 - gfx_->measure(F(500, 11), np_toast_) / 2, qb.y - 22 * s, 17, np_toast_, th.accent); u.wants_frames = true; }
 }

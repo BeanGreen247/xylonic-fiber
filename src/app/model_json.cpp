@@ -18,6 +18,7 @@ yyjson_mut_val* song_val(Doc* d, const Song& s) {
     yyjson_mut_obj_add_int(d, o, "year", s.year);
     yyjson_mut_obj_add_int(d, o, "duration", s.duration);
     yyjson_mut_obj_add_int(d, o, "bitRate", s.bit_rate);
+    yyjson_mut_obj_add_int(d, o, "samplingRate", s.sampling_rate); yyjson_mut_obj_add_int(d, o, "bitDepth", s.bit_depth); yyjson_mut_obj_add_int(d, o, "channelCount", s.channels);
     yyjson_mut_obj_add_uint(d, o, "size", s.size);
     yyjson_mut_obj_add_bool(d, o, "starred", s.starred);
     return o;
@@ -68,6 +69,7 @@ void read_song(yyjson_val* o, Song& s) {
     s.id = str(o, "id"); s.title = str(o, "title"); s.album = str(o, "album"); s.album_id = str(o, "albumId");
     s.artist = str(o, "artist"); s.artist_id = str(o, "artistId"); s.cover_art = str(o, "coverArt"); s.suffix = str(o, "suffix");
     s.track = num(o, "track"); s.year = num(o, "year"); s.duration = num(o, "duration"); s.bit_rate = num(o, "bitRate");
+    s.sampling_rate = num(o, "samplingRate"); s.bit_depth = num(o, "bitDepth"); s.channels = num(o, "channelCount");
     yyjson_val* sz = yyjson_obj_get(o, "size"); s.size = sz && yyjson_is_num(sz) ? yyjson_get_uint(sz) : 0;
     yyjson_val* st = yyjson_obj_get(o, "starred"); s.starred = st && yyjson_get_bool(st);
 }

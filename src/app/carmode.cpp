@@ -17,6 +17,8 @@ std::string upper(std::string s) { for (auto& c : s) if (c >= 'a' && c <= 'z') c
 
 void App::set_car_mode(bool on) {
     car_open_ = on;
+    // Dashboard use is landscape; this is honoured on Android and ignored by desktop window managers.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, on ? "LandscapeLeft LandscapeRight" : "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
     if (!on) player_.enable_spectrum(false);
     if (on && cfg_.car_keep_on) SDL_DisableScreenSaver(); else SDL_EnableScreenSaver();
     mark();
@@ -97,8 +99,7 @@ void App::draw_car_mode(float W, float H) {
             bool liked = cur && cur->starred;
             if (b({x + (w_ - bs) / 2, ey, bs, bs}, skin::Heart, 26, th.sub, liked) && cur && client_) {
                 bool on = !cur->starred;
-                worker_->post([c = client_, id = cur->id, on] { std::string e; c->set_star(id, on, e); });
-                const_cast<Song*>(queue_.current())->starred = on;
+                set_current_liked(on);
             }
             if (b({x + w_ - bs, ey, bs, bs}, skin::Repeat, 26, th.sub, queue_.repeat() != Repeat::Off))
                 queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
@@ -135,7 +136,14 @@ void App::draw_car_mode(float W, float H) {
         gfx_->fill_round(ai, 15 * s, th.panel2);
         // Car Mode uses the larger artwork variant so the dashboard view does
         // not upscale the normal library thumbnail on high-DPI displays.
-        if (cur) if (SDL_Texture* t = cover(cur->cover_art, 900)) gfx_->image_round(t, ai, 15 * s);
+        if (cur) {
+            // 900 px while it loads or when it was never fetched (offline): fall back to the cached thumbnails, then to a glyph.
+            SDL_Texture* t = cover(cur->cover_art, 900, "", "", true);   // hi:<id> at 2000 px
+            if (!t) t = cover(cur->cover_art, 300);
+            if (!t) t = cover(cur->cover_art, 164);
+            if (t) gfx_->image_round(t, ai, 15 * s);
+            else fa(skin::Music, ai.x + ai.w / 2, ai.y + ai.h / 2, std::max(24.0f, ai.w / s / 4), alpha(th.text, 0.35f));
+        }
         }
         // footer
         float fy = H - 84 * s;
@@ -184,7 +192,7 @@ void App::draw_car_mode(float W, float H) {
             return u.clicked(r);
         };
         if (b(ex, skin::Shuffle, queue_.shuffle())) queue_.set_shuffle(!queue_.shuffle());
-        if (b(ex + (cw - 64 * s) / 2, skin::Heart, cur && cur->starred) && cur && client_) { bool on = !cur->starred; worker_->post([c = client_, id = cur->id, on] { std::string e; c->set_star(id, on, e); }); const_cast<Song*>(queue_.current())->starred = on; }
+        if (b(ex + (cw - 64 * s) / 2, skin::Heart, cur && cur->starred) && cur && client_) { bool on = !cur->starred; set_current_liked(on); }
         if (b(ex + cw - 64 * s, skin::Repeat, queue_.repeat() != Repeat::Off)) queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
     }
 }

@@ -55,7 +55,7 @@ int Gfx::add_font(const char* path, float px) {
     }
     if (!stbtt_InitFont(&f->info, f->data->data(), stbtt_GetFontOffsetForIndex(f->data->data(), 0))) return -1;
     f->size = px;
-    f->scale = stbtt_ScaleForPixelHeight(&f->info, px);
+    f->scale = stbtt_ScaleForMappingEmToPixels(&f->info, px);
     stbtt_GetFontVMetrics(&f->info, &f->ascent, &f->descent, &f->gap);
     fonts_.push_back(std::move(f));
     return static_cast<int>(fonts_.size()) - 1;
@@ -113,7 +113,20 @@ void Gfx::flush() {
     v_.clear(); idx_.clear();
 }
 
-void Gfx::end_frame() { flush(); SDL_RenderPresent(ren_); }
+void Gfx::end_frame() {
+    flush();
+    if (!capture_path_.empty()) {   // read the finished frame before the present leaves the back buffer undefined
+        int w, h;
+        SDL_GetRendererOutputSize(ren_, &w, &h);
+        if (SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888)) {
+            SDL_RenderReadPixels(ren_, nullptr, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
+            SDL_SaveBMP(s, capture_path_.c_str());
+            SDL_FreeSurface(s);
+        }
+        capture_path_.clear();
+    }
+    SDL_RenderPresent(ren_);
+}
 
 void Gfx::quad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, Color c) {
     int b = static_cast<int>(v_.size());
@@ -238,6 +251,25 @@ void Gfx::line(float x0, float y0, float x1, float y1, float t, Color c) {
     float nx = -dy / l * t / 2, ny = dx / l * t / 2;
     tri(x0 + nx, y0 + ny, x1 + nx, y1 + ny, x1 - nx, y1 - ny, c);
     tri(x0 + nx, y0 + ny, x1 - nx, y1 - ny, x0 - nx, y0 - ny, c);
+}
+
+void Gfx::arc(float cx, float cy, float r, float t, float start, float sweep, Color c, bool round_caps) {
+    if (sweep <= 0 || t <= 0) return;
+    const float u = 1.0f / aw_, v = 1.0f / ah_;
+    const int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(sweep) / 0.06f)));
+    const float radii[4] = {r - t / 2 - 0.8f, r - t / 2 + 0.2f, r + t / 2 - 0.2f, r + t / 2 + 0.8f};   // 1px soft edges on both sides
+    const uint8_t alphas[4] = {0, c.a, c.a, 0};
+    const int base = static_cast<int>(v_.size());
+    for (int i = 0; i <= steps; ++i) {
+        const float a = start + sweep * i / steps, cs = std::cos(a), sn = std::sin(a);
+        for (int k = 0; k < 4; ++k) v_.push_back({{cx + cs * radii[k], cy + sn * radii[k]}, {c.r, c.g, c.b, alphas[k]}, {u, v}});
+    }
+    for (int i = 0; i < steps; ++i)
+        for (int k = 0; k < 3; ++k) {
+            const int a0 = base + i * 4 + k, a1 = a0 + 1, b0 = a0 + 4, b1 = b0 + 1;
+            for (int ix : {a0, a1, b0, a1, b1, b0}) idx_.push_back(ix);
+        }
+    if (round_caps) { circle(cx + std::cos(start) * r, cy + std::sin(start) * r, t / 2, c); circle(cx + std::cos(start + sweep) * r, cy + std::sin(start + sweep) * r, t / 2, c); }
 }
 
 void Gfx::circle(float cx, float cy, float r, Color c) { fill_round({cx - r, cy - r, 2 * r, 2 * r}, r, c); }

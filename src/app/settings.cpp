@@ -5,7 +5,9 @@
 #include <cmath>
 #include <ctime>
 #include <set>
+#include "log.h"
 #include "app.h"
+#include "log.h"
 #include "secrets.h"
 
 namespace {
@@ -33,144 +35,16 @@ void App::tick_sleep() {
     if (sleep_end_ms_ && SDL_GetTicks64() >= sleep_end_ms_) { sleep_end_ms_ = 0; if (player_.playing()) player_.pause(); mark(); }
 }
 
-void App::start_cache_preload() {
-    if (preload_running_ || !client_ || offline_) return;
-    preload_cancel_ = std::make_shared<std::atomic<bool>>(false);
-    auto cancel = preload_cancel_;
-    const uint32_t sess = session_;
-    preload_running_ = true;
-    preload_complete_ = false;
-    preload_done_ = 0;
-    preload_total_ = 1;
-    preload_phase_ = "Loading artists...";
-    preload_error_.clear();
-    modal_ = Modal::CachePreload;
-    mark();
-    worker_->post([this, c = client_, sess, cancel] {
-        std::vector<Artist> artists;
-        std::vector<Album> albums;
-        std::vector<std::vector<Album>> sections(4);
-        int failed_artists = 0, failed_albums = 0;
-        std::string err;
-        if (cancel->load()) return;
-        const bool artists_ok = c->artists(artists, err);
-        if (!artists_ok) {
-            ui_post([this, sess, cancel, err] {
-                if (sess != session_ || preload_cancel_ != cancel) return;
-                preload_running_ = false; preload_error_ = err.empty() ? "Could not load artists." : err; mark();
-            });
-            return;
-        }
-        ui_post([this, sess, cancel, n = static_cast<int>(artists.size())] {
-            if (sess != session_ || preload_cancel_ != cancel) return;
-            preload_done_ = 1; preload_total_ = std::max(1, n + 1); preload_phase_ = "Loading artist metadata..."; mark();
-        });
-        for (size_t i = 0; i < artists.size(); ++i) {
-            if (cancel->load()) return;
-            std::string e;
-            Artist full;
-            if (c->artist(artists[i].id, full, e)) {
-                artists[i] = std::move(full);
-                for (const Album& a : artists[i].albums) {
-                    if (a.id.empty()) continue;
-                    bool seen = false; for (const Album& old : albums) if (old.id == a.id) { seen = true; break; }
-                    if (!seen) albums.push_back(a);
-                }
-            } else {
-                ++failed_artists;
-            }
-            ui_post([this, sess, cancel, done = static_cast<int>(i + 2)] {
-                if (sess != session_ || preload_cancel_ != cancel) return;
-                preload_done_ = done; preload_phase_ = "Loading artist metadata..."; mark();
-            });
-        }
-        ui_post([this, sess, cancel, total = static_cast<int>(1 + artists.size() + albums.size())] {
-            if (sess != session_ || preload_cancel_ != cancel) return;
-            preload_total_ = std::max(1, total); preload_phase_ = "Loading song metadata..."; mark();
-        });
-        for (size_t i = 0; i < albums.size(); ++i) {
-            if (cancel->load()) return;
-            std::string e;
-            Album full;
-            if (c->album(albums[i].id, full, e)) albums[i] = std::move(full);
-            else ++failed_albums;
-            ui_post([this, sess, cancel, done = static_cast<int>(1 + artists.size() + i + 1)] {
-                if (sess != session_ || preload_cancel_ != cancel) return;
-                preload_done_ = done; preload_phase_ = "Loading song metadata..."; mark();
-            });
-        }
-        static const char* kinds[4] = {"newest", "recent", "frequent", "random"};
-        for (int i = 0; i < 4; ++i) {
-            if (cancel->load()) return;
-            std::string e;
-            c->album_list(kinds[i], 20, 0, sections[i], e);
-        }
-        ui_post([this, sess, cancel, artists = std::move(artists), albums = std::move(albums), sections = std::move(sections), failed_artists, failed_albums]() mutable {
-            if (sess != session_ || preload_cancel_ != cancel) return;
-            artists_ = std::move(artists);
-            for (auto& a : albums) if (!a.id.empty()) album_cache_[a.id] = a;
-            for (size_t i = 0; i < sections.size(); ++i) { sections_[i].albums = std::move(sections[i]); sections_[i].loading = false; }
-            std::set<std::string> covers;
-            for (const auto& a : artists_) if (!a.cover_art.empty()) covers.insert(a.cover_art);
-            for (const auto& a : albums) {
-                if (!a.cover_art.empty()) covers.insert(a.cover_art);
-                for (const auto& s : a.songs) if (!s.cover_art.empty()) covers.insert(s.cover_art);
-            }
-            for (const auto& list : sections_) for (const auto& a : list.albums) if (!a.cover_art.empty()) covers.insert(a.cover_art);
-            auto c = client_;
-            for (const auto& id : covers) for (int px : {64, 132, 164, 300}) {
-                int dev = static_cast<int>(px * S_);
-                images_->prefetch(cover_key(id, dev), [c, id, dev] { return c ? c->cover_url(id, dev) : std::string(); });
-            }
-            preload_running_ = false; preload_complete_ = true; preload_done_ = preload_total_;
-            preload_phase_ = failed_artists || failed_albums ? "Cache ready with some unavailable items" : "Cache ready";
-            mark();
-        });
-    });
-}
-
-void App::cancel_cache_preload() {
-    if (preload_cancel_) preload_cancel_->store(true);
-    preload_running_ = false;
-    if (!preload_complete_) preload_error_ = "Cache preload cancelled.";
-    modal_ = Modal::None;
-    mark();
-}
-
-void App::draw_cache_preload(float W, float H) {
-    Ui& u = *ui_;
-    const float s = S_;
-    const Theme& th = u.th;
-    float bw = 470 * s, bh = 246 * s;
-    Rect b{(W - bw) / 2, (H - bh) / 2, bw, bh};
-    gfx_->fill({0, 0, W, H}, {0, 0, 0, 170});
-    gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 4 * s, th.border);
-    gfx_->fill_round(b, 3 * s, th.bg_light);
-    fa(skin::Sync, b.x + 28 * s, b.y + 32 * s, 15, th.accent);
-    T(600, 16, b.x + 44 * s, b.y + 20 * s, 24, "Build library cache", th.text);
-    if (u.in.escape && preload_running_) { cancel_cache_preload(); return; }
-    T(400, 13, b.x + 20 * s, b.y + 62 * s, 20, "Preload metadata and cover art for faster browsing and offline startup.", th.sub, b.w - 40 * s);
-    float pct = preload_total_ > 0 ? std::min(1.0f, static_cast<float>(preload_done_) / preload_total_) : 0;
-    Rect track{b.x + 20 * s, b.y + 104 * s, b.w - 40 * s, 12 * s};
-    gfx_->fill_round(track, 6 * s, alpha(th.text, 0.10f));
-    if (pct > 0) gfx_->fill_round({track.x, track.y, track.w * pct, track.h}, 6 * s, th.accent);
-    std::string count = std::to_string(preload_done_) + " / " + std::to_string(preload_total_) + " steps";
-    T(500, 12, b.x + 20 * s, b.y + 124 * s, 20, count, th.text);
-    T(400, 12, b.x + 20 * s, b.y + 149 * s, 20, preload_error_.empty() ? preload_phase_ : preload_error_, preload_error_.empty() ? th.sub : th.danger, b.w - 40 * s);
-    if (preload_running_) {
-        Rect cancel{b.x + b.w - 130 * s, b.y + b.h - 52 * s, 110 * s, 34 * s};
-        if (u.button(cancel, "Cancel")) cancel_cache_preload();
-    } else {
-        Rect close{b.x + b.w - 130 * s, b.y + b.h - 52 * s, 110 * s, 34 * s};
-        if (u.button(close, preload_error_.empty() ? "Close" : "Close")) modal_ = Modal::None;
-    }
-    if (!preload_running_ && !preload_error_.empty()) {
-        Rect retry{b.x + 20 * s, b.y + b.h - 52 * s, 110 * s, 34 * s};
-        if (u.button(retry, "Try again", true)) start_cache_preload();
-    }
-}
-
 // ---------------------------------------------------------------- modal helpers
+
+void App::refresh_perf_stats() {
+    PerfStats p;
+    p.loaded = true;
+    if (images_) { const auto st = images_->stats(); p.images = images_->disk_files(); p.image_bytes = images_->disk_bytes(); p.mem_hits = st.mem_hits; p.disk_hits = st.disk_hits; p.server_fetches = st.server_fetches; p.internet_fetches = st.internet_fetches; }
+    p.api_calls = SubsonicClient::api_calls();
+    if (store_) { const Store::Stats st = store_->stats(); p.artists = st.artists; p.albums = st.albums; p.songs = st.songs; p.index_bytes = st.index_bytes; }
+    perf_stats_ = p;
+}
 
 void App::draw_modal(float W, float H) {
     if (modal_ == Modal::None) return;
@@ -221,8 +95,107 @@ void App::draw_modal(float W, float H) {
         for (int i = 0; i < 7; ++i) { T(400, 13, b.x + 28 * s, b.y + (94 + i * 27) * s, 20, lines[i], th.text); }
         T(400, 11, b.x + 20 * s, b.y + 294 * s, 18, "Full attribution is included with the distributed assets.", th.sub);
         if (u.button({b.x + b.w - 130 * s, b.y + b.h - 48 * s, 110 * s, 32 * s}, "Close")) modal_ = Modal::None;
-    } else if (modal_ == Modal::Remote) { draw_remote_picker(W, H);
-    } else if (modal_ == Modal::CachePreload) { draw_cache_preload(W, H);
+    } else if (modal_ == Modal::ConfirmCarMode) {   // window.confirm('Start Car Mode?...')
+        Rect b = frame(460, 200, skin::Car, "Start Car Mode?");
+        T(400, 13, b.x + 20 * s, b.y + 62 * s, 20, "Car Mode opens a distraction-free widescreen player with", th.sub, b.w - 40 * s);
+        T(400, 13, b.x + 20 * s, b.y + 84 * s, 20, "large driving-friendly controls.", th.sub, b.w - 40 * s);
+        if (u.button({b.x + 20 * s, b.y + b.h - 56 * s, 150 * s, 36 * s}, "Cancel")) modal_ = Modal::None;
+        Rect go{b.x + b.w - 20 * s - 190 * s, b.y + b.h - 56 * s, 190 * s, 36 * s};
+        gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.accent, 0.9f) : th.accent);
+        T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Start Car Mode")) / 2, go.y, 36, "Start Car Mode", rgb(0x121212));
+        if (u.clicked(go)) { modal_ = Modal::None; set_car_mode(true); }
+    } else if (modal_ == Modal::ConfirmDeletePlaylist) {
+        Rect b = frame(380, 170, skin::Warning, "Delete this playlist?");
+        if (u.button({b.x + 20 * s, b.y + b.h - 56 * s, 150 * s, 36 * s}, "Cancel")) { modal_ = Modal::None; pl_delete_pending_.clear(); }
+        Rect go{b.x + b.w - 20 * s - 150 * s, b.y + b.h - 56 * s, 150 * s, 36 * s};
+        gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.danger, 0.9f) : th.danger);
+        T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Delete")) / 2, go.y, 36, "Delete", rgb(0xffffff));
+        if (u.clicked(go)) { const std::string id = pl_delete_pending_; modal_ = Modal::None; pl_delete_pending_.clear(); pl_delete(id); }
+    } else if (modal_ == Modal::SwitchServer) {
+        const float ih = 62.0f;
+        Rect lst = qp_frame(W, H, std::max(1.0f, static_cast<float>(cfg_.conns.size())) * ih + 8, "Switch Server", 0xf362, "Select a saved connection to switch to.");
+        if (cfg_.conns.empty()) T(400, 13, lst.x + 20 * s, lst.y + 14 * s, 20, "No saved connections yet.", {255, 255, 255, 153});
+        for (size_t i = 0; i < cfg_.conns.size() && modal_ == Modal::SwitchServer; ++i) {
+            const Config::Conn& cn = cfg_.conns[i];
+            Rect ir{lst.x, lst.y + i * ih * s, lst.w, ih * s};
+            if (i) gfx_->fill({ir.x, ir.y, ir.w, 1 * s}, {255, 255, 255, 15});
+            if (u.hover(ir)) gfx_->fill(ir, {255, 255, 255, 31});
+            Rect ico{ir.x + 18 * s, ir.y + (ir.h - 36 * s) / 2, 36 * s, 36 * s};
+            gfx_->fill_round(ico, 10 * s, alpha(th.accent, 0.16f));
+            fa(0xf233, ico.x + 18 * s, ico.y + 18 * s, 15, th.accent);
+            std::string host = cn.url; const size_t sc = host.find("://"); if (sc != std::string::npos) host = host.substr(sc + 3);
+            T(600, 15, ico.x + 50 * s, ir.y + 11 * s, 22, host, th.text, ir.w - 100 * s);
+            T(400, 12, ico.x + 50 * s, ir.y + 35 * s, 17, cn.user + " \xC2\xB7 " + cn.url, th.sub, ir.w - 100 * s);
+            if (u.clicked(ir)) { modal_ = Modal::None; switch_to(static_cast<int>(i), ""); }
+        }
+    } else if (modal_ == Modal::SwitchPass) {
+        const bool have = switch_idx_ >= 0 && switch_idx_ < static_cast<int>(cfg_.conns.size());
+        std::string host = have ? cfg_.conns[static_cast<size_t>(switch_idx_)].url : "";
+        const size_t sc = host.find("://"); if (sc != std::string::npos) host = host.substr(sc + 3);
+        Rect c = qp_frame(W, H, 170, "Enter Password", skin::Lock, ("Switching to " + host).c_str());
+        Rect pf{c.x + 18 * s, c.y + 8 * s, c.w - 36 * s, 42 * s};
+        gfx_->fill_round(pf, 8 * s, th.bg); gfx_->stroke_round(pf, 8 * s, 1 * s, u.active == kReauth ? th.accent : th.border, th.bg);
+        const bool enter = u.text_field(kReauth, pf, switch_pass_, "Password", true, false, 15 * s, F(400, 15)) && u.in.enter;
+        if (!switch_err_.empty()) T(400, 12, c.x + 18 * s, pf.y + 52 * s, 18, switch_err_, th.danger, c.w - 36 * s);
+        Rect go{c.x + 18 * s, pf.y + 76 * s, c.w - 36 * s, 42 * s};
+        const bool ready = !switching_ && !switch_pass_.empty();
+        gfx_->fill_round(go, 8 * s, ready ? (u.hover(go) ? alpha(th.accent, 0.88f) : th.accent) : alpha(th.accent, 0.35f));
+        const char* gl = switching_ ? "Connecting\xE2\x80\xA6" : "Connect";
+        T(700, 14, go.x + (go.w - gfx_->measure(F(700, 14), gl)) / 2, go.y, 42, gl, th.bg);
+        if (ready && (u.clicked(go) || enter)) switch_to(switch_idx_, switch_pass_);
+    } else if (modal_ == Modal::ConfirmRebuild || modal_ == Modal::ConfirmClearCaches) {
+        const bool rebuild = modal_ == Modal::ConfirmRebuild;
+        Rect b = frame(460, rebuild ? 230 : 330, rebuild ? skin::Sync : skin::Warning, rebuild ? "Rebuild Cache?" : "Clear All Caches?");
+        const std::vector<std::string> lines = rebuild
+            ? std::vector<std::string>{"This will clear the image and search caches and re-run the initial", "precaching process on reload.", "Downloaded audio files will not be affected."}
+            : std::vector<std::string>{"This will:", "\xE2\x80\xA2 Delete all cached album artwork", "\xE2\x80\xA2 Delete all offline cache data", "\xE2\x80\xA2 Reset all precache flags", "", "The cache will rebuild automatically on next launch."};
+        for (size_t i = 0; i < lines.size(); ++i) T(400, 13, b.x + 20 * s, b.y + 62 * s + i * 22 * s, 20, lines[i], th.sub, b.w - 40 * s);
+        if (u.button({b.x + 20 * s, b.y + b.h - 56 * s, 150 * s, 36 * s}, "Cancel")) modal_ = Modal::None;
+        Rect go{b.x + b.w - 20 * s - 190 * s, b.y + b.h - 56 * s, 190 * s, 36 * s};
+        const Color gc = rebuild ? th.accent : th.danger;
+        gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(gc, 0.9f) : gc);
+        const char* gl = rebuild ? "Rebuild Cache" : "Clear All Caches";
+        T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), gl)) / 2, go.y, 36, gl, rgb(rebuild ? 0x121212 : 0xffffff));
+        if (u.clicked(go)) {
+            modal_ = Modal::None;
+            if (rebuild) { images_->clear_memory(); images_->clear_disk(); if (store_) { store_->clear_library(); store_->erase_prefix("pre:"); } }
+            else {   // offlineCacheService.clearAllCache + imageCacheService.clearAllCacheAndReset + search cache + flags
+                if (downloads_) downloads_->clear_all();
+                images_->clear_memory(); images_->clear_disk();
+                if (store_) { store_->clear_library(); store_->erase_prefix("pre:"); store_->erase_prefix("home:"); }
+                album_cache_.clear(); artist_cache_.clear();
+            }
+            start_cache_preload(false);   // the original reloads, which shows the first-run build again
+        }
+    } else if (modal_ == Modal::DownloadQuality) { draw_download_picker(W, H);
+    } else if (modal_ == Modal::Reauth) {
+        Rect b = frame(440, 280, skin::Lock, "Sign in again");
+        T(400, 13, b.x + 20 * s, b.y + 56 * s, 20, "The server rejected the saved password for " + cfg_.username + ".", th.sub, b.w - 40 * s);
+        Rect pf{b.x + 20 * s, b.y + 108 * s, b.w - 40 * s, 42 * s};
+        gfx_->fill_round(pf, 8 * s, th.bg); gfx_->stroke_round(pf, 8 * s, 1 * s, u.active == kReauth ? th.accent : th.border, th.bg);
+        u.text_field(kReauth, pf, reauth_pass_, "Password", true, false, 15 * s, F(400, 15));
+        if (!reauth_msg_.empty()) T(400, 12, b.x + 20 * s, b.y + 160 * s, 18, reauth_msg_, th.danger, b.w - 40 * s);
+        if (u.button({b.x + 20 * s, b.y + b.h - 52 * s, 150 * s, 36 * s}, "Sign out")) { modal_ = Modal::None; logout(); }
+        Rect go{b.x + b.w - 20 * s - 150 * s, b.y + b.h - 52 * s, 150 * s, 36 * s};
+        gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.accent, 0.85f) : th.accent);
+        T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), reauth_busy_ ? "Checking..." : "Sign in")) / 2, go.y, 36, reauth_busy_ ? "Checking..." : "Sign in", rgb(0x121212));
+        if (u.clicked(go) && !reauth_busy_ && !reauth_pass_.empty() && client_) {
+            reauth_busy_ = true; reauth_msg_.clear();
+            auto fresh = std::make_shared<SubsonicClient>(cfg_.server_url, cfg_.username, reauth_pass_, copt_);
+            worker_->post([this, fresh, old = client_, s = session_, pass = reauth_pass_] {
+                std::string err; const bool ok = fresh->ping(err);
+                ui_post([this, ok, err, old, s, pass] {
+                    if (s != session_) return;
+                    reauth_busy_ = false;
+                    if (!ok) { reauth_msg_ = err.empty() ? "Sign in failed" : err; mark(); return; }
+                    old->set_password(pass);    // same client object: queued downloads and workers pick it up
+                    secret_store(cfg_.server_url + "|" + cfg_.username, pass);
+                    reauth_pass_.clear(); modal_ = Modal::None; load_home(); mark();
+                });
+            });
+        }
+    } else if (modal_ == Modal::Remote) { draw_remote_picker(W, H);    } else if (modal_ == Modal::Remote) { draw_remote_picker(W, H);
+
     } else if (modal_ == Modal::Sleep) {
         Rect b = frame(420, 336, 0xf186, "Sleep Timer");
         T(400, 12, b.x + 18 * s, b.y + 52 * s, 18, "Playback stops automatically after the selected time.", th.sub);
@@ -325,11 +298,12 @@ void App::draw_settings(Rect r) {
     Ui& u = *ui_;
     const float s = S_;
     const Theme& th = u.th;
-    const float x = r.x + 24 * s, w = std::min(680 * s, r.w - 48 * s - 12 * s);
+    const bool cp = mobile_;   // compact: 12 px side padding, full width, 24 px title
+    const float x = r.x + (cp ? 12.0f : 24.0f) * s, w = cp ? r.w - 24 * s : std::min(680 * s, r.w - 48 * s - 12 * s);
     float total = 3260 * s;
     if (u.hover(r)) settings_scroll_.y -= u.in.wheel * 60 * s;
     settings_scroll_.clamp(total, r.h);
-    float y = r.y + 24 * s - settings_scroll_.y;
+    float y = r.y + (cp ? 12.0f : 24.0f) * s - settings_scroll_.y;
     gfx_->clip(&r);
     dropdown_draw_ = nullptr;
     // pending dropdown selection from the previous frame's popup
@@ -337,11 +311,17 @@ void App::draw_settings(Rect r) {
     dropdown_choice_ = {0, -1};
     if (pick_id && pick == -2) { dropdown_open_ = 0; }
     // header
-    fa(skin::Gear, x + 20 * s, y + 24 * s, 32, th.accent);
-    gfx_->set_letter_spacing(-0.32f * s);
-    T(700, 32, x + 52 * s, y, 48, "Settings", th.text);
-    gfx_->set_letter_spacing(0);
-    y += 80 * s;
+    if (cp) {
+        fa(skin::Gear, x + 13 * s, y + 18 * s, 24, th.accent);
+        T(600, 24, x + 42 * s, y, 36, "Settings", th.text);
+        y += 52 * s;
+    } else {
+        fa(skin::Gear, x + 20 * s, y + 24 * s, 32, th.accent);
+        gfx_->set_letter_spacing(-0.32f * s);
+        T(700, 32, x + 52 * s, y, 48, "Settings", th.text);
+        gfx_->set_letter_spacing(0);
+        y += 80 * s;
+    }
 
     auto section = [&](const char* title) {
         gfx_->set_letter_spacing(0.72f * s);
@@ -361,8 +341,9 @@ void App::draw_settings(Rect r) {
         bool has_sub = !sub.empty();
         Color tc = kind == 2 ? th.danger : th.text;
         if (has_sub) {
-            T(400, 15, rr.x + 54 * s, rr.y + 10 * s, 22.5f, title, tc, rr.w - 54 * s - 140 * s);
-            T(400, 12, rr.x + 54 * s, rr.y + 33 * s, 18, sub, rgb(0xb5b5b5), rr.w - 54 * s - 140 * s);
+            const float tw = rr.w - 54 * s - (cp ? 90.0f : 140.0f) * s;
+            T(400, 15, rr.x + 54 * s, rr.y + 10 * s, 22.5f, title, tc, tw);
+            T(400, 12, rr.x + 54 * s, rr.y + 33 * s, 18, sub, rgb(0xb5b5b5), tw);
         } else {
             T(400, 15, rr.x + 54 * s, rr.y, h_logical, title, tc, rr.w - 54 * s - 100 * s);
         }
@@ -404,8 +385,8 @@ void App::draw_settings(Rect r) {
     // ---- DRIVING DISPLAY
     section("DRIVING DISPLAY");
     card_fill(y, 311 * s);
-    if (row(skin::Car, "Car Mode", "A high-contrast widescreen player for your dashboard", 1, true, "Launch", true, 61)) set_car_mode(true);
-    { static const char* m[3] = {"Auto", "Always", "Never"}; if (row(0xf422, "Minimal layout", "Automatic: no top and bottom bars on very small screens", 1, false, m[cfg_.car_minimal], cfg_.car_minimal != 2, 61)) { cfg_.car_minimal = (cfg_.car_minimal + 1) % 3; cfg_.save(cfg_path_); } }
+    if (row(skin::Car, "Car Mode", "A high-contrast widescreen player for your dashboard", 1, true, "Launch", true, 61)) modal_ = Modal::ConfirmCarMode;   // asks first, as the original does
+    { static const char* m[3] = {"Auto", "Always", "Never"}; if (row(0xf422, "Minimal layout", cfg_.car_minimal == 0 ? "Automatic: no top and bottom bars on very small screens" : cfg_.car_minimal == 1 ? "Always: seek bar on top, art as large as possible" : "Never: always show the full layout with its bars", 1, false, m[cfg_.car_minimal], cfg_.car_minimal != 2, 61)) { cfg_.car_minimal = (cfg_.car_minimal + 1) % 3; cfg_.save(cfg_path_); } }
     if (row(0xf0eb, "Keep screen on", "Stop the screen from dimming, sleeping or locking while Car Mode is open", 1, false, cfg_.car_keep_on ? "On" : "Off", cfg_.car_keep_on, 61)) { cfg_.car_keep_on = !cfg_.car_keep_on; cfg_.save(cfg_path_); }
     if (row(0xf011, "Start in Car Mode", "Open the driving display automatically when the app starts", 1, false, cfg_.car_start ? "On" : "Off", cfg_.car_start, 61)) { cfg_.car_start = !cfg_.car_start; cfg_.save(cfg_path_); }
     if (row(0xf080, "Start in Pulse Deck", "Open the animated spectrum visualizer when the app starts", 1, false, cfg_.car_pulse ? "On" : "Off", cfg_.car_pulse, 61)) { cfg_.car_pulse = !cfg_.car_pulse; cfg_.save(cfg_path_); }
@@ -414,23 +395,106 @@ void App::draw_settings(Rect r) {
     section("ACCOUNT");
     card_fill(y, 126 * s);
     row(0xf0c1, "Last.fm", "Scrobbling is handled by your server \xE2\x80\x94 enable Last.fm in your server's admin panel", 0, false, "Server", false, 71);
-    if (row(0xf362, "Switch Server", "", 1, true, "", false, 52)) logout();
+    if (row(0xf362, switching_ ? "Switching\xE2\x80\xA6" : "Switch Server", "", 1, true, "", false, 52) && !switching_) modal_ = Modal::SwitchServer;
     y += (1 + 32) * s; row_i = 0;
+    // ---- PERFORMANCE CACHE (components/common/settings/PerformanceCacheSection.tsx)
+    if (!perf_stats_.loaded) refresh_perf_stats();
+    {
+        gfx_->set_letter_spacing(0.72f * s);
+        T(600, 12, x, y, 18, "PERFORMANCE CACHE", th.accent);
+        const float tw = gfx_->measure(F(600, 12), "PERFORMANCE CACHE") + 17.0f * 0.72f * s;
+        gfx_->set_letter_spacing(0);
+        Rect rf{x + tw + 4 * s, y - 2 * s, 22 * s, 22 * s};
+        fa(0xf2f1, rf.x + 11 * s, rf.y + 11 * s, 10, alpha(th.accent, u.hover(rf) ? 1.0f : 0.6f));
+        if (u.clicked(rf) && r.contains(u.in.mx, u.in.my)) { perf_stats_.loaded = false; refresh_perf_stats(); }
+        y += 26 * s;
+    }
+    {
+        const PerfStats& ps = perf_stats_;
+        auto grouped = [](uint64_t v) { std::string t = std::to_string(v), o; int n = 0; for (int i = static_cast<int>(t.size()) - 1; i >= 0; --i) { o.insert(o.begin(), t[static_cast<size_t>(i)]); if (++n % 3 == 0 && i > 0) o.insert(o.begin(), ','); } return o; };
+        auto bytes_str = [](uint64_t b) { char t[32]; if (b < 1024) std::snprintf(t, sizeof t, "%llu B", static_cast<unsigned long long>(b)); else if (b < 1024 * 1024) std::snprintf(t, sizeof t, "%.1f KB", b / 1024.0); else if (b < 1024ull * 1024 * 1024) std::snprintf(t, sizeof t, "%.1f MB", b / 1048576.0); else std::snprintf(t, sizeof t, "%.2f GB", b / 1073741824.0); return std::string(t); };
+        const uint64_t cached = ps.mem_hits + ps.disk_hits, internet = ps.server_fetches + ps.internet_fetches + ps.api_calls, total = cached + internet;
+        const int cpct = total == 0 ? 50 : static_cast<int>(std::lround(100.0 * cached / total)), ipct = 100 - cpct;
+        const float card_top = y, card_h = 451 * s;
+        card_fill(card_top, card_h);
+        // overview
+        const Color amber{0xf0, 0xa5, 0x00, 255};
+        float oy = y + 16 * s;
+        fa(0xf058, x + 20 * s + 7 * s, oy + 12 * s, 14, th.accent);
+        T(700, 15, x + 20 * s + 22 * s, oy, 24, grouped(cached) + " cached", th.accent);
+        const std::string it = grouped(internet) + " internet";
+        const float iw = gfx_->measure(F(700, 15), it);
+        fa(0xf1eb, x + w - 20 * s - 7 * s, oy + 12 * s, 14, amber);
+        T(700, 15, x + w - 20 * s - 22 * s - iw, oy, 24, it, amber);
+        oy += 32 * s;
+        Rect bar{x + 20 * s, oy, w - 40 * s, 8 * s};
+        gfx_->fill_round(bar, 4 * s, {255, 255, 255, 15});
+        const float cw = (bar.w - 2 * s) * cpct / 100.0f;
+        if (cpct > 0) gfx_->fill_round({bar.x, bar.y, std::max(cw, 8 * s), bar.h}, 4 * s, th.accent);
+        if (ipct > 0) gfx_->fill_round({bar.x + cw + 2 * s, bar.y, (bar.w - 2 * s) * ipct / 100.0f, bar.h}, 4 * s, amber);
+        oy += 14 * s;
+        const std::string lab = total == 0 ? "No requests yet this session" : std::to_string(cpct) + "% served from cache \xC2\xB7 " + std::to_string(ipct) + "% used the network";
+        T(400, 11, x + w / 2 - gfx_->measure(F(400, 11), lab) / 2, oy, 17, lab, {255, 255, 255, 153});
+        y += 92 * s;
+        row_i = 1;   // the divider above the first stat row
+        struct Stat { std::string value, label; };
+        auto stat_row = [&](uint32_t icon, Color icon_col, const std::string& title, const std::string& sub, std::vector<Stat> stats, const std::string& badge, bool badge_on, bool badge_danger) {
+            const float row_top = y + 1 * s;
+            row(icon, title, sub, 0, false, "", false, 71);
+            fa(icon, x + 1 * s + 28 * s, row_top + 35.5f * s, 18, icon_col);
+            float rx = x + w - 17 * s;
+            if (!badge.empty()) {
+                const int fb = F(600, 12); const float bw = gfx_->measure(fb, badge) + 20 * s;
+                Rect br{rx - bw, row_top + 35.5f * s - 12 * s, bw, 24 * s};
+                gfx_->fill_round(br, 12 * s, badge_danger ? Color{255, 69, 58, 46} : badge_on ? alpha(th.accent, 0.2f) : Color{0, 0, 0, 0});
+                if (!badge_danger && !badge_on) gfx_->stroke_round(br, 12 * s, 1 * s, {255, 255, 255, 61}, th.panel);
+                T(600, 12, br.x + 10 * s, br.y, 24, badge, badge_danger ? Color{255, 69, 58, 255} : badge_on ? th.accent : th.sub);
+                rx -= bw + 12 * s;
+            }
+            for (auto it2 = stats.rbegin(); it2 != stats.rend(); ++it2) {
+                std::string lbl = it2->label; for (auto& ch : lbl) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+                gfx_->set_letter_spacing(0.4f * s);
+                const float lw = gfx_->measure(F(400, 10), lbl);
+                gfx_->set_letter_spacing(0);
+                const float vw = gfx_->measure(F(600, 14), it2->value), colw = std::max(lw, vw);
+                T(600, 14, rx - vw, row_top + 22.5f * s, 14, it2->value, th.text);
+                gfx_->set_letter_spacing(0.4f * s);
+                T(400, 10, rx - lw, row_top + 37.5f * s, 10, lbl, {255, 255, 255, 153});
+                gfx_->set_letter_spacing(0);
+                rx -= colw + 12 * s;
+            }
+        };
+        stat_row(0xf302, th.sub, "Image Cache (IndexedDB)", "Cover art blobs persisted across sessions", {{grouped(ps.images), "images"}, {bytes_str(ps.image_bytes), "on disk"}}, "", false, false);
+        stat_row(0xf022, th.sub, "Search Index (IndexedDB)", ps.songs > 0 ? grouped(ps.artists) + " artists \xC2\xB7 " + grouped(ps.albums) + " albums \xC2\xB7 " + grouped(ps.songs) + " songs" : "Library metadata for instant search",
+                 ps.index_bytes > 0 ? std::vector<Stat>{{bytes_str(ps.index_bytes), "on disk"}} : std::vector<Stat>{{"\xE2\x80\x94", "not built"}}, "", false, false);
+        stat_row(0xf058, th.accent, "Images \xE2\x80\x94 No Network", grouped(ps.mem_hits) + " from RAM \xC2\xB7 " + grouped(ps.disk_hits) + " from disk", {{grouped(ps.mem_hits + ps.disk_hits), "served"}}, "", false, false);
+        {
+            const uint64_t tot = ps.mem_hits + ps.disk_hits + ps.server_fetches + ps.internet_fetches, hit = ps.mem_hits + ps.disk_hits;
+            const int pct = tot == 0 ? -1 : static_cast<int>(std::lround(100.0 * hit / tot));
+            stat_row(0xf1eb, amber, "Images \xE2\x80\x94 Internet Used", grouped(ps.server_fetches) + " from Subsonic server \xC2\xB7 " + grouped(ps.internet_fetches) + " from art service", {{grouped(ps.server_fetches + ps.internet_fetches), "fetched"}},
+                     pct < 0 ? "" : std::to_string(pct) + "% cached", pct >= 80, pct >= 0 && pct < 50);
+        }
+        stat_row(0xf233, amber, "Metadata \xE2\x80\x94 Internet Used", "Artist lists, album details, song lists, search \xE2\x80\x94 always from server", {{grouped(ps.api_calls), "API calls"}}, "", false, false);
+        y = card_top + card_h;
+    }
+    y += 32 * s; row_i = 0;
     // ---- OFFLINE & CACHE
     section("OFFLINE & CACHE");
     card_fill(y, 302 * s);
-    if (row(skin::Cloud, "Offline Mode", offline_ ? "Playing downloaded music only" : "Streaming from server", 1, false, offline_ ? "On" : "Off", offline_, 61)) {
-        offline_ = !offline_; load_home(); load_artists();
+    if (row(offline_ ? 0xf072u : static_cast<uint32_t>(skin::Cloud), "Offline Mode", offline_ ? "No network requests will be made" : "Streaming from server", 1, false, offline_ ? "On" : "Off", offline_, 61)) {
+        toggle_offline();
     }
-    row(0xf012, "Auto-offline on mobile data", "Download songs first to enable", 1, false, "Off", false, 61);
+    {
+        const bool can = songs_downloaded() > 0;
+        if (row(0xf012, "Auto-offline on mobile data", can ? "Switch to offline automatically on cellular" : "Download songs first to enable", 1, false, cfg_.auto_offline_metered ? "On" : "Off", cfg_.auto_offline_metered, 61) && (can || cfg_.auto_offline_metered)) {
+            cfg_.auto_offline_metered = !cfg_.auto_offline_metered; cfg_.save(cfg_path_);
+            if (!cfg_.auto_offline_metered && auto_offline_active_) apply_metered(false);
+            check_metered();
+        }
+    }
     if (row(skin::Download, "Downloads", "", 1, true, "", false, 52)) set_nav(Nav::Downloads);
-    if (row(skin::Sync, "Preload Library Cache", "Fetches metadata and cover art for faster browsing", 1, false, "Start", true, 61)) start_cache_preload();
-    if (row(0xf1f8, "Clear All Caches", "Deletes artwork, offline data, and precache flags", 2, false, "", false, 61)) {
-        images_->clear_memory();
-        images_->clear_disk();
-        if (store_) { store_->erase_prefix("home:"); store_->erase_prefix("artist"); store_->erase_prefix("album"); }
-        album_cache_.clear(); artist_cache_.clear();
-    }
+    if (row(0xf2f1, "Rebuild Cache", "Re-fetches library index; keeps downloaded files", 1, false, "", false, 61)) modal_ = Modal::ConfirmRebuild;
+    if (row(0xf1f8, "Clear All Caches", "Deletes artwork, offline data, and precache flags", 2, false, "", false, 61)) modal_ = Modal::ConfirmClearCaches;
     y += (1 + 32) * s; row_i = 0;
     // ---- REMOTE
     section("REMOTE");
@@ -461,7 +525,7 @@ void App::draw_settings(Rect r) {
         std::vector<std::string> o = {"Original", "320 kbps", "256 kbps", "128 kbps", "64 kbps"};
         int cur = 0; for (int i = 0; i < 5; ++i) if (q[i] == cfg_.download_quality) cur = i;
         dropdown(3, {x + w - 16 * s - 120 * s, y - 71 * s + 21 * s, 120 * s, 29 * s}, o, cur);
-        if (pick_id == 3 && pick >= 0) { cfg_.download_quality = q[pick]; cfg_.save(cfg_path_); dropdown_open_ = 0; }
+        if (pick_id == 3 && pick >= 0) { cfg_.download_quality = q[pick]; cfg_.save(cfg_path_); if (downloads_) downloads_->set_quality_label(q[pick] ? std::to_string(q[pick]) : "original"); dropdown_open_ = 0; }
         row(0xf5fd, "Concurrent Downloads", "Up to " + std::to_string(cfg_.concurrent_downloads) + " songs at once", 0, false, "", false, 71);
         std::vector<std::string> n = {"1", "2", "3", "4", "5", "6", "7", "8"};
         dropdown(4, {x + w - 16 * s - 120 * s, y - 71 * s + 21 * s, 120 * s, 29 * s}, n, cfg_.concurrent_downloads - 1);
@@ -480,7 +544,7 @@ void App::draw_settings(Rect r) {
     y += (1 + 32) * s; row_i = 0;
     // ---- ADVANCED (performance tiers)
     section("ADVANCED");
-    card_fill(y, 335 * s);
+    card_fill(y, (335 + (cfg_.debug_log ? 53 : 0)) * s);
     {
         static const char* names[3] = {"Balanced Mode", "Gaming Mode", "Eco Mode"};
         static const char* descs[3] = {"Default \xE2\x80\x94 60 fps, full GPU effects, standard prefetch",
@@ -492,8 +556,9 @@ void App::draw_settings(Rect r) {
             int m = order[k];
             if (row(icons[m], names[m], descs[m], 1, false, cfg_.perf_mode == m ? "Active" : "", cfg_.perf_mode == m, m == 1 ? 86 : 61)) { cfg_.perf_mode = m; apply_perf_mode(); cfg_.save(cfg_path_); }
         }
-        if (row(0xf15b, "Debug Logging", "Writes detailed logs to disk", 1, false, cfg_.debug_log ? "On" : "Off", cfg_.debug_log, 61)) { cfg_.debug_log = !cfg_.debug_log; cfg_.save(cfg_path_); }
-        if (row(0xf201, "Render Timer HUD", "Shows frame time and redraw rate for performance checks", 1, false, cfg_.render_timer ? "On" : "Off", cfg_.render_timer, 61)) { cfg_.render_timer = !cfg_.render_timer; cfg_.save(cfg_path_); mark(); }
+        if (row(cfg_.debug_log ? 0xf15cu : 0xf15bu, "Debug Logging", "Writes detailed logs to disk", 1, false, cfg_.debug_log ? "On" : "Off", cfg_.debug_log, 61)) { cfg_.debug_log = !cfg_.debug_log; cfg_.save(cfg_path_); xf_log_configure(cfg_.debug_log, pref_ + "logs"); xf_log("debug logging %s", cfg_.debug_log ? "enabled" : "disabled"); }
+        if (cfg_.debug_log && row(0xf07c, "Open Log Folder", "", 1, true, "", false, 52)) SDL_OpenURL(("file://" + pref_ + "logs").c_str());
+        if (row(0xf201, "Performance Overlay", "Shows FPS, CPU load, and OS RAM usage \xE2\x80\x94 green <16 ms, yellow <50 ms, red \xE2\x89\xA5 50 ms", 1, false, cfg_.render_timer ? "On" : "Off", cfg_.render_timer, 61)) { cfg_.render_timer = !cfg_.render_timer; cfg_.save(cfg_path_); mark(); }
     }
     y += (1 + 32) * s; row_i = 0;
     // ---- DANGER ZONE
@@ -528,6 +593,8 @@ void App::apply_perf_mode() {
     // Balanced = default; Gaming and Eco trim the image cache and drop look-ahead (see perfModeService). Frame caps are
     // moot here: the UI only redraws when something changes.
     size_t tex = cfg_.perf_mode == 0 ? 96 : cfg_.perf_mode == 1 ? 40 : 60;
+    if (images_) images_->set_disk_budget(cfg_.perf_mode == 0 ? 64ull << 20 : cfg_.perf_mode == 1 ? 32ull << 20 : 16ull << 20);
     if (images_) images_->set_max_textures(tex);
+    if (images_) images_->set_concurrency(cfg_.perf_mode == 0 ? 4 : 1);   // IMAGE_CACHE_TUNING: balanced 4 fetches, gaming and eco 1
     mark();
 }

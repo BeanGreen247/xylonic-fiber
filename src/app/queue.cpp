@@ -36,6 +36,26 @@ void Queue::add(Song s) {
     ++rev_;
 }
 
+std::vector<Song> Queue::neighbours(size_t each_side) const {
+    std::vector<Song> out; const size_t n = order_.size();
+    if (n < 2) return out;
+    std::vector<size_t> seen{cur_};
+    for (size_t k = 1; k <= each_side && k < n; ++k)
+        for (size_t idx : {order_[(pos_ + k) % n], order_[(pos_ + n - k) % n]})
+            if (std::find(seen.begin(), seen.end(), idx) == seen.end()) { seen.push_back(idx); out.push_back(songs_[idx]); }
+    return out;
+}
+
+void Queue::append(std::vector<Song> songs) {
+    if (songs.empty()) return;
+    if (songs_.empty()) { set(std::move(songs), 0); return; }
+    const size_t first = songs_.size();
+    songs_.insert(songs_.end(), std::make_move_iterator(songs.begin()), std::make_move_iterator(songs.end()));
+    for (size_t i = first; i < songs_.size(); ++i) order_.push_back(i);
+    if (shuffle_) for (size_t i = order_.size() - 1; i > pos_ + 1; --i) std::swap(order_[i], order_[pos_ + 1 + rand32() % (i - pos_)]);   // unplayed tail only
+    ++rev_;
+}
+
 void Queue::play_next(Song s) {
     if (songs_.empty()) { add(std::move(s)); return; }
     size_t at = cur_ + 1;

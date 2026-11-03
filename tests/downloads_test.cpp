@@ -1,4 +1,5 @@
 // Store + Downloads against an in-process HTTP server (fast files, a slow one, a 404).
+#include <filesystem>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -76,6 +77,19 @@ int main() {
       unlink(path.c_str());
       { Store s; CHECK(s.open(path)); std::string v; CHECK(s.get("album:journal", v) && v == "persisted"); }
       unlink(path.c_str()); unlink((path + ".journal").c_str());
+      std::error_code ec0; std::filesystem::remove_all(path + ".meta", ec0);
+    }
+
+    {   // query API: likes, playlists and technical fields come back from the indexed metadata, across a restart
+      char tmpl[] = "meta-store-XXXXXX"; int fd = mkstemp(tmpl); close(fd); unlink(tmpl); std::string path = tmpl;
+      Album al; al.id = "alb"; al.name = "A"; al.artist = "Art"; al.songs = {mk("q1", "alb"), mk("q2", "alb")}; al.songs[0].title = "Quartz Song"; al.songs[0].cover_art = "cov1"; al.songs[0].bit_rate = 320; al.songs[0].suffix = "flac";
+      { Store s; CHECK(s.open(path)); CHECK(s.put("album:alb", to_json(al))); s.set_liked("q2", true);
+        s.set_playlist("pl1", {al.songs[1], al.songs[0]});
+        Song got; CHECK(s.song("q1", got) && got.cover_art == "cov1" && got.bit_rate == 320 && got.suffix == "flac");
+        CHECK(s.liked("q2")); CHECK(!s.liked("q1")); CHECK(s.liked_songs().size() == 1); CHECK(s.playlist_contains("pl1", "q1")); CHECK(!s.playlist_contains("pl1", "zz")); }
+      { Store s; CHECK(s.open(path)); CHECK(s.liked("q2")); CHECK(s.playlist_contains("pl1", "q2")); CHECK(s.local_search("quartz").size() == 1); CHECK(s.local_search("quartz")[0].cover_art == "cov1"); // snapshot + persisted index
+        Album shrunk = al; shrunk.songs.resize(1); CHECK(s.put("album:alb", to_json(shrunk))); CHECK(s.local_search("quartz").size() == 1 && s.local_search("q").size() <= 2); }
+      std::error_code ec; std::filesystem::remove_all(path + ".meta", ec); unlink(path.c_str()); unlink((path + ".journal").c_str());
     }
 
     int lfd = socket(AF_INET, SOCK_STREAM, 0);

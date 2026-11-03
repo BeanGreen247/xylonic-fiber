@@ -5,6 +5,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "../net/url.h"
+#include "metered.h"
+#include "log.h"
 #include "secrets.h"
 
 namespace {
@@ -35,6 +37,8 @@ std::string lower_ext(const std::string& s) {
 App::App(AppOptions o) : opt_(std::move(o)) {}
 
 App::~App() {
+    cancel_cache_preload();
+    if (metered_timer_) SDL_RemoveTimer(metered_timer_);
     if (scan_cancel_) scan_cancel_->store(true);
     close_mini();
     save_queue_state();
@@ -56,7 +60,7 @@ bool App::init() {
     win_ = SDL_CreateWindow("xylonic-fiber", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, opt_.width, opt_.height,
                             SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     if (!win_) return false;
-    SDL_SetWindowMinimumSize(win_, 640, 480);
+    SDL_SetWindowMinimumSize(win_, 320, 480);
     ren_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!ren_) ren_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_SOFTWARE);
     if (!ren_) return false;
@@ -81,6 +85,7 @@ bool App::init() {
     img_dir_ = pref_ + "covers/";
     mkdirs(perm_dir_); mkdirs(stream_dir_); mkdirs(img_dir_);
     cfg_.load(cfg_path_);
+    xf_log_configure(cfg_.debug_log, pref_ + "logs");
     vol_ = static_cast<float>(cfg_.volume_pct) / 100.0f;
     player_.set_volume(vol_);
 
@@ -106,6 +111,8 @@ bool App::init() {
     worker_ = std::make_unique<Worker>(3);
     mpris_.start("xylonic-fiber", [this](MprisCmd c, double a, const std::string& sa) { mpris_command(c, a, sa); });
     images_ = std::make_unique<ImageCache>(ren_, *worker_, img_dir_, 96);
+    apply_perf_mode();   // fetch concurrency, texture and disk budgets for the stored mode
+    metered_timer_ = SDL_AddTimer(30000, [](Uint32 interval, void* self) -> Uint32 { ui_post([self] { static_cast<App*>(self)->check_metered(); }); return interval; }, this);
     images_->set_on_ready([this] { mark(); });
     ui_post([] {});  // registers the wake-up event type on the UI thread
     ui_drain();
@@ -154,6 +161,7 @@ void App::connect(bool trust_pin) {
         ui_post([this, client, sess, url, ok, err, fp] {
             if (sess != session_) return;
             connecting_ = false;
+            xf_log("connect %s: %s", url.c_str(), ok ? "ok" : (err.empty() ? "failed" : err.c_str()));
             if (ok) {
                 client_ = client;
                 cfg_.server_url = url;
@@ -186,9 +194,10 @@ void App::open_account_data() {
     downloads_.reset();
     if (store_) {
         auto c = client_;
-        downloads_ = std::make_unique<Downloads>(*store_, perm_dir_, [c, q = cfg_.download_quality](const std::string& id) {
-            return c ? c->download_url(id, q) : std::string();
+        downloads_ = std::make_unique<Downloads>(*store_, perm_dir_, [this, c](const std::string& id) {
+            return c ? c->download_url(id, cfg_.download_quality) : std::string();   // read per request so the setting applies at once
         }, copt_, cfg_.concurrent_downloads);
+        downloads_->set_quality_label(cfg_.download_quality ? std::to_string(cfg_.download_quality) : "original");
         downloads_->set_on_change([this] { ui_post([this] { dl_dirty_ = true; mark(); }); });
     }
     dl_dirty_ = true;
@@ -199,6 +208,28 @@ void App::refresh_dl_state() {
     dl_state_.clear();
     if (!downloads_) return;
     for (auto& it : downloads_->snapshot()) dl_state_[it.song.id] = {it.state, it.bytes, it.total};
+}
+
+int App::songs_downloaded() const {
+    int n = 0;
+    if (downloads_) for (const auto& it : downloads_->snapshot()) if (it.state == Downloads::Done) ++n;
+    return n;
+}
+
+// Every 30 s: with the setting on and songs downloaded, a metered connection switches to offline mode and an unmetered one switches back.
+void App::check_metered() {
+    check_connectivity();   // reachable -> unreachable offers offline mode
+    if (!worker_ || (!cfg_.auto_offline_metered && !auto_offline_active_)) return;
+    worker_->post([this] { const bool m = cfg_.auto_offline_metered && network_metered(); ui_post([this, m] { apply_metered(m); }); });
+}
+
+void App::apply_metered(bool metered) {
+    if (metered && !offline_ && cfg_.auto_offline_metered && songs_downloaded() > 0 && !cellular_prompt_shown_) {
+        auto_offline_active_ = true; cellular_prompt_shown_ = true; toggle_offline(); prompt_ = Prompt::Cellular; mark();   // "Mobile Data Detected"
+    } else if (!metered && auto_offline_active_) {
+        auto_offline_active_ = false; cellular_prompt_shown_ = false;
+        if (offline_) toggle_offline();
+    }
 }
 
 void App::enter_offline() {
@@ -236,17 +267,26 @@ void App::on_connected() {
     pl_load();
     load_home();
     load_artists();
+    check_first_run();   // first launch for this account: build the performance cache
+    if (store_) images_->set_alias(store_->cover_alias());   // song covers resolve to their album art
+    SDL_AddTimer(3000, [](Uint32, void* self) -> Uint32 { ui_post([self] { static_cast<App*>(self)->check_library_changes(); }); return 0; }, this);   // then compare server counts
+    SDL_AddTimer(5000, [](Uint32, void* self) -> Uint32 { ui_post([self] { static_cast<App*>(self)->check_missing_songs(); }); return 0; }, this);   // and look for songs not downloaded yet
     if (opt_.nav == "library") set_nav(Nav::Library);
     else if (opt_.nav == "queue") set_nav(Nav::Queue);
     else if (opt_.nav == "settings") set_nav(Nav::Settings);
     else if (opt_.nav == "downloads") set_nav(Nav::Downloads);
     else if (opt_.nav == "search") set_nav(Nav::Search);
+    else if (opt_.nav.rfind("artist:", 0) == 0) { set_nav(Nav::Library); push_view(ViewKind::Artist, opt_.nav.substr(7), "Artist 0"); load_artist(opt_.nav.substr(7)); }
     else if (opt_.nav.rfind("album:", 0) == 0) { push_view(ViewKind::Album, opt_.nav.substr(6), "Album"); load_album(opt_.nav.substr(6)); }
     if (opt_.nowplaying) np_open_ = true;
     if (opt_.pulse) cfg_.car_pulse = true;
     if (opt_.carmode || cfg_.car_start) set_car_mode(true);
     if (opt_.help) show_help_ = true;
+    if (opt_.scroll > 0) { settings_scroll_.y = static_cast<float>(opt_.scroll) * S_; dl_scroll_.y = settings_scroll_.y; }
+    if (opt_.dm.find("queue") != std::string::npos) dm_show_queue_ = true;
+    if (opt_.dm.find("manage") != std::string::npos) dm_manage_ = true;
     if (!opt_.panel.empty()) toggle_panel(opt_.panel == "history" ? PanelTab::History : opt_.panel == "playlists" ? PanelTab::Playlists : PanelTab::Queue);
+    if (opt_.modal == "dlpicker") { open_download_picker(false); } else if (opt_.modal == "banner") { missing_songs_ = 25; missing_banner_ = true; } else if (opt_.modal == "offlineprompt") { prompt_ = Prompt::Offline; } else if (opt_.modal == "cellprompt") { prompt_ = Prompt::Cellular; } else if (opt_.modal == "newcontent") { nc_outdated_ = false; nc_artists_ = 3; nc_songs_ = 25; newcontent_open_ = true; } else if (opt_.modal == "outdated") { nc_outdated_ = true; newcontent_open_ = true; } else if (opt_.modal == "rebuild") modal_ = Modal::ConfirmRebuild; else if (opt_.modal == "dlquality") modal_ = Modal::DownloadQuality; else if (opt_.modal == "reauth") modal_ = Modal::Reauth;
     if (!opt_.search.empty()) { search_q_ = opt_.search; nav_ = Nav::Search; views_.clear(); views_.push_back({ViewKind::Root, "", "Search", {}}); run_search(); }
     if (!opt_.download_album.empty()) {
         worker_->post([this, c = client_, s = session_, id = opt_.download_album] {
@@ -267,6 +307,7 @@ void App::on_connected() {
 }
 
 void App::logout() {
+    cancel_cache_preload(); pre_open_ = false; newcontent_open_ = false;
     secret_clear(cfg_.server_url + "|" + cfg_.username);
     player_.stop();
     ++session_;
@@ -304,6 +345,8 @@ void App::load_artists() {
             ar->albums.push_back(al);
             ar->album_count = static_cast<int>(ar->albums.size());
         }
+        load_err_ = artists_.empty() ? "No cached songs available" : std::string();   // ArtistList: offline with nothing downloaded
+        artists_loaded_ = true;
         mark();
         return;
     }
@@ -314,7 +357,8 @@ void App::load_artists() {
         ui_post([this, s, a = std::move(a), ok, e]() mutable {
             if (s != session_) return;
             loading_artists_ = false;
-            if (ok) { if (store_) store_->put("artists", to_json(a)); artists_ = std::move(a); } else load_err_ = e;
+            artists_loaded_ = true;
+            if (ok) { if (store_) store_->put("artists", to_json(a)); artists_ = std::move(a); load_err_.clear(); } else load_err_ = e.empty() ? "Failed to load artists" : e;
             mark();
         });
     });
@@ -364,24 +408,35 @@ void App::load_album(const std::string& id) {
     });
 }
 
-SDL_Texture* App::cover(const std::string& id, int px) {
-    if (id.empty()) return nullptr;
-    int dev = static_cast<int>(px * S_);
+SDL_Texture* App::cover(const std::string& id, int px, const std::string& artist, const std::string& album, bool hi) {
+    // Performance modes request smaller textures: Gaming 3/4, Eco 1/2 of the device size (the disk copy is always the 300 px original).
+    const float mode = cfg_.perf_mode == 2 ? 0.5f : cfg_.perf_mode == 1 ? 0.75f : 1.0f;
+    const int dev = std::max(32, static_cast<int>(px * S_ * mode));
     auto c = client_;  // offline: empty URL, the image only resolves from the disk cache
-    return images_->get(cover_key(id, dev), [c, id, dev] { return c ? c->cover_url(id, dev) : std::string(); });
+    ImageCache::UrlFn url = [c, id](int size) { return c ? c->cover_url(id, size) : std::string(); };
+    if (id.empty()) {
+        if (offline_ || (artist.empty() && album.empty())) return nullptr;
+        return images_->get("net:" + artist + "::" + album + "@" + std::to_string(dev), url, artist, album);
+    }
+    return images_->get((hi ? "hi:" : "") + cover_key(id, dev), std::move(url));
 }
 
+void App::draw_art_fallback(Rect r, const std::string& id, float radius) {
+    const Theme& th = ui_->th;
+    gfx_->fill_round(r, radius, th.panel2);                 // album-art-loading
+    if (id.empty() ? false : !images_->fallback_id(id)) return;
+    fa(id.compare(0, 3, "ar-") == 0 ? 0xf2bdu : static_cast<uint32_t>(skin::Music), r.x + r.w / 2, r.y + r.h / 2, std::max(12.0f, r.w / S_ / 3), Color{th.text.r, th.text.g, th.text.b, 90});
+}
+
+// Downloads the covers (300 px, disk only) of these songs in the background, as the original's cover prefetch did.
 void App::prefetch_covers(const std::vector<Song>& songs) {
     if (!client_) return;
-    auto c = client_;
-    for (const Song& sg : songs) {
-        if (sg.cover_art.empty()) continue;
-        for (int px : {44, 64, 132, 164}) {
-            int dev = static_cast<int>(px * S_);
-            std::string id = sg.cover_art;
-            images_->prefetch(cover_key(id, dev), [c, id, dev] { return c->cover_url(id, dev); });
-        }
-    }
+    std::vector<std::string> ids;
+    for (const Song& sg : songs) if (!sg.cover_art.empty() && std::find(ids.begin(), ids.end(), sg.cover_art) == ids.end()) ids.push_back(sg.cover_art);
+    if (ids.empty()) return;
+    worker_->post([this, c = client_, ids = std::move(ids)] {
+        for (const std::string& id : ids) images_->fetch_to_disk(id, [c, id](int size) { return c->cover_url(id, size); });
+    });
 }
 
 ThemeDef App::theme_def(int idx) const {
@@ -403,6 +458,7 @@ void App::pop_view() { if (views_.size() > 1) { views_.pop_back(); mark(); } }
 
 void App::set_nav(Nav n) {
     nav_ = n;
+    perf_stats_.loaded = false;   // Settings re-reads the cache stats when opened
     views_.clear();
     static const char* names[] = {"Home", "Library", "Search", "Queue", "Downloads", "Settings"};
     views_.push_back({ViewKind::Root, "", names[static_cast<int>(n)], {}});
@@ -440,6 +496,7 @@ void App::start_current() {
     Song song = *s;
     uint32_t gen = ++play_gen_;
     player_.clear_next();
+    if (queue_.size() > 1) prefetch_covers(queue_.neighbours(2));   // what skip back/forward reaches next
     eq_bass_db_ = eq_treble_db_ = 0;
     player_.set_eq(0, 0);
     preloaded_id_.clear();
@@ -518,12 +575,13 @@ void App::mpris_push() {
     st.length_s = player_.duration_seconds();
     if (cur) {
         st.title = cur->title; st.artist = cur->artist; st.album = cur->album; st.track_id = cur->id;
-        std::string key = cover_key(cur->cover_art, 300);
         if (!cur->cover_art.empty()) {
-            auto c = client_;
-            images_->prefetch(key, [c, id = cur->cover_art] { return c ? c->cover_url(id, 300) : std::string(); });
-            std::string path = images_->disk_path(key);
-            if (::access(path.c_str(), R_OK) == 0) st.art_url = "file://" + path;
+            if (client_ && mpris_art_id_ != cur->cover_art) {
+                mpris_art_id_ = cur->cover_art;
+                worker_->post([this, c = client_, id = cur->cover_art] { images_->fetch_to_disk(id, [c, id](int size) { return c->cover_url(id, size); }); });
+            }
+            std::string path = images_->disk_path(cur->cover_art);
+            if (!path.empty() && ::access(path.c_str(), R_OK) == 0) st.art_url = "file://" + path;
         }
     }
     uint32_t now = SDL_GetTicks();
@@ -716,12 +774,13 @@ int App::run() {
             ui_->in.new_frame();
         }
         if (shot_deadline_ && SDL_GetTicks() >= shot_deadline_ && !track_loading_ && !loading_home_) {
+            // The back buffer is undefined after a present; draw the settled scene twice so the read-back is the current one.
+            if (!mini_ren_) { frame(); gfx_->capture_next(opt_.shot_path); frame(); }
             int w, h;
             SDL_Renderer* shot_ren = mini_ren_ ? mini_ren_ : ren_;
             SDL_GetRendererOutputSize(shot_ren, &w, &h);
             SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
-            SDL_RenderReadPixels(shot_ren, nullptr, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
-            SDL_SaveBMP(s, opt_.shot_path.c_str());
+            if (mini_ren_) { SDL_RenderReadPixels(shot_ren, nullptr, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch); SDL_SaveBMP(s, opt_.shot_path.c_str()); }
             SDL_FreeSurface(s);
             running_ = false;
         }
@@ -737,8 +796,12 @@ void App::frame() {
     ui_->in.screen_h = dh;
     if (dl_dirty_) refresh_dl_state();
     gfx_->begin_frame(ui_->th.bg);
+    const Input in0 = ui_->in;
     if (screen_ == Screen::Login) draw_login(W, H);
-    else draw_main(W, H);
+    else {
+        draw_main(W, H);
+        if (pre_open_ || newcontent_open_ || prompt_ != Prompt::None) { ui_->in = in0; if (pre_open_) draw_precache(W, H); else if (prompt_ != Prompt::None) draw_connectivity_prompt(W, H); else draw_new_content_prompt(W, H); }
+    }
     draw_render_hud(static_cast<float>(dw), static_cast<float>(dh));
     gfx_->end_frame();
     const uint64_t now = SDL_GetPerformanceCounter();

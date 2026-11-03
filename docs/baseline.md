@@ -77,3 +77,7 @@ Same machine and fake server, real GL window on Wayland, 1024x768. The earlier "
 | Binary | Electron 248MB runtime | 4.1MB executable + 5.7MB assets (fonts) | | |
 
 perf of the playing process: about half of the CPU is the mp3 decoder (dr_mp3), the rest is the audio server client threads (PulseMainloop ~25%) and our resample/ring path. Floor measured earlier: an open audio device alone costs ~1.9%. Startup grew from 147ms because init now also opens the D-Bus session (MPRIS), starts the remote service and loads Roboto plus Font Awesome; not yet profiled.
+
+## After the cache work (2026-11-03)
+
+Same machine and method, 1000-song fake library, fresh profile: idle PSS 48.8 MB (HEAD before: 48.4 MB), playing 43.2 MB (42.1 MB). Warm profile idle 37.8-38.5 MB against the 32.8 MB SDL2 floor. Details and the 100k-song cache benchmark are in `docs/cache-design.md`.

@@ -34,6 +34,7 @@ bool take64(const std::string& in, size_t& p, int64_t& out) {
 Store::~Store() {
     std::lock_guard<std::mutex> lk(m_);
     save_locked();
+    if (meta_ && meta_->needs_compact()) meta_->compact();   // fold the journal into a snapshot + persisted search index
 }
 
 bool Store::open(const std::string& path) {
@@ -52,7 +53,13 @@ bool Store::open(const std::string& path) {
         }
         if (!records.empty()) ok = save_locked();
     }
-    if (ok) rebuild_index_locked();
+    if (ok) {
+        meta_ = std::make_unique<xf::cache::MetadataStore>(memory_ ? std::string() : path_ + ".meta");
+        meta_->durable = false;      // group commit: sync with the JSON batches, not per album
+        meta_->open();
+        // First run on a store that predates the metadata files: build the index from the cached albums on first use.
+        index_stale_ = meta_->current()->song_count() == 0 && (!downloads_.empty() || std::any_of(kv_.begin(), kv_.end(), [](const auto& x) { return x.first.rfind("album:", 0) == 0; }));
+    }
     return ok;
 }
 
@@ -89,7 +96,7 @@ bool Store::journal_download_locked(char op, const Row& row) {
     put32(payload, static_cast<uint32_t>(row.path.size())); payload += row.path;
     put32(payload, static_cast<uint32_t>(row.song_json.size())); payload += row.song_json;
     put32(payload, static_cast<uint32_t>(row.content_hash.size())); payload += row.content_hash;
-    put64(payload, static_cast<uint64_t>(row.state)); put64(payload, static_cast<uint64_t>(row.bytes)); put64(payload, static_cast<uint64_t>(row.total));
+    put64(payload, static_cast<uint64_t>(row.state)); put64(payload, static_cast<uint64_t>(row.bytes)); put64(payload, static_cast<uint64_t>(row.total)); put64(payload, static_cast<uint64_t>(static_cast<int64_t>(row.quality)));
     return journal_->append_transaction(++transaction_, ++generation_, {payload});
 }
 
@@ -107,48 +114,124 @@ void Store::apply_download_journal_locked(const std::string& payload) {
     if (!take_string(payload, p, row.id) || !take_string(payload, p, row.album_id) || !take_string(payload, p, row.path) ||
         !take_string(payload, p, row.song_json) || !take_string(payload, p, row.content_hash) || !take64(payload, p, state) ||
         !take64(payload, p, row.bytes) || !take64(payload, p, row.total)) return;
+    { int64_t q = -1; if (take64(payload, p, q)) row.quality = static_cast<int>(q); }   // absent in journals written before per-download quality
     row.state = static_cast<int>(state); downloads_[row.id] = std::move(row);
 }
 
-void Store::index_song_locked(const Song& song) {
-    if (song.id.empty()) return;
-    xf::cache::SongInput in;
-    in.id = song.id; in.title = song.title; in.artist_id = song.artist_id; in.artist_name = song.artist;
-    in.album_id = song.album_id; in.album_name = song.album; in.album_artist_name = song.artist;
-    in.format = song.suffix; in.codec = song.suffix; in.track = song.track; in.year = song.year;
-    in.duration = song.duration; in.bitrate = song.bit_rate; in.size = song.size; in.liked = song.starred;
-    metadata_.upsert(in);
-    indexed_songs_[song.id] = song;
+namespace {
+Song song_from_view(const xf::cache::SongView& v) {
+    Song s; const auto& p = *v.packed;
+    s.id = v.id(); s.title = v.title(); s.album = v.album_name(); s.album_id = v.album_id(); s.artist = v.artist_name(); s.artist_id = v.artist_id();
+    s.cover_art = v.cover_art(); s.suffix = v.format(); s.track = static_cast<int>(p.track); s.year = static_cast<int>(p.year); s.duration = static_cast<int>(p.duration);
+    s.bit_rate = static_cast<int>(p.bitrate); s.sampling_rate = static_cast<int>(p.sample_rate); s.bit_depth = p.bit_depth; s.channels = p.channels; s.size = p.size; s.starred = p.liked; return s;
+}
+bool same_song(const xf::cache::SongView& v, const xf::cache::SongInput& in) {
+    return v.valid() && v.title() == in.title && v.artist_name() == in.artist_name && v.album_name() == in.album_name && v.album_id() == in.album_id && v.artist_id() == in.artist_id &&
+           v.cover_art() == in.cover_art && v.format() == in.format && v.packed->track == in.track && v.packed->year == in.year && v.packed->duration == in.duration &&
+           v.packed->bitrate == in.bitrate && v.packed->size == in.size && v.packed->liked == in.liked;
+}
+}  // namespace
+
+// Journals and publishes only the songs that differ from the live generation.
+void Store::index_songs_locked(const std::vector<Song>& songs) const {
+    if (!meta_) return;
+    auto live = meta_->current();
+    xf::cache::UpdateBatch batch;
+    for (const Song& song : songs) {
+        if (song.id.empty()) continue;
+        xf::cache::SongInput in = xf::cache::to_input(song);
+        if (!same_song(live->song(song.id), in)) batch.songs.push_back(std::move(in));
+    }
+    live.reset();
+    if (!batch.empty()) meta_->apply(batch);
 }
 
 void Store::index_album(const Album& album) {
     std::lock_guard<std::mutex> lk(m_);
-    for (const Song& song : album.songs) index_song_locked(song);
+    if (!index_stale_) index_songs_locked(album.songs);
 }
 
-void Store::rebuild_index_locked() {
-    metadata_ = xf::cache::MetadataSnapshot{};
-    indexed_songs_.clear();
+void Store::index_songs(const std::vector<Song>& songs) {
+    std::lock_guard<std::mutex> lk(m_);
+    if (!index_stale_) index_songs_locked(songs);
+}
+
+void Store::rebuild_index_locked() const {
+    if (!meta_) return;
+    xf::cache::UpdateBatch batch; batch.reset = true;
     for (const auto& item : kv_) {
         if (item.first.rfind("album:", 0) != 0) continue;
         Album album;
-        if (from_json(item.second.first, album)) for (const Song& song : album.songs) index_song_locked(song);
+        if (from_json(item.second.first, album)) xf::cache::add_album(batch, album);
     }
     for (const auto& item : downloads_) {
         Song song;
-        if (from_json(item.second.song_json, song)) index_song_locked(song);
+        if (from_json(item.second.song_json, song) && !song.id.empty()) batch.songs.push_back(xf::cache::to_input(song));
     }
+    meta_->apply(batch); index_stale_ = false;
 }
 
 std::vector<Song> Store::local_search(const std::string& query, size_t limit) const {
     std::lock_guard<std::mutex> lk(m_);
+    ensure_index_locked();
     std::vector<Song> out;
-    for (const std::string& id : metadata_.search_songs(query, limit)) {
-        auto it = indexed_songs_.find(id);
-        if (it != indexed_songs_.end()) out.push_back(it->second);
-    }
+    if (!meta_) return out;
+    auto g = meta_->current();
+    for (const std::string& id : g->search_songs(query, limit)) { xf::cache::SongView v = g->song(id); if (v.valid()) out.push_back(song_from_view(v)); }
     return out;
 }
+
+bool Store::song(const std::string& id, Song& out) const {
+    std::lock_guard<std::mutex> lk(m_); ensure_index_locked();
+    if (!meta_) return false;
+    auto g = meta_->current(); xf::cache::SongView v = g->song(id); if (!v.valid()) return false; out = song_from_view(v); return true;
+}
+void Store::set_liked(const std::string& id, bool liked) {
+    std::lock_guard<std::mutex> lk(m_); if (!meta_ || id.empty()) return;
+    xf::cache::UpdateBatch b; b.likes.emplace_back(id, liked); meta_->apply(b);
+}
+bool Store::liked(const std::string& id) const { std::lock_guard<std::mutex> lk(m_); return meta_ && meta_->current()->liked(id); }
+std::vector<Song> Store::liked_songs() const {
+    std::lock_guard<std::mutex> lk(m_); ensure_index_locked(); std::vector<Song> out; if (!meta_) return out;
+    auto g = meta_->current(); for (const std::string& id : g->liked_songs()) { xf::cache::SongView v = g->song(id); if (v.valid()) out.push_back(song_from_view(v)); } return out;
+}
+void Store::set_playlist(const std::string& id, const std::vector<Song>& songs) {
+    std::lock_guard<std::mutex> lk(m_); if (!meta_ || id.empty()) return;
+    xf::cache::UpdateBatch b; xf::cache::add_playlist(b, id, songs);
+    // Playlist copies of songs are not authoritative: add songs the index has never seen, never overwrite known ones (likes!).
+    auto live = meta_->current(); std::vector<xf::cache::SongInput> changed;
+    for (auto& in : b.songs) if (!live->song(in.id).valid()) changed.push_back(std::move(in));
+    b.songs = std::move(changed); live.reset(); meta_->apply(b);
+}
+bool Store::playlist_contains(const std::string& playlist_id, const std::string& song_id) const { std::lock_guard<std::mutex> lk(m_); return meta_ && meta_->current()->playlist_contains(playlist_id, song_id); }
+std::unordered_map<std::string, std::string> Store::cover_alias() const {
+    std::vector<std::string> jsons;
+    { std::lock_guard<std::mutex> lk(m_); for (const auto& item : kv_) if (item.first.compare(0, 6, "album:") == 0) jsons.push_back(item.second.first); }
+    std::unordered_map<std::string, std::string> alias;
+    for (const std::string& j : jsons) { Album a; if (!from_json(j, a) || a.cover_art.empty()) continue; for (const Song& s : a.songs) if (!s.cover_art.empty() && s.cover_art != a.cover_art) alias[s.cover_art] = a.cover_art; }
+    return alias;
+}
+
+void Store::clear_library() {
+    std::lock_guard<std::mutex> lk(m_);
+    std::vector<std::string> gone;
+    for (const auto& item : kv_) if (item.first.compare(0, 6, "album:") == 0 || item.first.compare(0, 7, "artist:") == 0 || item.first == "artists") gone.push_back(item.first);
+    for (const auto& key : gone) { if (!journal_erase_locked(key)) break; kv_.erase(key); }
+    if (meta_) { xf::cache::UpdateBatch reset; reset.reset = true; meta_->apply(reset); }
+    index_stale_ = false;
+    save_locked();
+}
+
+void Store::compact_metadata() { std::lock_guard<std::mutex> lk(m_); if (meta_) meta_->compact(); }
+
+Store::Stats Store::stats() const {
+    std::lock_guard<std::mutex> lk(m_); ensure_index_locked(); Stats st; st.kv_entries = kv_.size(); st.downloads = downloads_.size();
+    for (const auto& item : kv_) { if (item.first.compare(0, 6, "album:") == 0) ++st.albums; else if (item.first.compare(0, 7, "artist:") == 0) ++st.artists; }
+    if (meta_) st.index_bytes = meta_->disk_bytes();
+    if (meta_) { auto g = meta_->current(); st.songs = g->song_count(); st.liked = g->liked_songs().size(); st.generation = meta_->generation(); }
+    return st;
+}
+uint64_t Store::metadata_generation() const { std::lock_guard<std::mutex> lk(m_); return meta_ ? meta_->generation() : 0; }
 
 bool Store::load_locked() {
     if (memory_) return true;
@@ -171,6 +254,7 @@ bool Store::load_locked() {
         Row r;
         r.id = str(o, "id"); r.album_id = str(o, "album_id"); r.path = str(o, "path"); r.song_json = str(o, "song");
         r.content_hash = str(o, "content_hash");
+        { yyjson_val* q = yyjson_obj_get(o, "quality"); r.quality = q ? static_cast<int>(yyjson_get_sint(q)) : -1; }
         r.state = static_cast<int>(integer(o, "state")); r.bytes = integer(o, "bytes"); r.total = integer(o, "total");
         if (!r.id.empty()) downloads_[r.id] = std::move(r);
     }
@@ -202,6 +286,7 @@ bool Store::save_locked() const {
         yyjson_mut_obj_add_strcpy(d, o, "path", r.path.c_str());
         yyjson_mut_obj_add_strcpy(d, o, "song", r.song_json.c_str());
         yyjson_mut_obj_add_strcpy(d, o, "content_hash", r.content_hash.c_str());
+        yyjson_mut_obj_add_int(d, o, "quality", r.quality);
     }
     yyjson_mut_obj_add_val(d, root, "downloads", dl);
     std::string tmp = path_ + ".tmp";
@@ -212,12 +297,31 @@ bool Store::save_locked() const {
     return ok;
 }
 
+// The journal already makes each mutation durable; the full JSON rewrite only compacts it, so batch it.
+bool Store::maybe_save_locked() {
+    if (++unsaved_ops_ < 64) return true;
+    unsaved_ops_ = 0;
+    if (meta_) meta_->sync();
+    return save_locked();
+}
+
 bool Store::put(const std::string& key, const std::string& value) {
     std::lock_guard<std::mutex> lk(m_);
     if (!journal_put_locked(key, value)) return false;
+    if (key.rfind("album:", 0) == 0 && !index_stale_) {
+        // Index only this album. If the refresh dropped songs, defer the full rebuild to the next query.
+        Album next; auto old = kv_.find(key);
+        if (from_json(value, next)) {
+            if (old != kv_.end()) {
+                Album prev;
+                if (from_json(old->second.first, prev))
+                    for (const Song& s : prev.songs) { bool kept = false; for (const Song& n : next.songs) if (n.id == s.id) { kept = true; break; } if (!kept) { index_stale_ = true; break; } }
+            }
+            if (!index_stale_) index_songs_locked(next.songs);
+        }
+    }
     kv_[key] = {value, static_cast<int64_t>(std::time(nullptr))};
-    if (key.rfind("album:", 0) == 0) rebuild_index_locked();
-    return save_locked();
+    return maybe_save_locked();
 }
 bool Store::get(const std::string& key, std::string& value, int64_t* ts) {
     std::lock_guard<std::mutex> lk(m_); auto it = kv_.find(key); if (it == kv_.end()) return false;
@@ -229,15 +333,15 @@ void Store::erase_prefix(const std::string& prefix) {
     for (const auto& item : kv_) if (item.first.compare(0, prefix.size(), prefix) == 0) removed.push_back(item.first);
     for (const auto& key : removed) if (!journal_erase_locked(key)) return;
     for (auto it = kv_.begin(); it != kv_.end();) { if (it->first.compare(0, prefix.size(), prefix) == 0) it = kv_.erase(it); else ++it; }
-    if (prefix.empty() || prefix.rfind("album", 0) == 0) rebuild_index_locked();
+    if (prefix.empty() || prefix.rfind("album", 0) == 0) index_stale_ = true;
     save_locked();
 }
-bool Store::dl_upsert(const Row& r) { std::lock_guard<std::mutex> lk(m_); if (!journal_download_locked('D', r)) return false; downloads_[r.id] = r; return save_locked(); }
+bool Store::dl_upsert(const Row& r) { std::lock_guard<std::mutex> lk(m_); if (!journal_download_locked('D', r)) return false; downloads_[r.id] = r; return maybe_save_locked(); }
 bool Store::dl_set(const std::string& id, int state, int64_t bytes, int64_t total, const std::string& path, const std::string& content_hash) {
     std::lock_guard<std::mutex> lk(m_); auto it = downloads_.find(id); if (it == downloads_.end()) return false;
     Row next = it->second; next.state = state; next.bytes = bytes; next.total = total; next.path = path; if (!content_hash.empty()) next.content_hash = content_hash;
     if (!journal_download_locked('D', next)) return false;
-    it->second = std::move(next); return save_locked();
+    it->second = std::move(next); return maybe_save_locked();
 }
 bool Store::dl_get(const std::string& id, Row& out) {
     std::lock_guard<std::mutex> lk(m_); auto it = downloads_.find(id); if (it == downloads_.end()) return false; out = it->second; return true;
@@ -250,6 +354,6 @@ bool Store::dl_erase(const std::string& id) {
     auto it = downloads_.find(id); if (it == downloads_.end()) return false;
     if (!journal_download_erase_locked(id)) return false;
     downloads_.erase(it);
-    rebuild_index_locked();
+    index_stale_ = true;
     return save_locked();
 }

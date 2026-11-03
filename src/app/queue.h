@@ -12,6 +12,7 @@ public:
     // Replaces the queue. start is an index into songs.
     void set(std::vector<Song> songs, size_t start);
     void add(Song s);
+    void append(std::vector<Song> songs);  // bulk add; in shuffle mode the new tracks are mixed into the unplayed rest
     void play_next(Song s);  // insert right after the current track
     void remove(size_t i);
     void move(size_t from, size_t to);
@@ -27,6 +28,8 @@ public:
     // Manual next/prev. Both wrap around at the ends regardless of repeat mode.
     const Song* next();
     const Song* prev();
+    // Up to each_side tracks before and after the current one in play order (what skip back/forward will reach).
+    std::vector<Song> neighbours(size_t each_side) const;
     // Natural end of the current track: repeat-one stays, otherwise next().
     const Song* on_track_end();
 

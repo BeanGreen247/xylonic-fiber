@@ -58,6 +58,7 @@ void App::pl_save() {
     }
     char* out = yyjson_mut_write(d, 0, nullptr);
     if (out) { store_->put("playlists", out); free(out); }
+    for (const Playlist& p : playlists_) store_->set_playlist(p.id, p.songs);   // membership queries use the indexed copy
     yyjson_mut_doc_free(d);
 }
 
@@ -240,7 +241,7 @@ void App::draw_playlists_tab(Rect p, float cy) {
         if (ab(ax, skin::ListUl, false)) { for (auto& sg : pl.songs) queue_.add(sg); acted = true; }
         else if (ab(ax + 26 * s, skin::Play, false)) { if (!pl.songs.empty()) play_songs(pl.songs, 0, false); acted = true; }
         else if (ab(ax + 52 * s, skin::Pen, false)) { pl_rename_id_ = pl.id; pl_rename_text_ = pl.name; u.focus = kPlRename; acted = true; }
-        else if (ab(ax + 78 * s, 0xf1f8, true)) { std::string id = pl.id; pl_delete(id); gfx_->clip(nullptr); return; }
+        else if (ab(ax + 78 * s, 0xf1f8, true)) { pl_delete_pending_ = pl.id; modal_ = Modal::ConfirmDeletePlaylist; gfx_->clip(nullptr); return; }   // window.confirm("Delete this playlist?")
         if (u.clicked(hd) && !acted && !renaming && list.contains(u.in.mx, u.in.my)) pl_expanded_ = exp ? "" : pl.id;
         y += 40 * s;
         gfx_->fill({p.x, y - 1 * s, p.w, 1 * s}, th.border_subtle);
@@ -299,7 +300,8 @@ void App::draw_add_to_playlist(float W, float H) {
         T(500, 14, row.x + 52 * s, row.y + 8 * s, 20, pl.name, th.text, row.w - 120 * s);
         T(400, 11, row.x + 52 * s, row.y + 29 * s, 16, std::to_string(pl.songs.size()) + " songs", th.sub);
         bool has = false;
-        for (auto& sg : pl.songs) if (sg.id == add_song_->id) has = true;
+        if (store_) has = store_->playlist_contains(pl.id, add_song_->id);
+        else for (auto& sg : pl.songs) if (sg.id == add_song_->id) has = true;
         if (has) fa(skin::Check, row.x + row.w - 28 * s, row.y + 26 * s, 14, th.accent);
         if (u.clicked(row) && !has) { pl_add_song(pl.id, *add_song_); add_song_.reset(); return; }
         y += 52 * s;

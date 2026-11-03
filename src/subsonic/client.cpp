@@ -34,6 +34,7 @@ void to_song(yyjson_val* o, Song& s) {
     s.artist = str(o, "artist"); s.artist_id = str(o, "artistId"); s.cover_art = str(o, "coverArt"); s.suffix = str(o, "suffix");
     s.track = num(o, "track"); s.year = num(o, "year"); s.duration = num(o, "duration"); s.bit_rate = num(o, "bitRate");
     s.size = unum(o, "size"); s.starred = yyjson_obj_get(o, "starred") != nullptr;
+    s.sampling_rate = num(o, "samplingRate"); s.bit_depth = num(o, "bitDepth"); s.channels = num(o, "channelCount");
 }
 void to_album(yyjson_val* o, Album& a) {
     a.id = str(o, "id"); a.name = str(o, "name"); if (a.name.empty()) a.name = str(o, "title");
@@ -76,19 +77,44 @@ std::string SubsonicClient::auth_query() const {
     psa_crypto_init();
     psa_generate_random(r, sizeof r);
     std::string salt = hex(r, sizeof r);
-    std::string in = pass_ + salt;
+    std::string pass, user;
+    { std::lock_guard<std::mutex> lk(cred_m_); pass = pass_; user = user_; }
+    std::string in = pass + salt;
     mbedtls_md5(reinterpret_cast<const unsigned char*>(in.data()), in.size(), dig);
-    return "u=" + url_encode(user_) + "&t=" + hex(dig, 16) + "&s=" + salt + "&v=" + kApiVersion + "&c=" + kClient + "&f=json";
+    return "u=" + url_encode(user) + "&t=" + hex(dig, 16) + "&s=" + salt + "&v=" + kApiVersion + "&c=" + kClient + "&f=json";
 }
 
 std::string SubsonicClient::url_for(const std::string& ep, const std::string& extra) const {
     return base_ + "/rest/" + ep + ".view?" + auth_query() + (extra.empty() ? "" : "&" + extra);
 }
 
+namespace { std::atomic<uint64_t> g_api_calls{0}; }
+uint64_t SubsonicClient::api_calls() { return g_api_calls.load(); }
+void SubsonicClient::reset_api_calls() { g_api_calls = 0; }
+
+bool SubsonicClient::song_count(int& total, std::string& err) {
+    std::vector<Album> albums; total = 0;
+    if (!album_list("alphabeticalByName", 500, 0, albums, err)) return false;
+    for (const Album& a : albums) total += a.song_count;
+    return true;
+}
+
+void SubsonicClient::set_password(std::string password) { std::lock_guard<std::mutex> lk(cred_m_); pass_ = std::move(password); auth_failed_ = false; }
+
 bool SubsonicClient::call(const std::string& ep, const std::string& extra, std::string& body, std::string& err) {
+    ++g_api_calls;
     HttpResult r = http_get_string(url_for(ep, extra), body, opt_);
     if (!r.error.empty()) { err = r.error; return false; }
+    if (r.status == 401) auth_failed_ = true;
     if (r.status != 200) { err = "HTTP " + std::to_string(r.status); return false; }
+    if (body.size() < 2048 && body.find("\"failed\"") != std::string::npos) {   // error envelopes are tiny; 40 wrong login, 41 token auth, 44 bad key
+        yyjson_doc* d = yyjson_read(body.data(), body.size(), 0);
+        yyjson_val* resp = d ? yyjson_obj_get(yyjson_doc_get_root(d), "subsonic-response") : nullptr;
+        yyjson_val* e = resp ? yyjson_obj_get(resp, "error") : nullptr;
+        const int code = e ? num(e, "code") : 0;
+        if (code == 40 || code == 41 || code == 44) auth_failed_ = true;
+        yyjson_doc_free(d);
+    }
     return true;
 }
 
@@ -141,6 +167,15 @@ bool SubsonicClient::artist(const std::string& id, Artist& out, std::string& err
         size_t i, n; yyjson_val* al;
         yyjson_arr_foreach(yyjson_obj_get(a, "album"), i, n, al) { out.albums.emplace_back(); to_album(al, out.albums.back()); }
     });
+}
+
+bool SubsonicClient::song(const std::string& id, Song& out, std::string& err) {
+    std::string b;
+    if (!call("getSong", "id=" + url_encode(id), b, err)) return false;
+    bool found = false;
+    if (!with_doc(b, err, [&](yyjson_val* r) { yyjson_val* s = yyjson_obj_get(r, "song"); if (s) { to_song(s, out); found = true; } })) return false;
+    if (!found) err = "song not found";
+    return found;
 }
 
 bool SubsonicClient::album(const std::string& id, Album& out, std::string& err) {

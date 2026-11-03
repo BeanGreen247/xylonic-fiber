@@ -6,6 +6,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 #include "../audio/player.h"
@@ -27,7 +28,7 @@
 
 constexpr const char* kVersion = "0.1.0";
 constexpr const char* kBuildDate = __DATE__;
-enum WidgetId { kUrl = 1, kUser, kPass, kSearch, kPanelSearch, kPlNew, kPlRename, kEditName, kEditHex, kSeek = 10, kVol };
+enum WidgetId { kUrl = 1, kUser, kPass, kReauth, kSearch, kPanelSearch, kPlNew, kPlRename, kEditName, kEditHex, kSeek = 10, kVol };
 
 struct AppOptions {
     std::string server, user, pass;  // optional auto-login (testing)
@@ -41,7 +42,11 @@ struct AppOptions {
     bool mini = false;      // open the mini player (testing)
     bool carmode = false;   // open Car Mode (testing)
     bool nowplaying = false; // open Now Playing (testing)
+    std::string dm;         // Downloads page sections to open: queue,manage (testing)
     std::string panel;      // open the right panel: queue|history|playlists (testing)
+    std::string modal;      // open a dialog: dlquality|reauth|rebuild (testing)
+    int scroll = 0;         // initial settings scroll in logical px (testing)
+    bool no_precache = false;   // skip the first-run cache build (testing)
     bool selftest = false;  // init and exit
     bool offline = false;   // start in offline mode with the saved account
     std::string download_album;  // enqueue this album after login (testing)
@@ -74,6 +79,17 @@ private:
     void draw_main(float W, float H);
     void draw_render_hud(float W, float H);
     void draw_player_bar(Rect r);
+    void draw_player_bar_mobile(Rect r);
+    void draw_now_playing_compact(float W, float H, const Song* cur);
+    std::string np_meta_id_; Song np_meta_; uint32_t np_toast_until_ = 0; std::string np_toast_;   // getSong metadata + "Quality -> X" toast
+    void draw_artist_compact(Rect r);
+    void draw_album_compact(Rect r);
+    std::vector<std::string> dq_album_ids_;   // artist page: the picker fetches these albums and queues their songs
+    void draw_bottom_nav(float W, float H);
+    float banner_h_ = 0;    // missing-songs banner height under the header (0 when hidden)
+    bool bottom_menu_open_ = false;   // Queue / History / Playlists submenu above the bottom nav
+    bool mobile_ = false;   // logical width under 700: bottom nav, compact header and mini player
+    void set_current_liked(bool on);   // server star + local metadata index
     void draw_library(Rect r);
     void draw_artist(Rect r);
     void draw_album(Rect r);
@@ -99,9 +115,19 @@ private:
     void draw_hamburger(float W, float H);
     void draw_right_panel(float W, float H);
     void draw_modal(float W, float H);
-    void start_cache_preload();
-    void cancel_cache_preload();
-    void draw_cache_preload(float W, float H);
+    // Performance cache prestep (the original CachePreloadDialog) and its triggers.
+    void start_cache_preload(bool library_change = false);
+    void cancel_cache_preload();          // stops the build and joins its thread
+    void skip_cache_preload();
+    void finish_precache();               // the original's "restart": refresh app state and close the overlay
+    void mark_precache_done();
+    void draw_precache(float W, float H);
+    void draw_new_content_prompt(float W, float H);
+    int draw_prompt(float W, float H, uint32_t icon, const std::string& title, const std::string& body, const std::vector<std::pair<std::string, std::string>>& list, const std::string& note, const std::string& left, const std::string& right, uint32_t right_icon, bool accent_icon);
+    void draw_connectivity_prompt(float W, float H);
+    void check_first_run();
+    void check_library_changes();
+    void refresh_perf_stats();
     void draw_ctx_menu(float W, float H);
     void draw_help(float W, float H);
     void open_ctx(const Song& s, float x, float y);
@@ -112,6 +138,7 @@ private:
     void tick_sleep();
     void wipe_all_data();
     void apply_perf_mode();
+    std::vector<Song> queue_neighbours(size_t each_side) const;
     void draw_now_playing(float W, float H);
     void draw_car_mode(float W, float H);
     void set_car_mode(bool on);
@@ -136,7 +163,19 @@ private:
     void load_songs_page(int page);
     void load_liked();
     void load_song_count();
-    void fetch_all_songs(bool shuffle_play);
+    // --- library-wide actions, ported from ArtistList/ShuffleAllButton/DownloadQualityPicker/App.tsx ---
+    void fetch_library_songs(std::function<void(std::vector<Song>&&, bool first)> on_page, std::function<void(bool any)> on_done);
+    void shuffle_all_pressed();                 // "Shuffle All" -> "Confirm?" while a song plays -> "Loading..."
+    void open_download_picker(bool missing_label);
+    void open_download_picker_songs(std::vector<Song> songs, std::string label);   // album / artist pages: confirm queues just these
+    void queue_downloads(int quality);          // every song not yet downloaded, then the Downloads page
+    void check_missing_songs();                 // 5 s after connect: banner when some, but not all, songs are downloaded
+    void draw_missing_banner(float W, float y, float& height);
+    void draw_download_picker(float W, float H);
+    Rect qp_frame(float W, float H, float content_h, const char* title, uint32_t icon, const char* hint);   // .quality-picker-modal shell
+    void toggle_offline();                      // header globe / Settings / menu; leaving Home when offline starts
+    void check_connectivity();
+    int download_btn_state() const;             // 0 hidden, 1 "Download All", 2 "Download Missing"
     void draw_nav(float H);
     void draw_discover(Rect r);
     bool hit(Rect r) const { return ui_->clicked(r); }
@@ -156,7 +195,10 @@ private:
     void load_album(const std::string& id);
     void run_search();
     std::string cover_key(const std::string& id, int px) const { return id + "@" + std::to_string(px); }
-    SDL_Texture* cover(const std::string& id, int px);
+    // term/by_artist feed the iTunes fallback used when the server only has its stock placeholder.
+    // id empty: the item has no cover art, so iTunes is asked for "artist album" (online, setting on). hi: the 2000 px Car Mode copy.
+    SDL_Texture* cover(const std::string& id, int px, const std::string& artist = "", const std::string& album = "", bool hi = false);
+    void draw_art_fallback(Rect r, const std::string& id, float radius = 0);   // user-circle for artists, music note otherwise
     void prefetch_covers(const std::vector<Song>& songs);  // for offline browsing
 
     // playback
@@ -212,6 +254,11 @@ private:
     std::shared_ptr<SubsonicClient> client_;
     ConnectOptions copt_;
     bool offline_ = false;
+    bool auto_offline_active_ = false;   // offline because the connection is metered, not because the user chose it
+    SDL_TimerID metered_timer_ = 0;
+    void check_metered();
+    void apply_metered(bool metered);
+    int songs_downloaded() const;
     std::string acct_;
     std::unique_ptr<Store> store_;
     std::unique_ptr<Downloads> downloads_;
@@ -227,16 +274,47 @@ private:
     bool show_help_ = false, playing_random_ = false, hamburger_open_ = false, nav_expanded_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
-    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, CachePreload, Firewall, TechStack, Licenses };
+    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, Firewall, TechStack, Licenses, DownloadQuality, Reauth, ConfirmRebuild, ConfirmClearCaches, ConfirmCarMode, SwitchServer, SwitchPass, ConfirmDeletePlaylist };
+    std::string pl_delete_pending_;
+    std::string switch_pass_, switch_err_; int switch_idx_ = -1; bool switching_ = false;   // Settings > Account > Switch Server
+    void switch_to(int conn_idx, const std::string& password);
+    void draw_album_empty(float x, float y, float w);
+    bool draw_library_state(float x, float y, float w, uint32_t icon, const std::string& title, const std::string& msg, bool err, const std::string& button, uint32_t button_icon);
+    bool artists_loaded_ = false;   // a load finished (ok or not): the empty/error states may show
+    std::string reauth_pass_, reauth_msg_;
+    bool reauth_busy_ = false;
+    int dq_value_ = 320;                          // quality chosen in the Download Quality picker
+    bool dq_missing_label_ = false, bulk_downloading_ = false;
+    std::vector<Song> dq_songs_;                  // non-empty: the picker queues these instead of the whole library
+    std::string dq_label_;
+    bool shuffle_confirm_ = false, shuffling_all_ = false;
+    std::string shuffle_error_; uint32_t shuffle_error_until_ = 0;
+    int missing_songs_ = -1;                      // server songs minus downloaded; -1 unknown
+    bool missing_banner_ = false, missing_checked_ = false;
+    bool online_ = true, cellular_prompt_shown_ = false;
+    enum class Prompt { None, Offline, Cellular };
+    Prompt prompt_ = Prompt::None;
+    uint32_t toast_until_ = 0; std::string toast_;     // quality-notification pill under the header
     Modal modal_ = Modal::None;
     uint64_t sleep_end_ms_ = 0;
     int dropdown_open_ = 0;
     std::function<void()> dropdown_draw_;
     std::pair<int, int> dropdown_choice_{0, -1};
-    std::shared_ptr<std::atomic<bool>> preload_cancel_;
-    bool preload_running_ = false, preload_complete_ = false;
-    int preload_done_ = 0, preload_total_ = 5;
-    std::string preload_phase_, preload_error_;
+    enum class PrePhase { Artists, Albums, Search, Complete };
+    bool pre_open_ = false, pre_running_ = false, pre_library_change_ = false;
+    PrePhase pre_phase_ = PrePhase::Artists;
+    int pre_art_done_ = 0, pre_art_total_ = 0, pre_alb_done_ = 0, pre_alb_total_ = 0, pre_search_pct_ = 0;
+    int pre_change_artists_ = 0, pre_change_songs_ = 0;
+    float pre_disp_[4] = {0, 0, 0, 0};            // smoothed ring fill (0..100), like the original's stroke-dashoffset transition
+    std::string pre_search_msg_ = "Waiting...", pre_art_elapsed_, pre_alb_elapsed_, pre_search_elapsed_, pre_failure_;
+    uint32_t pre_complete_tick_ = 0;
+    std::shared_ptr<std::atomic<bool>> pre_cancel_;
+    std::thread pre_thread_;
+    bool newcontent_open_ = false, nc_outdated_ = false;   // "Library Change Detected" / "Cache Is Outdated" prompt
+    int nc_artists_ = 0, nc_songs_ = 0;
+    bool precheck_done_ = false;
+    uint32_t precheck_due_ = 0;
+    struct PerfStats { bool loaded = false; uint64_t images = 0, image_bytes = 0, mem_hits = 0, disk_hits = 0, server_fetches = 0, internet_fetches = 0, api_calls = 0, index_bytes = 0; size_t artists = 0, albums = 0, songs = 0; } perf_stats_;
     float pulse_caps_[24] = {};
     uint32_t pulse_last_ms_ = 0, pulse_frames_ = 0, pulse_toast_ms_ = 0;
     float pulse_avg_ms_ = 16.0f, eq_bass_db_ = 0, eq_treble_db_ = 0;
@@ -261,6 +339,10 @@ private:
     std::vector<Song> song_items_, liked_; bool song_more_ = false, song_loading_ = false, liked_loaded_ = false, liked_loading_ = false, busy_all_ = false;
     int song_loaded_page_ = -1, total_songs_ = -1;
     Scroll dl_scroll_, settings_scroll_;
+    bool dm_show_queue_ = false, dm_manage_ = false, dm_confirm_clear_ = false, dm_verifying_ = false, dm_verified_done_ = false;
+    std::string dm_pending_album_;
+    int dm_verified_ = 0, dm_removed_ = 0; double dm_verify_s_ = 0;
+    std::set<std::string> dm_cleared_;    // finished songs hidden from the queue list ("Clear Completed")
     int edit_slot_ = 0;
     std::string edit_name_, edit_hex_;
     bool edit_loaded_ = false;
@@ -306,7 +388,7 @@ private:
     bool remote_mode_ = false;
     std::string remote_target_, remote_note_, remote_error_;
     Mpris mpris_;
-    std::string mpris_sig_;
+    std::string mpris_sig_, mpris_art_id_;
     uint32_t mpris_last_ms_ = 0;
     std::string preloaded_id_;
     bool preloading_ = false, speed_popup_ = false, quality_popup_ = false;
