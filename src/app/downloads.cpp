@@ -89,7 +89,7 @@ void Downloads::retry_failed() {
     changed();
 }
 
-bool Downloads::remove_one(const std::string& id) {
+bool Downloads::remove_one(const std::string& id, std::vector<std::string>* defer) {
     bool media_dirty = false;
     {
         std::lock_guard<std::mutex> lk(m_);
@@ -106,7 +106,7 @@ bool Downloads::remove_one(const std::string& id) {
             if (!shared) ::unlink(r.path.c_str());
         }
         ::unlink((r.path + ".part").c_str());
-        store_.dl_erase(id);
+        if (defer) defer->push_back(id); else store_.dl_erase(id);
     }
     return media_dirty;
 }
@@ -119,7 +119,9 @@ void Downloads::remove(const std::string& id) {
 
 void Downloads::remove_many(const std::vector<std::string>& ids) {
     bool dirty = false;
-    for (const std::string& id : ids) dirty |= remove_one(id);
+    std::vector<std::string> erase;
+    for (const std::string& id : ids) dirty |= remove_one(id, &erase);
+    store_.dl_erase_many(erase);
     if (dirty && media_) media_->save();
     last_notify_ = 0;
     changed();

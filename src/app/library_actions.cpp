@@ -252,6 +252,13 @@ void App::draw_download_picker(float W, float H) {
 // Leaving Home when offline mode starts: Discover needs the server.
 void App::toggle_offline() {
     offline_ = !offline_;
+    cfg_.offline_mode = offline_; cfg_.save(cfg_path_);
+    if (!offline_ && !client_ && !connecting_) {   // going online after an offline start: sign in again with the stored password
+        std::string saved;
+        if (secret_lookup(cfg_.server_url + "|" + cfg_.username, saved)) { f_url_ = cfg_.server_url; f_user_ = cfg_.username; f_pass_ = saved; connect(false); }
+        else { toast_ = "Sign in again to go online"; toast_until_ = SDL_GetTicks() + 3500; logout(); return; }   // no stored password: back to the sign-in screen
+    }
+    alb_loaded_page_ = song_loaded_page_ = -1;   // the Albums and Songs lists switch between the server and the downloads
     if (offline_ && nav_ == Nav::Home) set_nav(Nav::Library);
     load_home(); load_artists();
     for (int i = 0; i < 4; ++i) load_section(i);

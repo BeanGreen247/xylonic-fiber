@@ -15,6 +15,7 @@ bool Config::load(const std::string& path) {
     theme = num("theme", 0); theme_mode = num("theme_mode", 0);
     download_quality = num("download_quality", 320); concurrent_downloads = std::min(8, std::max(1, num("concurrent_downloads", 3)));
     default_view = num("default_view", 0); car_minimal = num("car_minimal", 0); perf_mode = num("perf_mode", 0);
+    offline_mode = num("offline_mode", 0) != 0;
     car_keep_on = num("car_keep_on", 1) != 0; car_start = num("car_start", 0) != 0; car_pulse = num("car_pulse", 0) != 0;
     debug_log = num("debug_log", 0) != 0; render_timer = num("render_timer", 0) != 0;
     auto_offline_metered = num("auto_offline_metered", 0) != 0;
@@ -57,6 +58,7 @@ bool Config::save(const std::string& path) const {
     yyjson_mut_obj_add_int(d, o, "default_view", default_view);
     yyjson_mut_obj_add_int(d, o, "car_minimal", car_minimal);
     yyjson_mut_obj_add_int(d, o, "perf_mode", perf_mode);
+    yyjson_mut_obj_add_int(d, o, "offline_mode", offline_mode);
     yyjson_mut_obj_add_int(d, o, "car_keep_on", car_keep_on);
     yyjson_mut_obj_add_int(d, o, "car_start", car_start);
     yyjson_mut_obj_add_int(d, o, "car_pulse", car_pulse);

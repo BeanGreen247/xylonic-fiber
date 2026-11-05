@@ -162,8 +162,11 @@ bool App::init() {
     if (!opt_.server.empty()) { f_url_ = opt_.server; f_user_ = opt_.user; f_pass_ = opt_.pass; }
     if (opt_.server.empty()) start_scan();
     if (opt_.server.empty() && !cfg_.server_url.empty() && !cfg_.username.empty()) {
-        std::string saved;
-        if (secret_lookup(cfg_.server_url + "|" + cfg_.username, saved)) { f_pass_ = saved; connect(false); }
+        if (cfg_.offline_mode) enter_offline();   // like the original: offline mode survives a restart and nothing connects until it is switched off
+        else {
+            std::string saved;
+            if (secret_lookup(cfg_.server_url + "|" + cfg_.username, saved)) { f_pass_ = saved; connect(false); }
+        }
     }
     if (!opt_.server.empty() && !opt_.pass.empty()) connect(false);
     if (opt_.offline) { enter_offline(); if (opt_.nav == "downloads") set_nav(Nav::Downloads); else if (opt_.nav == "library") set_nav(Nav::Library); }
@@ -284,6 +287,7 @@ void App::apply_metered(bool metered) {
 void App::enter_offline() {
     if (cfg_.server_url.empty() || cfg_.username.empty()) return;
     offline_ = true;
+    if (!cfg_.offline_mode) { cfg_.offline_mode = true; cfg_.save(cfg_path_); }
     client_.reset();
     screen_ = Screen::Main;
     views_.clear();
@@ -367,6 +371,7 @@ void App::logout() {
     downloads_.reset();
     store_.reset();
     offline_ = false;
+    if (cfg_.offline_mode) { cfg_.offline_mode = false; cfg_.save(cfg_path_); }
     images_->clear_memory();
     for (auto& sec : sections_) { sec.albums.clear(); sec.loading = true; sec.error.clear(); sec.scroll_x = 0; }
     artists_.clear(); artist_cache_.clear(); album_cache_.clear();

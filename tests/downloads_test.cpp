@@ -151,6 +151,13 @@ int main() {
         d.clear_queue();
         CHECK(d.pending() == 0 && d.snapshot()->empty() && ms() < 5000);
     }
+    { // batch writes survive a restart (journal replay of multi-row transactions)
+        std::vector<Song> few; for (int i = 0; i < 50; ++i) few.push_back(mk("rs" + std::to_string(i), "alRs"));
+        { Store st; CHECK(st.open(dir + "/rs.json")); Downloads d(st, dir + "/rsfiles", urlf, ConnectOptions{}); d.pause_all(); d.enqueue(few); }
+        { Store st; CHECK(st.open(dir + "/rs.json")); CHECK(st.dl_all().size() == 50);
+          Downloads d(st, dir + "/rsfiles", urlf, ConnectOptions{}); d.pause_all(); d.clear_queue(); }
+        { Store st; CHECK(st.open(dir + "/rs.json")); CHECK(st.dl_all().empty()); }
+    }
     { // persistence across restart
         Store st; CHECK(st.open(dbp));
         Downloads d(st, dir + "/files", urlf, ConnectOptions{});

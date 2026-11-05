@@ -17,8 +17,37 @@ std::string mmss(int s) {
 
 // ---------------------------------------------------------------- data
 
+// Offline: the Albums and Songs views list what is downloaded (AllAlbumsGrid / AllSongsGrid), paged like the online lists.
+void App::load_offline_page(int mode, int page) {
+    std::vector<Album> albums;
+    std::vector<Song> songs;
+    if (downloads_) {
+        albums = downloads_->done_albums();
+        for (auto& a : albums) for (auto& s : a.songs) songs.push_back(s);
+    }
+    auto lower = [](std::string v) { for (auto& c : v) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32); return v; };
+    const size_t off = static_cast<size_t>(page) * kPageSize;
+    if (mode == 1) {
+        std::sort(albums.begin(), albums.end(), [&](const Album& a, const Album& b) { return lower(a.name) < lower(b.name); });
+        alb_more_ = albums.size() > off + kPageSize;
+        alb_items_.clear();
+        for (size_t i = off; i < albums.size() && i < off + kPageSize; ++i) alb_items_.push_back(albums[i]);
+        offline_total_[0] = static_cast<int>(albums.size());
+        alb_loaded_page_ = page;
+    } else {
+        std::sort(songs.begin(), songs.end(), [&](const Song& a, const Song& b) { return lower(a.title) < lower(b.title); });
+        song_more_ = songs.size() > off + kPageSize;
+        song_items_.clear();
+        for (size_t i = off; i < songs.size() && i < off + kPageSize; ++i) song_items_.push_back(songs[i]);
+        offline_total_[1] = static_cast<int>(songs.size());
+        song_loaded_page_ = page;
+    }
+    mark();
+}
+
 void App::load_albums_page(int page) {
-    if (alb_loading_ || !client_ || offline_) return;
+    if (offline_) { load_offline_page(1, page); return; }
+    if (alb_loading_ || !client_) return;
     alb_loading_ = true;
     std::string key = "albums:p" + std::to_string(page);
     std::string j;
@@ -36,7 +65,8 @@ void App::load_albums_page(int page) {
 }
 
 void App::load_songs_page(int page) {
-    if (song_loading_ || !client_ || offline_) return;
+    if (offline_) { load_offline_page(2, page); return; }
+    if (song_loading_ || !client_) return;
     song_loading_ = true;
     worker_->post([this, c = client_, s = session_, page] {
         std::vector<Song> r; std::string e;
@@ -191,13 +221,14 @@ void App::draw_library(Rect r) {
             T(400, 14, b.x + (b.w - lw - 22 * s) / 2 + 22 * s, b.y, 45, label, th.sub);
         };
         const float ry = y0 + (52 + 12) * s;
-        if (lib_mode_ == 0) stat(ry, 0xf0c0, std::to_string(n_art) + " artists");
+        if (lib_mode_ == 0) stat(ry, 0xf0c0, std::to_string(n_art) + (offline_ ? " cached artists" : " artists"));
         else if (lib_mode_ == 3) stat(ry, skin::Heart, std::to_string(liked_.size()));
         else {
             int off = lib_page_[lib_mode_] * kPageSize;
             size_t cnt = lib_mode_ == 1 ? alb_items_.size() : song_items_.size();
             bool more = lib_mode_ == 1 ? alb_more_ : song_more_;
             std::string range = cnt ? std::to_string(off + 1) + "\xE2\x80\x93" + std::to_string(off + cnt) + (lib_mode_ == 1 && more ? " of " + std::to_string(off + cnt + 1) + "+" : "") : "0";
+            if (offline_) range = std::to_string(offline_total_[lib_mode_ == 1 ? 0 : 1]) + (lib_mode_ == 1 ? " cached albums" : " cached songs");   // AllAlbumsGrid / AllSongsGrid
             stat(ry, lib_mode_ == 1 ? 0xf8d9u : static_cast<uint32_t>(skin::Music), range);
         }
         if (lib_mode_ != 3) {
@@ -210,11 +241,12 @@ void App::draw_library(Rect r) {
         float ry = lib_mode_ == 0 ? y0 + 57 * s : y0 - 1 * s;
         float rx = lib_mode_ == 0 ? x : x + w - (lib_mode_ == 3 ? 104 : 399) * s;
         if (lib_mode_ == 0) {
-            pill(rx, ry, 113 * s, 0xf0c0, std::to_string(n_art) + " artists");
-            pill(rx + 129 * s, ry, 126 * s, 0xf8d9, std::to_string(n_alb) + " albums");
-            pill(rx + 271 * s, ry, 126 * s, skin::Music, std::to_string(std::max(0, total_songs_)) + " songs");
-            shuffle_btn(rx + 413 * s, ry + 2 * s, 130 * s);
-            download_btn(rx + 559 * s, ry + 2 * s, 148 * s);
+            const float dx = offline_ ? 47 * s : 0;   // "cached artists" is wider
+            pill(rx, ry, 113 * s + dx, 0xf0c0, std::to_string(n_art) + (offline_ ? " cached artists" : " artists"));
+            pill(rx + 129 * s + dx, ry, 126 * s, 0xf8d9, std::to_string(n_alb) + " albums");
+            pill(rx + 271 * s + dx, ry, 126 * s, skin::Music, std::to_string(std::max(0, total_songs_)) + " songs");
+            shuffle_btn(rx + 413 * s + dx, ry + 2 * s, 130 * s);
+            download_btn(rx + 559 * s + dx, ry + 2 * s, 148 * s);
         } else if (lib_mode_ == 3) {
             pill(rx, ry, 104 * s, skin::Heart, std::to_string(liked_.size()));
         } else {

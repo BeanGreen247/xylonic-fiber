@@ -55,7 +55,7 @@ public:
     std::vector<Album> done_albums() const;      // albums that have at least one finished track (songs = finished ones)
 
 private:
-    bool remove_one(const std::string& id);   // returns true when the media manifest changed
+    bool remove_one(const std::string& id, std::vector<std::string>* defer = nullptr);   // returns true when the media manifest changed
     void loop();
     bool fetch(const Store::Row& row);
     enum class Change { Progress, Background, User };

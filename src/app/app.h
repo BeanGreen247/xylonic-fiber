@@ -378,6 +378,8 @@ private:
     std::vector<Album> alb_items_; bool alb_more_ = false, alb_loading_ = false; int alb_loaded_page_ = -1;
     std::vector<Song> song_items_, liked_; bool song_more_ = false, song_loading_ = false, liked_loaded_ = false, liked_loading_ = false, busy_all_ = false;
     int song_loaded_page_ = -1, total_songs_ = -1;
+    void load_offline_page(int mode, int page);
+    int offline_total_[2] = {0, 0};   // cached albums / songs
     Scroll dl_scroll_, settings_scroll_;
     bool dm_show_queue_ = false, dm_manage_ = false, dm_confirm_clear_ = false, dm_verifying_ = false, dm_verified_done_ = false;
     std::string dm_pending_album_;

@@ -12,6 +12,7 @@ struct Config {
     int concurrent_downloads = 3;
     int default_view = 0;       // Library default: 0 artists, 1 albums, 2 songs, 3 liked
     int car_minimal = 0;        // 0 auto, 1 always, 2 never
+    bool offline_mode = false;   // localStorage "offlineMode": the app starts offline again
     bool car_keep_on = true, car_start = false, car_pulse = false, debug_log = false, render_timer = false;
     int perf_mode = 0;          // 0 balanced, 1 gaming, 2 eco
     bool be_controlled = true, control_others = true;

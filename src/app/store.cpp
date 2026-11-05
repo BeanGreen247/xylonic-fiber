@@ -1,4 +1,5 @@
 #include "store.h"
+#include <chrono>
 #include "model_json.h"
 #include <algorithm>
 #include <cstdio>
@@ -303,7 +304,12 @@ bool Store::save_locked() const {
 
 // The journal already makes each mutation durable; the full JSON rewrite only compacts it, so batch it.
 bool Store::maybe_save_locked() {
-    if (++unsaved_ops_ < 64) return true;
+    // The journal already makes every change durable, so the full JSON rewrite is only compaction. With a big queue it is megabytes
+    // written under the lock (the UI thread waits for it), so it runs at most every 30 s unless the journal gets long.
+    ++unsaved_ops_;
+    const uint32_t now = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+    if (unsaved_ops_ < 64 || (unsaved_ops_ < 4096 && now - last_save_ms_ < 30000)) return true;
+    last_save_ms_ = now;
     unsaved_ops_ = 0;
     if (meta_) meta_->sync();
     return save_locked();
@@ -368,6 +374,20 @@ bool Store::dl_get(const std::string& id, Row& out) {
 std::vector<Store::Row> Store::dl_all() {
     std::lock_guard<std::mutex> lk(m_); std::vector<Row> out; out.reserve(downloads_.size()); for (const auto& x : downloads_) out.push_back(x.second); return out;
 }
+bool Store::dl_erase_many(const std::vector<std::string>& ids) {
+    if (ids.empty()) return true;
+    std::lock_guard<std::mutex> lk(m_);
+    if (journal_) {
+        std::vector<std::string> payloads;
+        for (const std::string& id : ids) { std::string p(1, 'X'); put32(p, static_cast<uint32_t>(id.size())); p += id; payloads.push_back(std::move(p)); }
+        if (!journal_->append_transaction(++transaction_, ++generation_, payloads)) return false;
+    }
+    for (const std::string& id : ids) downloads_.erase(id);
+    ++dl_ver_;
+    index_stale_ = true;
+    return maybe_save_locked();
+}
+
 bool Store::dl_erase(const std::string& id) {
     std::lock_guard<std::mutex> lk(m_);
     auto it = downloads_.find(id); if (it == downloads_.end()) return false;

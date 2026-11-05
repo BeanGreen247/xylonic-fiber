@@ -33,6 +33,7 @@ public:
     bool dl_get(const std::string& id, Row& out);
     std::vector<Row> dl_all();
     bool dl_erase(const std::string& id);
+    bool dl_erase_many(const std::vector<std::string>& ids);   // one journal transaction and one save for the whole batch
     void index_album(const Album& album);
     void index_songs(const std::vector<Song>& songs);   // e.g. the starred list from the server
     std::vector<Song> local_search(const std::string& query, size_t limit = 50) const;
@@ -63,6 +64,7 @@ private:
     bool memory_ = false;
     mutable std::mutex m_;
     std::atomic<uint64_t> dl_ver_{0};
+    uint32_t last_save_ms_ = 0;
     std::unordered_map<std::string, std::pair<std::string, int64_t>> kv_;
     std::unordered_map<std::string, Row> downloads_;
     std::unique_ptr<xf::cache::Journal> journal_;
