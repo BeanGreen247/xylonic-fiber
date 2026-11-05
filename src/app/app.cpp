@@ -250,6 +250,9 @@ void App::open_account_data() {
         }, copt_, cfg_.concurrent_downloads);
         downloads_->set_quality_label(cfg_.download_quality ? std::to_string(cfg_.download_quality) : "original");
         downloads_->set_on_change([this] { ui_post([this] { dl_dirty_ = true; mark(); }); });
+        downloads_->set_on_done([this, c](const Song& sg) {   // cover art of every downloaded song, fetched once per cover (offline browsing shows it)
+            if (c && images_ && !sg.cover_art.empty()) images_->fetch_to_disk(sg.cover_art, [c, id = sg.cover_art](int size) { return c->cover_url(id, size); });
+        });
     }
     dl_dirty_ = true;
 }
@@ -291,8 +294,8 @@ void App::enter_offline() {
     client_.reset();
     screen_ = Screen::Main;
     views_.clear();
-    views_.push_back({ViewKind::Root, "", "Home", {}});
-    nav_ = Nav::Home;
+    views_.push_back({ViewKind::Root, "", "Library", {}});
+    nav_ = Nav::Library;   // Discover needs the server: offline starts in the Library
     open_account_data();
     queue_.load_songs(pref_ + "queue_" + acct_ + ".json");
     queue_saved_rev_ = queue_.revision();
@@ -322,6 +325,13 @@ void App::on_connected() {
     load_artists();
     check_first_run();   // first launch for this account: build the performance cache
     if (store_) images_->set_alias(store_->cover_alias());   // song covers resolve to their album art
+    if (downloads_ && client_) {   // downloaded songs keep their cover art on disk, so the library looks right offline (older downloads did not fetch it)
+        worker_->post([this, c = client_, s = session_] {
+            std::vector<std::string> ids;
+            for (const Album& al : downloads_->done_albums()) for (const Song& sg : al.songs) if (!sg.cover_art.empty() && std::find(ids.begin(), ids.end(), sg.cover_art) == ids.end()) ids.push_back(sg.cover_art);
+            for (const std::string& id : ids) { if (s != session_) return; images_->fetch_to_disk(id, [c, id](int size) { return c->cover_url(id, size); }); }
+        });
+    }
     SDL_AddTimer(3000, [](Uint32, void* self) -> Uint32 { ui_post([self] { static_cast<App*>(self)->check_library_changes(); }); return 0; }, this);   // then compare server counts
     SDL_AddTimer(5000, [](Uint32, void* self) -> Uint32 { ui_post([self] { static_cast<App*>(self)->check_missing_songs(); }); return 0; }, this);   // and look for songs not downloaded yet
     if (opt_.nav == "library") set_nav(Nav::Library);

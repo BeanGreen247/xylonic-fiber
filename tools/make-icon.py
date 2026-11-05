@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Renders the Xylonic Fiber app icon (PIL + numpy, no other dependencies) and writes every size the platforms need.
 
-Design: hybrid of the original logo (teal, white note) and a dark tile with a glowing ring around a dark centre, one teal hue family. Run from the repo root: python3 tools/make-icon.py
+Design: Vice City night purple, a striped sunset disc with a neon rim, cyan speed streaks and a dark, forward-leaning note. Run from the repo root: python3 tools/make-icon.py
 """
 import math, os
 import numpy as np
@@ -26,63 +26,93 @@ def ramp(t):
 def layer(): return Image.new('RGBA', (N, N), (0, 0, 0, 0))
 
 def art(scale=1.0, with_bg=False):
-    """Ring + note (+ optional tile background) as an RGBA image N x N. scale shrinks the artwork around the centre.
+    """Vice City take on the Xylonic note: a striped sunset disc over a night-purple tile, speed streaks, a dark note with a neon rim.
 
-    Hybrid of the original logo (teal, white note) and a dark tile with a glowing ring around a dark centre: one hue family only.
+    scale shrinks the artwork around the centre (adaptive icon layers keep it inside the safe zone).
     """
     c = N / 2
     ys, xs = np.mgrid[0:N, 0:N].astype(np.float32)
-    dx, dy = xs - c, ys - c
+    cy = c + 14 * SS * scale
+    dx, dy = xs - c, ys - cy
     r = np.hypot(dx, dy)
-    R = 318 * SS * scale          # ring centre radius
-    W = 112 * SS * scale          # ring thickness
-    # ring: lighter teal at the top left, the original deep teal at the bottom right
-    t = np.clip(((dx + dy) / (2 * (R + W / 2)) + 1) / 2, 0, 1)
-    top, mid, bot = hexc('#2fd3e6'), hexc('#00a9bf'), hexc('#006a7e')
-    col = np.where((t < 0.5)[..., None], top * (1 - t[..., None] * 2) + mid * (t[..., None] * 2), mid * (1 - (t[..., None] - 0.5) * 2) + bot * ((t[..., None] - 0.5) * 2))
-    aa = np.clip((W / 2 - np.abs(r - R)) + 0.5, 0, 1) * 255
-    rgba = np.zeros((N, N, 4), np.float32)
-    rgba[..., :3] = col; rgba[..., 3] = aa
-    ring = Image.fromarray(rgba.astype(np.uint8), 'RGBA')
+    R = 372 * SS * scale
     out = tile() if with_bg else layer()
-    glow = ring.filter(ImageFilter.GaussianBlur(30 * SS * scale))
-    ga = np.array(glow).astype(np.float32); ga[..., 3] *= 0.45
-    out = Image.alpha_composite(out, Image.fromarray(ga.astype(np.uint8), 'RGBA'))
-    out = Image.alpha_composite(out, ring)
-    # dark centre
-    disc = layer(); ri = R - W / 2
-    ImageDraw.Draw(disc).ellipse([c - ri, c - ri, c + ri, c + ri], fill=(6, 12, 16, 255))
-    out = Image.alpha_composite(out, disc)
-    # the Xylonic note (logo.svg geometry), white as in the original logo
-    k = 1.15 * SS * scale
-    def P(x, y): return (c + (x - 256) * k, c + (y - 252) * k)
-    note = layer(); nd = ImageDraw.Draw(note)
-    white = (255, 255, 255, 255)
-    head = Image.new('L', (N, N), 0); hdw = ImageDraw.Draw(head)
+    # speed streaks behind the sun: cyan to transparent, thin, staggered
+    streaks = layer(); sd = ImageDraw.Draw(streaks)
+    for (yy, x0, x1, th, a0) in ((-250, -520, -60, 12, 230), (-150, -520, -150, 8, 190), (-60, -520, -200, 16, 255), (40, -520, -120, 9, 200), (140, -520, -250, 12, 230), (240, -520, -90, 8, 170)):
+        for i in range(60):
+            t0 = i / 60.0
+            xa = c + (x0 + (x1 - x0) * t0) * SS * scale; xb = c + (x0 + (x1 - x0) * (t0 + 1 / 60.0)) * SS * scale
+            al = int(a0 * (t0 ** 0.9))
+            sd.rectangle([xa, cy + (yy - th * 0.7) * SS * scale, xb + 1, cy + (yy + th * 0.7) * SS * scale], fill=(0, 229, 255, al))
+    out = Image.alpha_composite(out, streaks.filter(ImageFilter.GaussianBlur(1.2 * SS)))
+    # outer glow of the sun
+    glow = np.zeros((N, N, 4), np.float32)
+    glow[..., :3] = hexc('#ff2d95'); glow[..., 3] = np.clip(1 - (r - R) / (150 * SS * scale), 0, 1) ** 2.2 * 150 * (r > R * 0.6)
+    out = Image.alpha_composite(out, Image.fromarray(glow.astype(np.uint8), 'RGBA'))
+    # the sun: yellow -> orange -> hot pink -> magenta, slits cut into the lower half
+    v = np.clip((dy + R) / (2 * R), 0, 1)
+    stops = [(0.0, '#ffe45e'), (0.38, '#ff9a1f'), (0.68, '#ff2d95'), (1.0, '#a100c8')]
+    col = np.zeros((N, N, 3), np.float32)
+    for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+        m = (v >= t0) & (v <= t1)
+        u = ((v - t0) / (t1 - t0))[..., None]
+        col = np.where(m[..., None], hexc(c0) * (1 - u) + hexc(c1) * u, col)
+    alpha = np.clip(R - r + 0.5, 0, 1)
+    # slits: bands whose height grows towards the bottom of the sun
+    lower = dy > 0
+    slit = np.zeros((N, N), np.float32)
+    y_off = dy / R   # 0 (centre) .. 1 (bottom)
+    for k in range(7):
+        centre = 0.20 + k * 0.118
+        half = 0.012 + k * 0.0075
+        slit = np.maximum(slit, (np.abs(y_off - centre) < half).astype(np.float32))
+    alpha = alpha * (1 - slit * lower)
+    sun = np.zeros((N, N, 4), np.float32)
+    sun[..., :3] = col; sun[..., 3] = alpha * 255
+    out = Image.alpha_composite(out, Image.fromarray(sun.astype(np.uint8), 'RGBA'))
+    # neon rim on the sun (thin cyan ring just outside)
+    ring = np.zeros((N, N, 4), np.float32)
+    ring[..., :3] = hexc('#19e6ff'); ring[..., 3] = np.clip(4 * SS * scale - np.abs(r - (R + 18 * SS * scale)) + 0.5, 0, 1) * 235
+    ringimg = Image.fromarray(ring.astype(np.uint8), 'RGBA')
+    out = Image.alpha_composite(out, ringimg.filter(ImageFilter.GaussianBlur(10 * SS * scale)))
+    out = Image.alpha_composite(out, ringimg)
+    # the note: dark silhouette (like the glowing-disc-and-silhouette icon), skewed forward for speed, with a cyan neon edge
+    k = 1.02 * SS * scale
+    def P(x, y): return (c + (x - 256) * k, cy + (y - 262) * k)
+    note = Image.new('L', (N, N), 0); nd = ImageDraw.Draw(note)
     hx, hy = P(213, 352); rx, ry = 61 * k, 47 * k
-    hdw.ellipse([hx - rx, hy - ry, hx + rx, hy + ry], fill=255)
+    head = Image.new('L', (N, N), 0); ImageDraw.Draw(head).ellipse([hx - rx, hy - ry, hx + rx, hy + ry], fill=255)
     head = head.rotate(15, center=(hx, hy), resample=Image.BICUBIC)
-    note.paste(Image.new('RGBA', (N, N), white), (0, 0), head)
+    note = Image.composite(Image.new('L', (N, N), 255), note, head)
+    nd = ImageDraw.Draw(note)
     x0, y0 = P(250, 128); x1, y1 = P(276, 358)
-    nd.rounded_rectangle([x0, y0, x1, y1], radius=13 * k, fill=white)
+    nd.rounded_rectangle([x0, y0, x1, y1], radius=13 * k, fill=255)
     p0, p1, p2, p3 = P(276, 128), P(366, 146), P(362, 224), P(296, 258)
     wd = 25 * k
     for i in range(0, 241):
         u = i / 240
         bx = (1-u)**3*p0[0] + 3*(1-u)**2*u*p1[0] + 3*(1-u)*u**2*p2[0] + u**3*p3[0]
         by = (1-u)**3*p0[1] + 3*(1-u)**2*u*p1[1] + 3*(1-u)*u**2*p2[1] + u**3*p3[1]
-        nd.ellipse([bx - wd/2, by - wd/2, bx + wd/2, by + wd/2], fill=white)
-    out = Image.alpha_composite(out, note)
+        nd.ellipse([bx - wd/2, by - wd/2, bx + wd/2, by + wd/2], fill=255)
+    shear = -0.16   # italic lean: the note leans into the motion
+    note = note.transform(note.size, Image.AFFINE, (1, shear, -shear * cy, 0, 1, 0), resample=Image.BICUBIC)
+    edge = note.filter(ImageFilter.MaxFilter(2 * int(3 * SS * scale) + 1))
+    edge_rgba = Image.new('RGBA', (N, N), (25, 230, 255, 255)); edge_rgba.putalpha(edge)
+    out = Image.alpha_composite(out, edge_rgba.filter(ImageFilter.GaussianBlur(5 * SS * scale)))
+    out = Image.alpha_composite(out, edge_rgba)
+    body = Image.new('RGBA', (N, N), (18, 4, 40, 255)); body.putalpha(note)
+    out = Image.alpha_composite(out, body)
     return out
 
 def tile():
     """Dark rounded-square background with a faint teal glow, as RGBA N x N (full square, not yet rounded)."""
     ys, xs = np.mgrid[0:N, 0:N].astype(np.float32)
     v = ys / N
-    top, bot = hexc('#0e1b22'), hexc('#060c10')
+    top, bot = hexc('#2b0a4d'), hexc('#0c0120')
     img = (top[None, None, :] * (1 - v[..., None]) + bot[None, None, :] * v[..., None])
     g = np.clip(1 - np.hypot(xs - N * 0.28, ys - N * 0.22) / (N * 0.75), 0, 1) ** 2
-    img = img + g[..., None] * hexc('#00bcd4')[None, None, :] * 0.10
+    img = img + g[..., None] * hexc('#ff2d95')[None, None, :] * 0.16
     rgba = np.concatenate([np.clip(img, 0, 255), np.full((N, N, 1), 255, np.float32)], axis=2)
     return Image.fromarray(rgba.astype(np.uint8), 'RGBA')
 

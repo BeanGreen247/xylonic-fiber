@@ -24,6 +24,8 @@ public:
     // Quality label stored with each downloaded file (key song:<id>@<label>), e.g. "original", "320".
     void set_quality_label(std::string q) { quality_ = std::move(q); }
     void set_on_change(std::function<void()> f) { on_change_ = std::move(f); }
+    // Called on a download thread after each finished song (the app fetches its cover art so the downloaded library also looks right offline).
+    void set_on_done(std::function<void(const Song&)> f) { on_done_ = std::move(f); }
 
     // quality kbps (0 original); -1 uses the default download setting at fetch time.
     void enqueue(const std::vector<Song>& songs, int quality = -1);
@@ -70,6 +72,7 @@ private:
     std::function<std::string(const std::string&, int)> url_q_;
     ConnectOptions opt_;
     std::function<void()> on_change_;
+    std::function<void(const Song&)> on_done_;
     mutable std::mutex m_;
     mutable Snapshot snap_;
     mutable std::unordered_map<std::string, Song> songs_;   // parsed song_json by id

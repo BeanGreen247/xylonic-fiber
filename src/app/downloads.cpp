@@ -319,6 +319,7 @@ bool Downloads::fetch(const Store::Row& row) {
             if (final_path != row.path) ::unlink(row.path.c_str());
         }
         store_.dl_set(row.id, Done, got, got, final_path, hash);
+        if (on_done_) { Song sg; if (from_json(row.song_json, sg)) on_done_(sg); }
     } else if (canceled && !stop_) {
         store_.dl_set(row.id, Paused, 0, total, row.path);
         ::unlink(part.c_str());
