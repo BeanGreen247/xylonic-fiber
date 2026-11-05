@@ -62,6 +62,9 @@ bool App::init() {
     SDL_SetHint(SDL_HINT_RENDER_BATCHING, "1");
 #if defined(__ANDROID__)
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+    // SDL's OpenSL ES backend asks for a low-latency fast track and fails to open on some phones (Oilsky G88: "notificationFrames=-2 not
+    // permitted for non-fast track"); AAudio negotiates the stream itself and works there.
+    SDL_SetHint(SDL_HINT_AUDIODRIVER, "aaudio");
     // Keep running (and playing) when the activity is paused: the foreground MediaService keeps the process alive, and the
     // media session commands, the gapless hand-over and the next-track logic all run on this loop.
     SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "0");
@@ -96,6 +99,10 @@ bool App::init() {
     {   // phones report pixel sizes with no density scaling: derive the UI scale from the display DPI (reference 160 dpi = 1x)
         float ddpi = 0;
         if (SDL_GetDisplayDPI(0, &ddpi, nullptr, nullptr) == 0 && ddpi > 0) S_ = std::min(4.0f, std::max(1.0f, ddpi / 160.0f * 1.0f));
+#if defined(__ANDROID__)
+        const float dens = android_bridge::density();   // what a WebView calls devicePixelRatio: follows the display-size override (the G88 runs at 320 dpi, reports 260)
+        if (dens > 0.5f) S_ = std::min(4.0f, std::max(1.0f, dens));
+#endif
     }
 #endif
 
@@ -111,6 +118,9 @@ bool App::init() {
     xf_log_configure(cfg_.debug_log, pref_ + "logs");
     vol_ = static_cast<float>(cfg_.volume_pct) / 100.0f;
     player_.set_volume(vol_);
+#if defined(__ANDROID__)
+    player_.set_preferred_device_rate(static_cast<uint32_t>(android_bridge::output_rate()));
+#endif
 
     gfx_ = std::make_unique<Gfx>();
     if (!gfx_->init(win_, ren_)) return false;
@@ -550,6 +560,13 @@ void App::play_songs(const std::vector<Song>& songs, size_t start, bool shuffle)
     start_current();
 }
 
+// The native decoders read MP3 and FLAC only. A transcoded stream (maxBitRate) without an explicit format comes back in whatever the
+// server's default transcoding is (Navidrome: often Opus or AAC), which the original's <audio> element played but we cannot: ask for MP3.
+static std::string stream_format(const std::string& ext, int kbps) {
+    if (kbps > 0) return "mp3";
+    return ext == "mp3" || ext == "flac" ? std::string() : std::string("mp3");
+}
+
 void App::start_current() {
     const Song* s = queue_.current();
     if (!s) return;
@@ -567,7 +584,7 @@ void App::start_current() {
     std::string e = lower_ext(song.suffix);
     bool native = e == "mp3" || e == "flac";
     int kbps = cfg_.stream_quality;
-    std::string url = client_ ? client_->stream_url(song.id, e == "flac" ? 0 : kbps, native ? "" : "mp3") : std::string();
+    std::string url = client_ ? client_->stream_url(song.id, e == "flac" ? 0 : kbps, stream_format(e, e == "flac" ? 0 : kbps)) : std::string();
     worker_->post([this, gen, song, url, c = copt_, perm = perm_path(song), strm = stream_path(song), kind = track_kind(song)] {
         std::string err;
         auto dec = std::make_shared<std::unique_ptr<Decoder>>(open_track(url, perm, strm, kind, c, err));
@@ -576,7 +593,10 @@ void App::start_current() {
             track_loading_ = false;
             if (!*dec) { play_err_ = err.empty() ? "Cannot play this track" : err; mark(); return; }
             player_.set_volume(vol_);
-            if (player_.attach(std::move(*dec), static_cast<double>(song.duration))) player_.play();
+            const bool attached = player_.attach(std::move(*dec), static_cast<double>(song.duration));
+            const bool started = attached && player_.play();
+            xf_log("play %s: attached=%d started=%d", song.id.c_str(), attached, started);
+            SDL_Log("play %s: attached=%d started=%d: %s", song.id.c_str(), attached, started, started ? "" : SDL_GetError());
             scrobbled_id_.clear();
             history_add(song);
             if (client_) worker_->post([c = client_, id = song.id] { std::string e; c->scrobble(id, false, e); });
@@ -673,7 +693,7 @@ void App::preload_next() {
     uint32_t gen = play_gen_;
     std::string e = lower_ext(song.suffix);
     bool native = e == "mp3" || e == "flac";
-    std::string url = client_ ? client_->stream_url(song.id, e == "flac" ? 0 : cfg_.stream_quality, native ? "" : "mp3") : std::string();
+    std::string url = client_ ? client_->stream_url(song.id, e == "flac" ? 0 : cfg_.stream_quality, stream_format(e, e == "flac" ? 0 : cfg_.stream_quality)) : std::string();
     worker_->post([this, gen, song, url, c = copt_, perm = perm_path(song), strm = stream_path(song), kind = track_kind(song)] {
         std::string err;
         auto dec = std::make_shared<std::unique_ptr<Decoder>>(open_track(url, perm, strm, kind, c, err));

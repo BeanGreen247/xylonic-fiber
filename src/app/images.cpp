@@ -1,4 +1,5 @@
 #include "images.h"
+#include "android_bridge.h"
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
@@ -69,7 +70,13 @@ bool decode_rgba(const std::string& bytes, std::vector<uint8_t>& data, int& w, i
 #if defined(XF_STB_IMAGES)
     int n = 0;
     unsigned char* px = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(bytes.data()), static_cast<int>(bytes.size()), &w, &h, &n, 4);
-    if (!px) return false;
+    if (!px) {
+#if defined(__ANDROID__)
+        return android_bridge::decode_image(bytes, data, w, h);   // WebP and anything else the OS can decode
+#else
+        return false;
+#endif
+    }
     data.assign(px, px + static_cast<size_t>(w) * h * 4); stbi_image_free(px); return true;
 #else
     SDL_RWops* rw = SDL_RWFromConstMem(bytes.data(), static_cast<int>(bytes.size()));
@@ -364,9 +371,10 @@ void ImageCache::run_job(const std::string& key, Key k, UrlFn url_fn, std::strin
     }
     std::vector<uint8_t> data; int w = 0, h = 0; uint32_t avg = 0;
     if (have && decode_rgba(bytes, data, w, h)) { downscale_rgba(data, w, h, k.dev); avg = average_rgb(data, w, h); }
-    else { data.clear(); if (st == Fetch::Ok) st = Fetch::Failed; }
+    else { if (have) SDL_Log("IMG decode failed key=%s bytes=%zu", key.c_str(), bytes.size()); data.clear(); if (st == Fetch::Ok) st = Fetch::Failed; }
     ui_post([this, key, data = std::move(data), w, h, avg, st, hi = k.hi, net = k.net]() mutable {
         pending_.erase(key);
+        SDL_Log("IMG done key=%s st=%d data=%zu %dx%d tex=%zu pend=%zu", key.c_str(), static_cast<int>(st), data.size(), w, h, tex_.size(), pending_.size());
         if (st == Fetch::Placeholder) { fallback_.insert(key); fallback_ids_.insert(parse(key).id); if (on_ready_) on_ready_(); return; }
         if (st != Fetch::Ok || data.empty()) {
             auto& rt = retry_[key]; ++rt.first;
@@ -376,7 +384,7 @@ void ImageCache::run_job(const std::string& key, Key k, UrlFn url_fn, std::strin
             return;
         }
         SDL_Texture* t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, w, h);
-        if (!t) return;
+        if (!t) { SDL_Log("IMG CreateTexture failed %dx%d key=%s: %s tex=%zu", w, h, key.c_str(), SDL_GetError(), tex_.size()); return; }
         SDL_UpdateTexture(t, nullptr, data.data(), w * 4);
         SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
         SDL_SetTextureScaleMode(t, SDL_ScaleModeLinear);

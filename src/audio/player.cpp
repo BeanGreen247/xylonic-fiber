@@ -16,7 +16,7 @@ bool Player::attach(std::unique_ptr<Decoder> d, double duration_hint) {
     channels_ = dec_->channels();
     src_rate_ = dec_->sample_rate();
     cur_total_ = dec_->total_frames();
-    dev_rate_ = src_rate_;
+    dev_rate_ = pref_rate_ ? pref_rate_ : src_rate_.load();
     duration_hint_ = duration_hint;
     eof_ = false;
     seek_pending_ = false;

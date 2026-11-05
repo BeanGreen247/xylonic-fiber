@@ -51,6 +51,45 @@ public final class MediaBridge {
         }
     }
 
+    /** The output stream's native sample rate; opening the audio device at any other rate fails on some phones (OpenSL ES fast-track rules). */
+    public static int outputRate(Context c) {
+        try {
+            android.media.AudioManager am = (android.media.AudioManager) c.getSystemService(Context.AUDIO_SERVICE);
+            String s = am == null ? null : am.getProperty(android.media.AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
+            int r = s == null ? 0 : Integer.parseInt(s.trim());
+            if (r >= 8000 && r <= 192000) return r;
+        } catch (RuntimeException e) { /* fall through */ }
+        return 48000;
+    }
+
+    /** Display density the way a WebView sees it (devicePixelRatio): honours the "display size" override that phones and the Oilsky G88 use. */
+    public static float density(Context c) { return c.getResources().getDisplayMetrics().density; }
+
+    /**
+     * Decodes anything the platform knows (JPEG, PNG, WebP, HEIF...) for artwork the bundled JPEG/PNG decoder rejects: servers such as
+     * Navidrome answer cover requests, and always the artist placeholder, with WebP. Returns [width, height, argb pixels...], shrunk by a
+     * power of two so the longer edge stays near maxEdge, or null when the bytes are not an image.
+     */
+    public static int[] decode(byte[] data, int maxEdge) {
+        android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, o);
+        if (o.outWidth <= 0 || o.outHeight <= 0) return null;
+        int sample = 1;
+        while (Math.max(o.outWidth, o.outHeight) / sample > maxEdge * 2) sample *= 2;
+        o = new android.graphics.BitmapFactory.Options();
+        o.inSampleSize = sample;
+        o.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
+        android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, o);
+        if (b == null) return null;
+        int w = b.getWidth(), h = b.getHeight();
+        int[] out = new int[2 + w * h];
+        out[0] = w; out[1] = h;
+        b.getPixels(out, 2, w, 0, 0, w, h);
+        b.recycle();
+        return out;
+    }
+
     /** Back button at the top level: keep playing in the background, otherwise close the app. */
     public static void back(final Activity a, final boolean keepRunning) {
         a.runOnUiThread(new Runnable() {

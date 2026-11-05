@@ -32,6 +32,8 @@ public:
     bool playing() const { return playing_.load(); }
     bool finished() const { return eof_.load() && !has_next() && ring_.readable() == 0; }
     void set_volume(float v) { volume_.store(v); }
+    // Output rate to open the device at (0 = the track's own rate). Phones need their native rate: OpenSL ES refuses others on some devices.
+    void set_preferred_device_rate(uint32_t hz) { pref_rate_ = hz; }
 
     // Playback speed 0.5..2 (changes the pitch with the speed, like HTMLMediaElement.playbackRate with preservesPitch off).
     void set_speed(double v);
@@ -82,7 +84,7 @@ private:
     std::unique_ptr<Decoder> next_dec_;
     // device
     uint32_t device_ = 0;
-    uint32_t dev_rate_ = 44100;
+    uint32_t dev_rate_ = 44100, pref_rate_ = 0;
     std::atomic<uint32_t> src_rate_{44100};
     uint32_t channels_ = 2;
     std::atomic<uint64_t> cur_total_{0};  // total frames of the current decoder (0 = unknown), readable from the UI thread
