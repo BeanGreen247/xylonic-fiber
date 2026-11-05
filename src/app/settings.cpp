@@ -65,6 +65,9 @@ void App::draw_modal(float W, float H) {
         return b;
     };
     if (modal_ == Modal::MoveCache || modal_ == Modal::StoragePick) { draw_storage_modal(W, H); return; }
+    if (modal_ == Modal::Firewall) { draw_firewall_modal(W, H); return; }
+    if (modal_ == Modal::Theme) { draw_theme_modal(W, H); return; }
+    if (modal_ == Modal::ThemeEdit) { draw_theme_editor(W, H); return; }
     if (modal_ == Modal::ConfirmWipe) {
         Rect b = frame(420, 190, skin::Warning, "Clear all app data?");
         T(400, 13, b.x + 20 * s, b.y + 64 * s, 20, "This removes downloaded songs, cover art, credentials and all settings.", th.sub, b.w - 40 * s);
@@ -74,16 +77,6 @@ void App::draw_modal(float W, float H) {
         gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.danger, 0.9f) : th.danger);
         T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Clear everything")) / 2, go.y, 36, "Clear everything", rgb(0xffffff));
         if (u.clicked(go)) { wipe_all_data(); modal_ = Modal::None; }
-    } else if (modal_ == Modal::Firewall) {
-        Rect b = frame(520, 300, skin::Wifi, "Firewall Setup");
-        T(400, 13, b.x + 20 * s, b.y + 64 * s, 20, "Remote control needs these local network ports:", th.sub);
-        T(600, 14, b.x + 34 * s, b.y + 104 * s, 22, "7766 / UDP", th.text);
-        T(400, 13, b.x + 178 * s, b.y + 104 * s, 22, "Device discovery", th.sub);
-        T(600, 14, b.x + 34 * s, b.y + 144 * s, 22, "7767 / TCP", th.text);
-        T(400, 13, b.x + 178 * s, b.y + 144 * s, 22, "Remote commands", th.sub);
-        T(400, 12, b.x + 20 * s, b.y + 190 * s, 18, "Allow Xylonic on your private network in the system firewall.", th.sub, b.w - 40 * s);
-        T(400, 12, b.x + 20 * s, b.y + 214 * s, 18, "The app does not change firewall rules automatically.", th.sub, b.w - 40 * s);
-        if (u.button({b.x + b.w - 130 * s, b.y + b.h - 48 * s, 110 * s, 32 * s}, "Close")) modal_ = Modal::None;
     } else if (modal_ == Modal::TechStack) {
         Rect b = frame(520, 330, skin::BookOpen, "Tech Stack");
         static const char* lines[] = {"Native C++17 application", "SDL2 window, input and rendering", "Custom audio pipeline with dr_mp3", "Own HTTP client with mbedTLS", "yyjson metadata parsing", "Roboto and Font Awesome subset"};
@@ -218,47 +211,6 @@ void App::draw_modal(float W, float H) {
             if (u.clicked(row)) { set_sleep_timer(mins[i]); modal_ = Modal::None; return; }
         }
         if (sleep_end_ms_ && u.button({b.x + 18 * s, b.y + b.h - 44 * s, 120 * s, 32 * s}, "Cancel timer")) { set_sleep_timer(0); modal_ = Modal::None; }
-    } else if (modal_ == Modal::Theme) {
-        Rect b = frame(520, 420, 0xf53f, "Accent Theme");
-        float x = b.x + 24 * s, y = b.y + 64 * s, sw = 44 * s, gap = 10 * s;
-        for (int i = 0; i < kPresetCount + kCustomSlots; ++i) {
-            int col = i % 6, row = i / 6;
-            Rect sq{x + col * (sw + gap + 28 * s), y + row * (sw + gap + 24 * s), sw, sw};
-            ThemeDef d = theme_def(i);
-            gfx_->fill_round(sq, 10 * s, rgb(d.primary));
-            if (cfg_.theme == i) gfx_->stroke_round({sq.x - 3 * s, sq.y - 3 * s, sq.w + 6 * s, sq.h + 6 * s}, 12 * s, 2 * s, th.text);
-            T(400, 11, sq.x - 6 * s, sq.y + sw + 4 * s, 16, d.name.substr(0, 12), th.sub, sw + 40 * s);
-            if (u.clicked(sq)) { cfg_.theme = i; apply_theme(); cfg_.save(cfg_path_); }
-        }
-        y += 2 * (sw + gap + 24 * s) + 8 * s;
-        T(600, 13, x, y, 20, "Custom theme", th.text);
-        y += 28 * s;
-        for (int i = 0; i < kCustomSlots; ++i)
-            if (u.button({x + i * 96 * s, y, 88 * s, 32 * s}, "Slot " + std::to_string(i + 1), edit_slot_ == i)) { edit_slot_ = i; edit_loaded_ = false; }
-        y += 44 * s;
-        if (!edit_loaded_) {
-            edit_name_ = cfg_.custom[edit_slot_].name;
-            char hx[16]; std::snprintf(hx, sizeof hx, "#%06x", cfg_.custom[edit_slot_].primary);
-            edit_hex_ = hx;
-            edit_loaded_ = true;
-        }
-        u.text_field(kEditName, {x, y, 200 * s, 38 * s}, edit_name_, "Theme name");
-        u.text_field(kEditHex, {x + 212 * s, y, 130 * s, 38 * s}, edit_hex_, "#rrggbb");
-        unsigned hexv = 0;
-        bool valid = edit_hex_.size() == 7 && edit_hex_[0] == '#' && std::sscanf(edit_hex_.c_str() + 1, "%6x", &hexv) == 1;
-        if (valid) gfx_->fill_round({x + 352 * s, y, 38 * s, 38 * s}, 8 * s, rgb(hexv));
-        y += 50 * s;
-        if (u.button({x, y, 110 * s, 34 * s}, "Apply", true) && valid) {
-            cfg_.custom[edit_slot_] = {edit_name_.empty() ? "My Theme " + std::to_string(edit_slot_ + 1) : edit_name_, hexv};
-            cfg_.theme = kPresetCount + edit_slot_;
-            apply_theme(); cfg_.save(cfg_path_);
-        }
-        if (u.button({x + 122 * s, y, 110 * s, 34 * s}, "Reset")) {
-            cfg_.custom[edit_slot_] = {"My Theme " + std::to_string(edit_slot_ + 1), 0x00bcd4};
-            if (cfg_.theme == kPresetCount + edit_slot_) cfg_.theme = 0;  // ThemeContext.resetCustomTheme
-            edit_loaded_ = false;
-            apply_theme(); cfg_.save(cfg_path_);
-        }
     }
 }
 

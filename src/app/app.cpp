@@ -294,7 +294,7 @@ void App::on_connected() {
     if (opt_.dm.find("queue") != std::string::npos) dm_show_queue_ = true;
     if (opt_.dm.find("manage") != std::string::npos) dm_manage_ = true;
     if (!opt_.panel.empty()) toggle_panel(opt_.panel == "history" ? PanelTab::History : opt_.panel == "playlists" ? PanelTab::Playlists : PanelTab::Queue);
-    if (opt_.modal == "dlpicker") { open_download_picker(false); } else if (opt_.modal == "banner") { missing_songs_ = 25; missing_banner_ = true; } else if (opt_.modal == "offlineprompt") { prompt_ = Prompt::Offline; } else if (opt_.modal == "cellprompt") { prompt_ = Prompt::Cellular; } else if (opt_.modal == "newcontent") { nc_outdated_ = false; nc_artists_ = 3; nc_songs_ = 25; newcontent_open_ = true; } else if (opt_.modal == "outdated") { nc_outdated_ = true; newcontent_open_ = true; } else if (opt_.modal == "rebuild") modal_ = Modal::ConfirmRebuild; else if (opt_.modal == "dlquality") modal_ = Modal::DownloadQuality; else if (opt_.modal == "reauth") modal_ = Modal::Reauth;
+    if (opt_.modal == "dlpicker") { open_download_picker(false); } else if (opt_.modal == "banner") { missing_songs_ = 25; missing_banner_ = true; } else if (opt_.modal == "offlineprompt") { prompt_ = Prompt::Offline; } else if (opt_.modal == "cellprompt") { prompt_ = Prompt::Cellular; } else if (opt_.modal == "newcontent") { nc_outdated_ = false; nc_artists_ = 3; nc_songs_ = 25; newcontent_open_ = true; } else if (opt_.modal == "outdated") { nc_outdated_ = true; newcontent_open_ = true; } else if (opt_.modal == "rebuild") modal_ = Modal::ConfirmRebuild; else if (opt_.modal == "dlquality") modal_ = Modal::DownloadQuality; else if (opt_.modal == "reauth") modal_ = Modal::Reauth; else if (opt_.modal == "theme") modal_ = Modal::Theme; else if (opt_.modal == "themeedit") modal_ = Modal::ThemeEdit; else if (opt_.modal == "firewall") modal_ = Modal::Firewall;
     if (!opt_.search.empty()) { search_q_ = opt_.search; nav_ = Nav::Search; views_.clear(); views_.push_back({ViewKind::Root, "", "Search", {}}); run_search(); }
     if (!opt_.download_album.empty()) {
         worker_->post([this, c = client_, s = session_, id = opt_.download_album] {
@@ -717,7 +717,8 @@ void App::handle(const SDL_Event& e) {
         bool shift = e.key.keysym.mod & KMOD_SHIFT;
         in.ctrl = e.key.keysym.mod & KMOD_CTRL;
         bool typing = ui_->focus != 0;
-        if (k == SDLK_BACKSPACE) ++in.backspace;
+        if (k == SDLK_DELETE && in.ctrl && shift && !typing && screen_ == Screen::Main) { modal_ = Modal::ConfirmClearCaches; mark(); }   // Ctrl+Shift+Delete: clear caches
+        else if (k == SDLK_BACKSPACE) ++in.backspace;
         else if (k == SDLK_DELETE) ++in.del;
         else if (k == SDLK_LEFT && typing) ++in.left;
         else if (k == SDLK_RIGHT && typing) ++in.right;
@@ -736,7 +737,7 @@ void App::handle(const SDL_Event& e) {
             else if (k == SDLK_DOWN && shift) set_volume(vol_ - 0.1f);
             else if (k == SDLK_s) queue_.set_shuffle(!queue_.shuffle());
             else if (k == SDLK_r) queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
-            else if (k == SDLK_m) set_volume(vol_ > 0 ? 0 : 0.8f);
+            else if (k == SDLK_m) set_volume(vol_ > 0 ? 0 : 0.7f);
             else if (k == SDLK_q) toggle_panel(PanelTab::Queue);
             else if (k == SDLK_h) toggle_panel(PanelTab::History);
             else if (k == SDLK_p) toggle_panel(PanelTab::Playlists);

@@ -179,21 +179,25 @@ void App::draw_remote_picker(float W, float H) {
         }
         y += 40 * s;
     }
-    if (devs.empty()) T(400, 13, b.x + 20 * s, y + 8 * s, 20, "Looking for Xylonic devices on your network\xE2\x80\xA6", th.sub, b.w - 40 * s);
+    if (cfg_.username.empty()) T(400, 13, b.x + 20 * s, y + 8 * s, 20, "Sign into a Navidrome account to use Remote Mode.", th.danger, b.w - 40 * s);
+    else if (!devs.empty()) T(400, 13, b.x + 20 * s, y + 4 * s, 20, "Select an available device to control it remotely.", th.sub, b.w - 40 * s);
+    if (!devs.empty()) y += 28 * s;
+    if (devs.empty() && !cfg_.username.empty()) T(400, 13, b.x + 20 * s, y + 8 * s, 20, "Searching for Xylonic devices on your network\xE2\x80\xA6", th.sub, b.w - 40 * s);
     std::string myacc = md5hex(cfg_.username + ":" + cfg_.server_url);
     for (auto& d : devs) {
         Rect row{b.x + 8 * s, y, b.w - 16 * s, 56 * s};
         bool wrong = !d.account_id.empty() && d.account_id != myacc;
         bool busy = !d.paired_with.empty() && d.paired_with != (remote_ ? remote_->device_id() : std::string());
         bool active = remote_mode_ && d.id == remote_target_;
-        if (u.hover(row) && !wrong && !busy && !active) gfx_->fill_round(row, 10 * s, th.hover);
+        if (u.hover(row) && !wrong && !active) gfx_->fill_round(row, 10 * s, th.hover);
         fa(d.platform == "android" ? 0xf3cd : 0xf390, row.x + 28 * s, row.y + 28 * s, 18, wrong ? th.muted : th.accent);
         std::string nm = d.name.substr(0, d.name.find(','));
         T(500, 14, row.x + 56 * s, row.y + 8 * s, 20, nm, wrong ? th.muted : th.text, row.w - 190 * s);
-        T(400, 11, row.x + 56 * s, row.y + 30 * s, 16, d.host + (d.playing ? "  \xC2\xB7  playing" : ""), th.sub, row.w - 190 * s);
+        T(400, 11, row.x + 56 * s, row.y + 30 * s, 16, d.host + " \xC2\xB7 " + (d.platform == "android" ? "Android" : "Desktop"), th.sub, row.w - 190 * s);
         const char* badge = active ? "Active" : wrong ? "Different account" : busy ? "Busy" : "";
         if (*badge) { float bw2 = gfx_->measure(F(600, 11), badge) + 20 * s; Rect pr{row.x + row.w - bw2 - 12 * s, row.y + 17 * s, bw2, 22 * s}; gfx_->fill_round(pr, 11 * s, alpha(active ? th.accent : th.text, 0.12f)); T(600, 11, pr.x + 10 * s, pr.y, 22, badge, active ? th.accent : th.sub); }
-        if (u.clicked(row) && !wrong && !busy && !active && cfg_.control_others) remote_connect(d);
+        u.tip(row, wrong ? "Signed into a different Navidrome account" : active ? "Currently connected" : busy ? "Another Xylonic may be using this device \xE2\x80\x94 tap to try anyway" : ("Control " + nm).c_str());
+        if (u.clicked(row) && !wrong && !active && cfg_.control_others) remote_connect(d);
         y += 62 * s;
     }
 }

@@ -108,6 +108,8 @@ private:
     int F(int weight, float px, bool italic = false);
     int FA(float px);
     // CSS-like text: y_top/line_height in logical px, glyphs centred in the line box. Returns drawn width.
+    // Word-wrapped text; returns the height used (device px).
+    float TW(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w);
     float T(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w = 0, bool italic = false);
     void fa(uint32_t cp, float cx, float cy, float px, Color c);   // glyph centred on (cx, cy)
     void svg(int which, Rect r, Color tint);
@@ -275,12 +277,17 @@ private:
     bool show_help_ = false, playing_random_ = false, hamburger_open_ = false, nav_expanded_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
-    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, Firewall, TechStack, Licenses, DownloadQuality, Reauth, ConfirmRebuild, ConfirmClearCaches, ConfirmCarMode, SwitchServer, SwitchPass, ConfirmDeletePlaylist, MoveCache, StoragePick };
+    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, Firewall, TechStack, Licenses, DownloadQuality, Reauth, ConfirmRebuild, ConfirmClearCaches, ConfirmCarMode, SwitchServer, SwitchPass, ConfirmDeletePlaylist, MoveCache, StoragePick, ThemeEdit };
     std::string cache_base() const { return resolve_cache_root(cfg_.cache_root, pref_); }
     void start_cache_move(const std::string& to);
     void choose_cache_folder();
     void draw_storage_modal(float W, float H);
     void draw_tooltip(float W, float H);
+    void draw_firewall_modal(float W, float H);
+    void draw_theme_modal(float W, float H);
+    void draw_theme_editor(float W, float H);
+    Scroll theme_scroll_;
+    bool fw_init_ = false; int fw_tab_ = 0; uint32_t fw_copied_until_ = 0;
     std::string tip_shown_; uint32_t tip_since_ = 0; bool tip_pending_ = false;
     std::atomic<uint64_t> move_done_{0};
     uint64_t move_total_ = 0;

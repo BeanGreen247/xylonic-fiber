@@ -122,7 +122,7 @@ void App::draw_main(float W, float H) {
     if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); }
     if (client_ && modal_ == Modal::None && !offline_ && client_->auth_failed()) { modal_ = Modal::Reauth; reauth_pass_.clear(); reauth_msg_.clear(); }
     if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); }
-    else draw_tooltip(W, H);
+    draw_tooltip(W, H);
 }
 
 void App::draw_header(float W) {
@@ -476,7 +476,7 @@ void App::draw_player_bar(Rect r) {
     u.tip(spd, "Playback speed");
     Rect sp{vol.x, vol.y, 24 * s, 24 * s};
     fa(skin::VolumeHigh, sp.x + 12 * s, sp.y + 12 * s, 14, muted ? th.muted : th.sub);
-    if (u.clicked(sp)) set_volume(muted ? 0.8f : 0);
+    if (u.clicked(sp)) set_volume(muted ? 0.7f : 0);
     Rect vs{vol.x + 32 * s, vol.y + 10 * s, 48 * s, 4 * s};
     float vv = vol_;
     Rect vhit{vs.x, vol.y, vs.w, vol.h};
