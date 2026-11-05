@@ -17,6 +17,8 @@ float density();
 int output_rate();
 // Decodes JPEG/PNG/WebP/... through the platform; RGBA out. False when the bytes are not an image.
 bool decode_image(const std::string& bytes, std::vector<uint8_t>& rgba, int& w, int& h);
+// Forces landscape (Car Mode) or gives rotation back to the user setting.
+void set_landscape(bool landscape);
 bool battery_exempt();
 void request_battery_exemption();
 }  // namespace android_bridge

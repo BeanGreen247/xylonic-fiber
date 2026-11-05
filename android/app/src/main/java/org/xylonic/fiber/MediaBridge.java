@@ -97,6 +97,30 @@ public final class MediaBridge {
         });
     }
 
+    private static boolean wasPortrait = true;
+
+    /**
+     * Car Mode is a landscape display: force it whatever the auto-rotate setting says. On exit the screen goes back to the orientation it
+     * had before (a phone lying flat has no gravity to rotate it back), then rotation is handed back to the user setting.
+     */
+    public static void setLandscape(final Activity a, final boolean landscape) {
+        a.runOnUiThread(new Runnable() {
+            @Override public void run() {
+                if (landscape) {
+                    wasPortrait = a.getResources().getConfiguration().orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+                    a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                } else if (wasPortrait) {
+                    a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                        @Override public void run() { a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER); }
+                    }, 1200);
+                } else {
+                    a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER);
+                }
+            }
+        });
+    }
+
     public static boolean batteryExempt(Context c) {
         PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
         return pm != null && (Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(c.getPackageName()));

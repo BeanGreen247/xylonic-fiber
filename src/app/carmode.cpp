@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include "app.h"
+#include "android_bridge.h"
 
 namespace {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
@@ -21,6 +22,7 @@ void App::set_car_mode(bool on) {
     SDL_SetHint(SDL_HINT_ORIENTATIONS, on ? "LandscapeLeft LandscapeRight" : "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
     if (!on) player_.enable_spectrum(false);
 #if defined(__ANDROID__)
+    android_bridge::set_landscape(on);
     if (win_) SDL_SetWindowFullscreen(win_, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);   // immersive: hide the status and navigation bars while driving
 #endif
     if (on && cfg_.car_keep_on) SDL_DisableScreenSaver(); else SDL_EnableScreenSaver();
@@ -164,6 +166,44 @@ void App::draw_car_mode(float W, float H) {
         float pad = 20 * s;
         if (icon_btn({pad, pad, 48 * s, 48 * s}, skin::Xmark, false) || u.in.escape) { set_car_mode(false); return; }
         chrome(W - pad, pad, 48 * s);
+        if (H / s < 400) {   // landscape phone (320 px tall): one transport row, the seek bar along the bottom
+            const float dp = 14 * s;
+            const float ty = pad + 48 * s + 6 * s;
+            if (cur) {
+                std::string tt = upper(cur->title), at = upper(cur->artist);
+                const float tw = std::min(gfx_->measure(F(800, 28, true), tt), W - 140 * s);
+                T(800, 28, (W - tw) / 2, ty, 34, tt, th.text, W - 140 * s, true);
+                const float aw = std::min(gfx_->measure(F(700, 17, true), at), W - 140 * s);
+                T(700, 17, (W - aw) / 2, ty + 34 * s, 24, at, th.accent, W - 140 * s, true);
+                Rect hb{W - dp - 52 * s, ty + 4 * s, 52 * s, 52 * s};
+                if (u.hover(hb)) gfx_->fill_round(hb, 26 * s, th.hover);
+                fa(skin::Heart, hb.x + 26 * s, hb.y + 26 * s, 22, cur->starred ? th.accent : th.sub);
+                if (u.clicked(hb) && client_) set_current_liked(!cur->starred);
+            } else T(700, 20, (W - gfx_->measure(F(700, 20), "NO SONG PLAYING")) / 2, ty, 30, "NO SONG PLAYING", th.sub);
+            const float cyc = ty + 56 * s + 56 * s;   // transport row centre
+            auto rb = [&](float cx, uint32_t ic, float px, float d, bool active) {
+                Rect r{cx - d / 2, cyc - d / 2, d, d};
+                if (u.hover(r)) gfx_->fill_round(r, d / 2, th.hover);
+                fa(ic, cx, cyc, px, active ? th.accent : th.text);
+                return u.clicked(r);
+            };
+            const float cx0 = W / 2, step = std::min(112.0f * s, (W / 2 - 40 * s) / 2.1f);
+            if (rb(cx0 - step * 2, skin::Shuffle, 22, 56 * s, queue_.shuffle())) queue_.set_shuffle(!queue_.shuffle());
+            if (rb(cx0 - step, skin::StepBack, 26, 60 * s, false)) prev_track();
+            Rect pp{cx0 - 38 * s, cyc - 38 * s, 76 * s, 76 * s};
+            gfx_->circle(cx0, cyc, 38 * s, u.hover(pp) ? rgb(0xe8e8e8) : rgb(0xffffff));
+            fa(player_.playing() ? skin::Pause : skin::Play, cx0 + (player_.playing() ? 0 : 2 * s), cyc, 30, rgb(0x121212));
+            if (u.clicked(pp)) toggle_play();
+            if (rb(cx0 + step, skin::StepFwd, 26, 60 * s, false)) next_track();
+            if (rb(cx0 + step * 2, skin::Repeat, 22, 56 * s, queue_.repeat() != Repeat::Off))
+                queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
+            const float sk = H - 38 * s;
+            const float shown = seek_bar({dp + 62 * s, sk, W - 2 * (dp + 62 * s), 10 * s}, 44 * s, 10 * s);
+            T(400, 15, dp, sk - 10 * s, 30, mmss(static_cast<int>(shown)), rgb(0xb5b5b5));
+            const std::string tot = mmss(static_cast<int>(dur));
+            T(400, 15, W - dp - gfx_->measure(F(400, 15), tot), sk - 10 * s, 30, tot, rgb(0xb5b5b5));
+            return;
+        }
         float sy = pad + 64 * s;
         auto nb = [&](float x, uint32_t ic, bool prev) {
             Rect r{x, sy - 8 * s, 52 * s, 52 * s};

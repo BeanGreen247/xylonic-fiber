@@ -14,7 +14,7 @@
                  android:hardwareAccelerated="true" android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:installLocation="auto">
         <activity android:name="org.xylonic.fiber.XylonicActivity" android:exported="true"
                   android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode"
-                  android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:screenOrientation="fullUser">
+                  android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:screenOrientation="user">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
