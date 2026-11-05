@@ -33,4 +33,10 @@ Not tested on a physical phone, so the numbers that matter there (touch feel, DP
 - Notification permission (Android 13+) is requested by `XylonicActivity`.
 - Cache location (Settings > Storage) lists internal and external (SD) storage through SDL.
 - Touch: window coordinates are used as-is for the mouse (`M_`), the UI scale comes from the display DPI.
-- Still open: a foreground service that keeps downloads running while the app is backgrounded; battery-optimisation exemption dialog.
+- Foreground service also covers downloads (notification "Downloading N songs", dataSync type), holds a CPU wake lock and Wi-Fi lock while playing or downloading,
+  takes audio focus (pauses for calls, resumes after), and pauses when headphones are unplugged.
+- Back button: closes the keyboard, dialogs and panels, then walks up (album/artist page, Home); at the top level it moves the app to the background while music plays, otherwise it closes.
+- Car Mode is immersive (system bars hidden) and keeps the screen on; Settings > Advanced > Background activity opens the battery-optimisation exemption.
+- A multicast lock is held while the activity exists so Remote-mode discovery receives UDP broadcasts.
+- App icon: `python3 tools/make-icon.py` renders it (assets/icons/app-icon-*.png, adaptive and legacy launcher icons, themed monochrome note).
+- Release builds: `./gradlew assembleRelease` needs your signing config; none is committed.

@@ -1,4 +1,11 @@
 #include "app.h"
+#include "android_bridge.h"
+#if !defined(__ANDROID__)
+#include <SDL_image.h>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#endif
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -54,6 +61,7 @@ App::~App() {
 bool App::init() {
     SDL_SetHint(SDL_HINT_RENDER_BATCHING, "1");
 #if defined(__ANDROID__)
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
     // Keep running (and playing) when the activity is paused: the foreground MediaService keeps the process alive, and the
     // media session commands, the gapless hand-over and the next-track logic all run on this loop.
     SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "0");
@@ -63,8 +71,16 @@ bool App::init() {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
     }
-    win_ = SDL_CreateWindow("xylonic-fiber", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, opt_.width, opt_.height,
+    win_ = SDL_CreateWindow("Xylonic Fiber", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, opt_.width, opt_.height,
                             SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+#if !defined(__ANDROID__) && !(defined(__APPLE__) && TARGET_OS_IPHONE)
+    if (win_) {   // taskbar / window-switcher icon (macOS takes it from the app bundle instead)
+        char* ib = SDL_GetBasePath();
+        const std::string ip = std::string(ib ? ib : "./") + "assets/icons/app-icon-256.png";
+        SDL_free(ib);
+        if (SDL_Surface* ic = IMG_Load(ip.c_str())) { SDL_SetWindowIcon(win_, ic); SDL_FreeSurface(ic); }
+    }
+#endif
     if (!win_) return false;
     SDL_SetWindowMinimumSize(win_, 320, 480);
     ren_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -476,6 +492,24 @@ void App::apply_theme() {
 }
 
 void App::push_view(ViewKind k, const std::string& id, const std::string& title) { views_.push_back({k, id, title, {}}); mark(); }
+// Back: close the topmost thing (keyboard, dialog, overlay, panel), then walk up (artist/album page, Home), and at the top level
+// leave the app running in the background while music plays or close it.
+void App::handle_back() {
+    if (ui_->focus) { ui_->focus = 0; mark(); return; }
+    const bool overlay = modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_ || pre_open_ || newcontent_open_ || prompt_ != Prompt::None || car_open_ || np_open_ || panel_open_ || bottom_menu_open_;
+    if (overlay) {
+        ++ui_->in.escape;   // dialogs and Car Mode close on Escape
+        np_open_ = false; panel_open_ = false; bottom_menu_open_ = false;
+        mark();
+        return;
+    }
+    if (screen_ == Screen::Main && views_.size() > 1) { pop_view(); return; }
+    if (screen_ == Screen::Main && nav_ != Nav::Home) { set_nav(Nav::Home); return; }
+#if defined(__ANDROID__)
+    android_bridge::back(player_.playing() || track_loading_);
+#endif
+}
+
 void App::pop_view() { if (views_.size() > 1) { views_.pop_back(); mark(); } }
 
 void App::set_nav(Nav n) {
@@ -597,6 +631,7 @@ void App::mpris_push() {
     st.shuffle = queue_.shuffle();
     st.loop = queue_.repeat() == Repeat::One ? "Track" : queue_.repeat() == Repeat::All ? "Playlist" : "None";
     st.volume = vol_;
+    st.downloads = downloads_ ? downloads_->pending() : 0;
     st.position_s = player_.position_seconds();
     st.length_s = player_.duration_seconds();
     if (cur) {
@@ -611,7 +646,7 @@ void App::mpris_push() {
         }
     }
     uint32_t now = SDL_GetTicks();
-    std::string sig = st.title + "|" + st.track_id + "|" + std::to_string(st.playing) + "|" + std::to_string(st.shuffle) + st.loop + std::to_string(static_cast<int>(st.volume * 100)) + st.art_url;
+    std::string sig = st.title + "|" + st.track_id + "|" + std::to_string(st.playing) + "|" + std::to_string(st.shuffle) + st.loop + std::to_string(static_cast<int>(st.volume * 100)) + st.art_url + "|" + std::to_string(st.downloads);
     if (sig != mpris_sig_ || now - mpris_last_ms_ > 1000) { mpris_sig_ = sig; mpris_last_ms_ = now; mpris_.update(st); }
 }
 
@@ -746,6 +781,7 @@ void App::handle(const SDL_Event& e) {
         else if (k == SDLK_END) ++in.end;
         else if (k == SDLK_RETURN || k == SDLK_KP_ENTER) ++in.enter;
         else if (k == SDLK_TAB) ++in.tab;
+        else if (k == SDLK_AC_BACK) handle_back();   // Android Back button / gesture (SDL_HINT_ANDROID_TRAP_BACK_BUTTON)
         else if (k == SDLK_ESCAPE) { ++in.escape; if (typing) ui_->focus = 0; else if (np_open_) np_open_ = false; else if (panel_open_) panel_open_ = false; }
         else if (in.ctrl && k == SDLK_k && screen_ == Screen::Main) set_nav(Nav::Search);
         else if (in.ctrl && k == SDLK_m && screen_ == Screen::Main) toggle_mini();

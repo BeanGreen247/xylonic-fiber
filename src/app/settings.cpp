@@ -9,6 +9,7 @@
 #include "app.h"
 #include "log.h"
 #include "secrets.h"
+#include "android_bridge.h"
 
 namespace {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
@@ -259,6 +260,9 @@ void App::draw_settings(Rect r) {
 #endif
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
     total += 183 * s;
+#endif
+#if defined(__ANDROID__)
+    total += 62 * s;
 #endif
     for (float e : card_extra_prev_) total += e * s;
     if (u.hover(r)) settings_scroll_.y -= u.in.wheel * 60 * s;
@@ -535,7 +539,11 @@ void App::draw_settings(Rect r) {
     y += (1 + 32) * s; row_i = 0;
     // ---- ADVANCED (performance tiers)
     section("ADVANCED");
+#if defined(__ANDROID__)
+    card_fill(y, (335 + 61 + 1) * s);   // + the Background activity row (the Open Log Folder row does not exist on Android)
+#else
     card_fill(y, (335 + (cfg_.debug_log ? 53 : 0)) * s);
+#endif
     {
         static const char* names[3] = {"Balanced Mode", "Gaming Mode", "Eco Mode"};
         static const char* descs[3] = {"Default \xE2\x80\x94 60 fps, full GPU effects, standard prefetch",
@@ -548,7 +556,15 @@ void App::draw_settings(Rect r) {
             if (row(icons[m], names[m], descs[m], 1, false, cfg_.perf_mode == m ? "Active" : "", cfg_.perf_mode == m, m == 1 ? 86 : 61)) { cfg_.perf_mode = m; apply_perf_mode(); cfg_.save(cfg_path_); }
         }
         if (row(cfg_.debug_log ? 0xf15cu : 0xf15bu, "Debug Logging", "Writes detailed logs to disk", 1, false, cfg_.debug_log ? "On" : "Off", cfg_.debug_log, 61)) { cfg_.debug_log = !cfg_.debug_log; cfg_.save(cfg_path_); xf_log_configure(cfg_.debug_log, pref_ + "logs"); xf_log("debug logging %s", cfg_.debug_log ? "enabled" : "disabled"); }
+#if !defined(__ANDROID__)
         if (cfg_.debug_log && row(0xf07c, "Open Log Folder", "", 1, true, "", false, 52)) SDL_OpenURL(("file://" + pref_ + "logs").c_str());
+#else
+        {   // Android: let the OS keep playback and downloads alive with the screen off
+            static uint32_t exempt_checked = 0; static bool exempt = true;
+            if (SDL_GetTicks() - exempt_checked > 1500) { exempt = android_bridge::battery_exempt(); exempt_checked = SDL_GetTicks(); }
+            if (row(0xf240, "Background activity", "Keep playing and downloading with the screen off: exempt from battery optimisation", 1, false, exempt ? "Allowed" : "Restricted", exempt, 61) && !exempt) android_bridge::request_battery_exemption();
+        }
+#endif
         if (row(0xf201, "Performance Overlay", "Shows FPS, CPU load, and OS RAM usage \xE2\x80\x94 green <16 ms, yellow <50 ms, red \xE2\x89\xA5 50 ms", 1, false, cfg_.render_timer ? "On" : "Off", cfg_.render_timer, 61)) { cfg_.render_timer = !cfg_.render_timer; cfg_.save(cfg_path_); mark(); }
     }
     y += (1 + 32) * s; row_i = 0;

@@ -102,6 +102,7 @@ private:
     float draw_album_grid(Rect r, const std::vector<Album>& albums, float y, float& hit_scroll_y);
     void push_view(ViewKind k, const std::string& id, const std::string& title);
     void pop_view();
+    void handle_back();
     void set_nav(Nav n);
     void mark() { dirty_ = true; }
     // Fonts (Roboto 400/500/700 + Font Awesome), created lazily per size. weight 600 maps to Bold.

@@ -184,48 +184,17 @@ void Mpris::stop() {
     p_->bus = nullptr;
 }
 #elif defined(__ANDROID__)
-// Android: MediaSession + foreground service in Java (org.xylonic.fiber.MediaService); this side pushes state over JNI and receives
-// transport commands through MediaBridge.nativeCommand (called on an Android thread; the app callback only posts to the UI thread).
-#include <SDL.h>
+// Android: MediaSession + foreground service in Java (org.xylonic.fiber.MediaService); android_bridge pushes state over JNI and
+// transport commands come back through MediaBridge.nativeCommand (called on an Android thread; the app callback only posts to the UI thread).
 #include <jni.h>
 #include <mutex>
+#include "android_bridge.h"
 
-struct Mpris::Impl {
-    Mpris::Callback cb;
-    jclass bridge = nullptr;      // global ref
-    jmethodID update = nullptr;
-    bool tried = false;
-};
+struct Mpris::Impl {};
 
 namespace {
 std::mutex g_cb_mu;
 Mpris::Callback g_cb;
-
-// App classes are invisible to FindClass on a native thread: load through the activity's class loader.
-bool bind(Mpris::Impl& m, JNIEnv* env, jobject act) {
-    if (m.update) return true;
-    if (m.tried) return false;
-    m.tried = true;
-    jclass actc = env->GetObjectClass(act);
-    jmethodID gcl = env->GetMethodID(actc, "getClassLoader", "()Ljava/lang/ClassLoader;");
-    jobject loader = gcl ? env->CallObjectMethod(act, gcl) : nullptr;
-    jclass lc = env->FindClass("java/lang/ClassLoader");
-    jmethodID lm = lc ? env->GetMethodID(lc, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;") : nullptr;
-    jstring n = env->NewStringUTF("org.xylonic.fiber.MediaBridge");
-    jclass cls = (loader && lm) ? static_cast<jclass>(env->CallObjectMethod(loader, lm, n)) : nullptr;
-    if (env->ExceptionCheck()) { env->ExceptionClear(); cls = nullptr; }
-    if (cls) {
-        m.bridge = static_cast<jclass>(env->NewGlobalRef(cls));
-        m.update = env->GetStaticMethodID(m.bridge, "update", "(Landroid/content/Context;ZZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJ)V");
-        if (env->ExceptionCheck()) { env->ExceptionClear(); m.update = nullptr; }
-        env->DeleteLocalRef(cls);
-    }
-    env->DeleteLocalRef(n);
-    if (lc) env->DeleteLocalRef(lc);
-    if (loader) env->DeleteLocalRef(loader);
-    env->DeleteLocalRef(actc);
-    return m.update != nullptr;
-}
 }  // namespace
 
 extern "C" JNIEXPORT void JNICALL Java_org_xylonic_fiber_MediaBridge_nativeCommand(JNIEnv*, jclass, jint cmd, jdouble arg) {
@@ -253,21 +222,7 @@ bool Mpris::start(const std::string&, Callback cb) {
     return true;
 }
 
-void Mpris::update(const MprisState& st) {   // UI thread
-    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
-    jobject act = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !act) return;
-    if (bind(*p_, env, act)) {
-        auto js = [&](const std::string& v) { return env->NewStringUTF(v.c_str()); };
-        std::string art = st.art_url.rfind("file://", 0) == 0 ? st.art_url.substr(7) : std::string();
-        jstring t = js(st.title), a = js(st.artist), al = js(st.album), ap = js(art);
-        env->CallStaticVoidMethod(p_->bridge, p_->update, act, static_cast<jboolean>(st.has_song), static_cast<jboolean>(st.playing), t, a, al, ap,
-                                  static_cast<jlong>(st.length_s * 1000.0), static_cast<jlong>(st.position_s * 1000.0));
-        if (env->ExceptionCheck()) env->ExceptionClear();
-        env->DeleteLocalRef(t); env->DeleteLocalRef(a); env->DeleteLocalRef(al); env->DeleteLocalRef(ap);
-    }
-    env->DeleteLocalRef(act);
-}
+void Mpris::update(const MprisState& st) { android_bridge::media_update(st); }   // UI thread
 
 void Mpris::stop() {
     std::lock_guard<std::mutex> lk(g_cb_mu);

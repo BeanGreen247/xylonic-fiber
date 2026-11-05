@@ -20,6 +20,9 @@ void App::set_car_mode(bool on) {
     // Dashboard use is landscape; this is honoured on Android and ignored by desktop window managers.
     SDL_SetHint(SDL_HINT_ORIENTATIONS, on ? "LandscapeLeft LandscapeRight" : "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
     if (!on) player_.enable_spectrum(false);
+#if defined(__ANDROID__)
+    if (win_) SDL_SetWindowFullscreen(win_, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);   // immersive: hide the status and navigation bars while driving
+#endif
     if (on && cfg_.car_keep_on) SDL_DisableScreenSaver(); else SDL_EnableScreenSaver();
     mark();
 }

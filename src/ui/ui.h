@@ -3,7 +3,6 @@
 #include <functional>
 #include <string>
 #include "gfx.h"
-
 // Exact token set of the old app's CSS variables (index.css + ThemeContext), light/dark aware.
 struct Theme {
     // Structural tokens
