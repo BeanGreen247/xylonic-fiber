@@ -1,4 +1,8 @@
 #include "remote.h"
+#include "portable.h"
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -81,6 +85,8 @@ std::string local_device_name() {
     return std::string(h) + ",Android";
 #elif defined(__linux__)
     return std::string(h) + ",Linux";
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
+    return std::string(h) + ",iOS";
 #elif defined(__APPLE__)
     return std::string(h) + ",macOS";
 #else

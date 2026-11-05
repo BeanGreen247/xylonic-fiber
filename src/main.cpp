@@ -3,9 +3,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <csignal>
 #include "app/app.h"
 
 int main(int argc, char** argv) {
+    std::signal(SIGPIPE, SIG_IGN);   // a peer closing mid-send must not kill the process (Apple has no MSG_NOSIGNAL)
     AppOptions o;
     for (int i = 1; i < argc; ++i) {
         auto arg = [&](const char* name) { return !std::strcmp(argv[i], name) && i + 1 < argc; };

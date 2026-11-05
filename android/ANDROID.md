@@ -9,7 +9,6 @@ The Android app is the same C++ code as the desktop app, loaded by SDL2's `SDLAc
 3. Assets: `android/app/build.gradle` packages `../../assets` into the APK; the app reads fonts and icons through
    `SDL_RWFromFile` (APK assets), so no extra code is needed.
 
-Platform gaps to fill next (tracked in docs/port-map.md): Android Keystore for credentials (`src/app/secrets.cpp` has a
-Linux libsecret backend only, so the password is asked every launch), media notification + foreground service for
+Platform gaps to fill next (tracked in docs/port-map.md): media notification + foreground service for
 background playback and downloads, battery-optimisation exemption dialog, rotation lock for Car Mode, SD-card cache
 location. Touch scrolling and DPI scaling are already in `src/app/app.cpp`.

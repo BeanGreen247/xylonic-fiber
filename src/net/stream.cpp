@@ -1,4 +1,5 @@
 #include "stream.h"
+#include "portable.h"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <fcntl.h>

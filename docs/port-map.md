@@ -64,3 +64,9 @@ Reference files: `/home/bean/xylonic/src/components/common/CachePreloadDialog.ts
 ## Fifth pass (2026-11-03): audit of undocumented original UI
 
 See `docs/ui-audit.md` for the component-by-component audit (what the original did that no document or screenshot covered, what was ported, what is still missing). The hamburger menu that earlier passes added below 900 px does not exist in the original (HamburgerMenu.tsx is never mounted) and was removed; the compact layout (<=767 px) now follows the original CSS.
+
+## Pass 2026-11-05 (parity sweep, Pulse Deck, Apple)
+
+Done: movable permanent cache (Settings Storage on mobile, Change Location with folder picker on desktop, `src/app/storage*.cpp`, rows re-rooted by `heal_path`); app-store thank-you banner (`XF_APP_STORE`); hover tooltips (panel, player bar, header, mini player, remote picker); exact Choose Theme / Create Custom Theme / Firewall Setup dialogs (`src/app/modals.cpp`); remote picker wording and busy-tap; startup splash; Ctrl+Shift+Delete; mute restores 70%; Discover 5 min TTL (random never cached); compact Settings descriptions wrap; Pulse Deck redesign (smoothed bands, falling caps, kick glow, reflection, cover backdrop, EQ readout, tiered lag guard); table-driven spectrum FFT; Release LTO. Already present and now confirmed: search index persistence, download refcount dedup and reconcile, starred list and getSong.
+
+Apple and Android: see docs/APPLE.md (Keychain, reachability, bundles, build scripts) and `SecretStore.java` / JNI metered detection for Android. Still open: Last.fm settings row (informational in the original too), media controls on Android/Apple, mobile page-by-page spacing diff against the original (Artist, Album, Search), Now Playing mobile overlay screenshot compare.

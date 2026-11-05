@@ -1,5 +1,11 @@
 #include "images.h"
-#if defined(__ANDROID__)
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+#define XF_STB_IMAGES 1   // no SDL_image on phones: stb decodes JPEG and PNG
+#endif
+#if defined(XF_STB_IMAGES)
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_JPEG
 #define STBI_ONLY_PNG
@@ -60,7 +66,7 @@ bool read_file(const std::string& p, std::string& out) {
 // Decodes any supported image to tightly packed RGBA. False when the bytes are not an image.
 bool decode_rgba(const std::string& bytes, std::vector<uint8_t>& data, int& w, int& h) {
     if (bytes.empty()) return false;
-#if defined(__ANDROID__)
+#if defined(XF_STB_IMAGES)
     int n = 0;
     unsigned char* px = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(bytes.data()), static_cast<int>(bytes.size()), &w, &h, &n, 4);
     if (!px) return false;
@@ -148,7 +154,7 @@ bool ImageCache::fallback_id(const std::string& cover_id) const {
 }
 
 ImageCache::ImageCache(SDL_Renderer* r, Worker& w, std::string dir, size_t max) : r_(r), w_(w), dir_(std::move(dir)), max_(max) {
-#if !defined(__ANDROID__)
+#if !defined(XF_STB_IMAGES)
     IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
 #endif
     media_ = std::make_shared<xf::cache::MediaCache>(dir_ + "media");
@@ -161,7 +167,7 @@ ImageCache::~ImageCache() {
     qcv_.notify_all();
     for (auto& t : threads_) t.join();
     clear_memory(); media_->save();
-#if !defined(__ANDROID__)
+#if !defined(XF_STB_IMAGES)
     IMG_Quit();
 #endif
 }
