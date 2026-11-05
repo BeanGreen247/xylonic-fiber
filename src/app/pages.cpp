@@ -49,6 +49,7 @@ void App::draw_artist(Rect r) {
         float fa_ = u.hover(dl) ? 0.25f : 0.15f;
         auto mixc = [&](uint8_t f, uint8_t b) { return static_cast<uint8_t>(std::lround(f * fa_ + b * (1 - fa_))); };
         Color fill{mixc(th.accent.r, th.bg.r), mixc(th.accent.g, th.bg.g), mixc(th.accent.b, th.bg.b), 255};
+        gfx_->fill_round(dl, 20 * s, fill);
         gfx_->stroke_round(dl, 20 * s, 1 * s, alpha(th.accent, 0.3f), fill);
         fa(skin::Download, dl.x + 28 * s, dl.y + 19 * s, 14, th.accent);
         T(500, 14, dl.x + 47 * s, dl.y, 38, "Download Artist", th.accent);
@@ -214,7 +215,13 @@ void App::draw_artist_compact(Rect r) {
     y += 54 * s;
     if (downloads_ && !offline_) {
         Rect dl{x, y, w, 48 * s};
-        gfx_->stroke_round(dl, 24 * s, 1 * s, alpha_c(th.accent, 0.3f), alpha_c(th.accent, u.hover(dl) ? 0.25f : 0.15f));
+        {   // the inner colour must be opaque: mix the accent over the page background
+            const float fa_ = u.hover(dl) ? 0.25f : 0.15f;
+            auto mixc = [&](uint8_t f, uint8_t bk) { return static_cast<uint8_t>(std::lround(f * fa_ + bk * (1 - fa_))); };
+            const Color fill{mixc(th.accent.r, th.bg.r), mixc(th.accent.g, th.bg.g), mixc(th.accent.b, th.bg.b), 255};
+            gfx_->fill_round(dl, 24 * s, fill);
+            gfx_->stroke_round(dl, 24 * s, 1 * s, alpha_c(th.accent, 0.3f), fill);
+        }
         const float dw = gfx_->measure(F(500, 15), "Download Artist");
         fa(skin::Download, dl.x + (dl.w - dw - 22 * s) / 2 + 7 * s, dl.y + 24 * s, 14, th.accent);
         T(500, 15, dl.x + (dl.w - dw - 22 * s) / 2 + 22 * s, dl.y, 48, "Download Artist", th.accent);

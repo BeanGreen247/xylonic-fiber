@@ -138,7 +138,7 @@ void App::draw_library(Rect r) {
         if (on) gfx_->fill_round(b, br, th.accent);
         else if (u.hover(b)) gfx_->fill_round(b, br, th.hover);
         Color c = on ? rgb(0xffffff) : th.sub;
-        if (narrow) fa(icons[i], b.x + b.w / 2, b.y + b.h / 2, 18, c);   // .view-toggle-btn span hidden: icon only
+        if (narrow) fa(icons[i], b.x + b.w / 2, b.y + b.h / 2, 14.5f, c);   // .view-toggle-btn span hidden: icon only
         else {
             fa(icons[i], b.x + 24 * s, b.y + 15.5f * s, 13, c);
             T(500, 13, b.x + 40 * s, b.y, 31, names[i], c);
@@ -160,7 +160,8 @@ void App::draw_library(Rect r) {
         const float fa_ = disabled ? 0.15f : (u.hover(b) ? 0.25f : 0.15f);  // tint over the page background
         auto mixc = [&](uint8_t f, uint8_t bg_) { return static_cast<uint8_t>(std::lround(f * fa_ + bg_ * (1 - fa_))); };
         Color fill{mixc(tint.r, th.bg.r), mixc(tint.g, th.bg.g), mixc(tint.b, th.bg.b), 255};
-        gfx_->stroke_round(b, narrow ? 24 * s : 20 * s, 1 * s, alpha(tint, disabled ? 0.3f : 0.3f), fill);
+        gfx_->fill_round(b, narrow ? 24 * s : 20 * s, fill);
+        gfx_->stroke_round(b, narrow ? 24 * s : 20 * s, 1 * s, alpha(tint, 0.3f), fill);
         const float lw = gfx_->measure(F(500, narrow ? 15.0f : 14.0f), label);
         const float cx0 = narrow ? b.x + (b.w - lw - 22 * s) / 2 : b.x + 28 * s - 8 * s;
         fa(ic, cx0 + 8 * s, b.y + bh / 2, 14, tint);
