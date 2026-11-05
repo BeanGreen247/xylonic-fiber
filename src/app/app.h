@@ -340,7 +340,9 @@ private:
     bool precheck_done_ = false;
     uint32_t precheck_due_ = 0;
     struct PerfStats { bool loaded = false; uint64_t images = 0, image_bytes = 0, mem_hits = 0, disk_hits = 0, server_fetches = 0, internet_fetches = 0, api_calls = 0, index_bytes = 0; size_t artists = 0, albums = 0, songs = 0; } perf_stats_;
-    float pulse_caps_[24] = {};
+    float pulse_sm_[48] = {}, pulse_caps_[48] = {}, pulse_capv_[48] = {};   // Pulse Deck: smoothed bands, peak caps and their fall speeds
+    float pulse_kick_ = 0, pulse_prev_bass_ = 0;
+    int pulse_quality_ = 2;   // 2 full, 1 no reflection/backdrop, 0 bars only; the lag guard steps down before switching off
     uint32_t pulse_last_ms_ = 0, pulse_frames_ = 0, pulse_toast_ms_ = 0;
     float pulse_avg_ms_ = 16.0f, eq_bass_db_ = 0, eq_treble_db_ = 0;
     bool pulse_off_ = false, pulse_drag_ = false;
