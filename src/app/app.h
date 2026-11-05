@@ -283,6 +283,8 @@ private:
     void choose_cache_folder();
     void draw_storage_modal(float W, float H);
     void draw_tooltip(float W, float H);
+    void draw_splash(float W, float H);
+    bool splash_gone_ = false; uint32_t splash_start_ = 0, splash_end_ = 0;
     void draw_firewall_modal(float W, float H);
     void draw_theme_modal(float W, float H);
     void draw_theme_editor(float W, float H);

@@ -812,6 +812,7 @@ void App::frame() {
         draw_main(W, H);
         if (pre_open_ || newcontent_open_ || prompt_ != Prompt::None) { ui_->in = in0; if (pre_open_) draw_precache(W, H); else if (prompt_ != Prompt::None) draw_connectivity_prompt(W, H); else draw_new_content_prompt(W, H); }
     }
+    draw_splash(static_cast<float>(dw), static_cast<float>(dh));
     draw_render_hud(static_cast<float>(dw), static_cast<float>(dh));
     gfx_->end_frame();
     const uint64_t now = SDL_GetPerformanceCounter();

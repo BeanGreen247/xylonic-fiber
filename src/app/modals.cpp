@@ -291,3 +291,29 @@ void App::draw_theme_editor(float W, float H) {
     if (valid && u.clicked(pb)) apply();
     if (valid && u.clicked(sb)) { apply(); modal_ = Modal::None; u.focus = 0; }
 }
+
+// SplashScreen.tsx: logo and name on the dark background while the stored login is checked, then a 450 ms fade.
+void App::draw_splash(float W, float H) {
+    if (splash_gone_) return;
+    const uint32_t now = SDL_GetTicks();
+    if (!splash_start_) splash_start_ = now;
+    if (!connecting_ && !splash_end_ && now - splash_start_ >= 300) splash_end_ = now;
+    float a = 1.0f;
+    if (splash_end_) { a = 1.0f - (now - splash_end_) / 450.0f; if (a <= 0) { splash_gone_ = true; mark(); return; } }
+    const float s = S_;
+    const float enter = std::min(1.0f, (now - splash_start_) / 300.0f);
+    const float sc = 0.92f + 0.08f * enter, ca = a * enter;
+    const Color bg = ui_->th.bg;
+    gfx_->fill({0, 0, W, H}, {bg.r, bg.g, bg.b, static_cast<uint8_t>(a * 255)});
+    const float logo = 96 * s * sc, name_h = 44 * s * sc, gap = 24 * s * sc;
+    const float top = (H - (logo + gap + name_h)) / 2;
+    svg(0, {(W - logo) / 2, top, logo, logo}, {255, 255, 255, static_cast<uint8_t>(ca * 255)});
+    const int f = F(700, 36 * sc);
+    gfx_->set_letter_spacing(3 * s);
+    const std::string nm = "XYLONIC";
+    const float nw = gfx_->measure(f, nm);
+    Color ac = ui_->th.accent; ac.a = static_cast<uint8_t>(ca * 255);
+    T(700, 36 * sc, (W - nw) / 2, top + logo + gap, 44 * sc, nm, ac);
+    gfx_->set_letter_spacing(0);
+    mark();
+}
