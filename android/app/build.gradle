@@ -15,5 +15,16 @@ android {
     }
     externalNativeBuild { cmake { path 'jni/CMakeLists.txt'; version '3.22.1' } }
     sourceSets { main { assets.srcDirs = ['../../assets'] } }
-    buildTypes { release { minifyEnabled false } }
+    // Release signing: create android/keystore.properties (storeFile, storePassword, keyAlias, keyPassword); it is git-ignored.
+    def ksFile = rootProject.file('keystore.properties')
+    if (ksFile.exists()) {
+        def ks = new Properties(); ks.load(new FileInputStream(ksFile))
+        signingConfigs { release {
+            storeFile file(ks['storeFile']); storePassword ks['storePassword']; keyAlias ks['keyAlias']; keyPassword ks['keyPassword']
+        } }
+    }
+    buildTypes { release {
+        minifyEnabled false
+        if (ksFile.exists()) signingConfig signingConfigs.release
+    } }
 }

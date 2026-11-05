@@ -39,4 +39,4 @@ Not tested on a physical phone, so the numbers that matter there (touch feel, DP
 - Car Mode is immersive (system bars hidden) and keeps the screen on; Settings > Advanced > Background activity opens the battery-optimisation exemption.
 - A multicast lock is held while the activity exists so Remote-mode discovery receives UDP broadcasts.
 - App icon: `python3 tools/make-icon.py` renders it (assets/icons/app-icon-*.png, adaptive and legacy launcher icons, themed monochrome note).
-- Release builds: `./gradlew assembleRelease` needs your signing config; none is committed.
+- Release builds: put `storeFile`, `storePassword`, `keyAlias`, `keyPassword` in `android/keystore.properties` (git-ignored), then `./gradlew assembleRelease`.
