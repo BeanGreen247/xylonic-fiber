@@ -260,6 +260,7 @@ void App::draw_settings(Rect r) {
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
     total += 183 * s;
 #endif
+    for (float e : card_extra_prev_) total += e * s;
     if (u.hover(r)) settings_scroll_.y -= u.in.wheel * 60 * s;
     settings_scroll_.clamp(total, r.h);
     float y = r.y + (cp ? 12.0f : 24.0f) * s - settings_scroll_.y;
@@ -292,6 +293,11 @@ void App::draw_settings(Rect r) {
     // Row primitive. kind: 0 info, 1 button, 2 danger. Returns true when clicked (kind != info).
     auto row = [&](uint32_t icon, const std::string& title, const std::string& sub, int kind, bool chevron, const std::string& pill, bool pill_on, float h_logical) {
         if (row_i++) { gfx_->fill({x + 17 * s, y, w - 34 * s, 1 * s}, {255, 255, 255, 15}); y += 1 * s; }
+        int sub_lines = 1;
+        if (cp && !sub.empty()) {   // compact: descriptions wrap instead of truncating; the row (and its card) grow
+            sub_lines = wrap_count(400, 12, sub, w - 2 * s - 54 * s - 90 * s);
+            if (sub_lines > 1) { h_logical += (sub_lines - 1) * 18; card_extra_now_[cur_card_] += (sub_lines - 1) * 18; }
+        }
         Rect rr{x + 1 * s, y, w - 2 * s, h_logical * s};
         bool hov = kind != 0 && u.hover(rr) && r.contains(u.in.mx, u.in.my);
         if (hov) gfx_->fill(rr, th.hover);
@@ -302,7 +308,8 @@ void App::draw_settings(Rect r) {
         if (has_sub) {
             const float tw = rr.w - 54 * s - (cp ? 90.0f : 140.0f) * s;
             T(400, 15, rr.x + 54 * s, rr.y + 10 * s, 22.5f, title, tc, tw);
-            T(400, 12, rr.x + 54 * s, rr.y + 33 * s, 18, sub, rgb(0xb5b5b5), tw);
+            if (sub_lines > 1) TW(400, 12, rr.x + 54 * s, rr.y + 33 * s, 18, sub, rgb(0xb5b5b5), tw);
+            else T(400, 12, rr.x + 54 * s, rr.y + 33 * s, 18, sub, rgb(0xb5b5b5), tw);
         } else {
             T(400, 15, rr.x + 54 * s, rr.y, h_logical, title, tc, rr.w - 54 * s - 100 * s);
         }
@@ -318,7 +325,12 @@ void App::draw_settings(Rect r) {
         y += h_logical * s;
         return kind != 0 && u.clicked(rr) && r.contains(u.in.mx, u.in.my);
     };
+    int card_n = 0;
+    for (float& e : card_extra_now_) e = 0;
     auto card_fill = [&](float top, float h) {
+        cur_card_ = std::min(card_n, 31);
+        h += card_extra_prev_[cur_card_] * s;
+        ++card_n;
         gfx_->fill_round({x, top, w, h}, 16 * s, {255, 255, 255, 15});
         gfx_->fill_round({x + 1 * s, top + 1 * s, w - 2 * s, h - 2 * s}, 15 * s, th.panel);
     };
@@ -574,6 +586,11 @@ void App::draw_settings(Rect r) {
     if (row(0xf5fd, "Tech Stack", "", 1, true, "", false, 52)) modal_ = Modal::TechStack;
     if (row(0xf24e, "Licenses", "", 1, true, "", false, 52)) modal_ = Modal::Licenses;
     gfx_->clip(nullptr);
+    {
+        bool changed = false;
+        for (int k = 0; k < 32; ++k) if (card_extra_now_[k] != card_extra_prev_[k]) { card_extra_prev_[k] = card_extra_now_[k]; changed = true; }
+        if (changed) mark();
+    }
     if (dropdown_draw_) dropdown_draw_();
 }
 

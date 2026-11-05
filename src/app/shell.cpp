@@ -634,7 +634,7 @@ void App::load_section(int i) {
             if (s != session_) return;
             Section& sec = sections_[i];
             sec.loading = false;
-            if (ok) { if (store_) store_->put(key, to_json(a)); sec.albums = std::move(a); sec.error.clear(); }
+            if (ok) { if (store_) store_->put(key, to_json(a)); sec.albums = std::move(a); sec.error.clear(); sec.fetched_ms = SDL_GetTicks64(); }
             else sec.error = e.empty() ? "Failed to load" : e;
             mark();
         });

@@ -109,6 +109,7 @@ private:
     int FA(float px);
     // CSS-like text: y_top/line_height in logical px, glyphs centred in the line box. Returns drawn width.
     // Word-wrapped text; returns the height used (device px).
+    int wrap_count(int weight, float px, const std::string& s, float max_w);
     float TW(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w);
     float T(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w = 0, bool italic = false);
     void fa(uint32_t cp, float cx, float cy, float px, Color c);   // glyph centred on (cx, cy)
@@ -268,7 +269,7 @@ private:
     struct DlInfo { int state; int64_t bytes, total; };
     std::unordered_map<std::string, DlInfo> dl_state_;
     bool dl_dirty_ = true;
-    struct Section { std::vector<Album> albums; bool loading = true; std::string error; float scroll_x = 0; };
+    struct Section { std::vector<Album> albums; bool loading = true; std::string error; float scroll_x = 0; uint64_t fetched_ms = 0; };   // fetched_ms: DiscoverView 5 min cache TTL
     Section sections_[4];   // newest, recent, frequent, random
     Scroll discover_scroll_;
     std::unordered_map<int, int> font_ids_;
@@ -289,6 +290,8 @@ private:
     void draw_theme_modal(float W, float H);
     void draw_theme_editor(float W, float H);
     Scroll theme_scroll_;
+    float card_extra_now_[32] = {}, card_extra_prev_[32] = {};   // Settings (compact): extra height of wrapped descriptions per card, applied a frame later
+    int cur_card_ = 0;
     bool fw_init_ = false; int fw_tab_ = 0; uint32_t fw_copied_until_ = 0;
     std::string tip_shown_; uint32_t tip_since_ = 0; bool tip_pending_ = false;
     std::atomic<uint64_t> move_done_{0};

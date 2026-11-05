@@ -34,6 +34,22 @@ std::vector<std::string> split_lines(const std::string& s) {
 }
 }  // namespace
 
+int App::wrap_count(int weight, float px, const std::string& str, float max_w) {
+    const int f = F(weight, px);
+    int lines = 1;
+    std::string line, word;
+    for (size_t i = 0; i <= str.size(); ++i) {
+        if (i == str.size() || str[i] == ' ') {
+            if (!word.empty()) {
+                const std::string cand = line.empty() ? word : line + " " + word;
+                if (!line.empty() && gfx_->measure(f, cand) > max_w) { ++lines; line = word; } else line = cand;
+                word.clear();
+            }
+        } else word += str[i];
+    }
+    return lines;
+}
+
 float App::TW(int weight, float px, float x, float y_top, float line_h, const std::string& str, Color c, float max_w) {
     const int f = F(weight, px);
     std::string line, word;

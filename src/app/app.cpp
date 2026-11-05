@@ -471,6 +471,10 @@ void App::set_nav(Nav n) {
     static const char* names[] = {"Home", "Library", "Search", "Queue", "Downloads", "Settings"};
     views_.push_back({ViewKind::Root, "", names[static_cast<int>(n)], {}});
     if (n == Nav::Search) ui_->focus = kSearch;
+    if (n == Nav::Home && client_ && !offline_) {   // DiscoverView remount: refetch sections older than 5 minutes; "random" is never cached
+        const uint64_t now = SDL_GetTicks64();
+        for (int i = 0; i < 4; ++i) if (!sections_[i].loading && (i == 3 || now - sections_[i].fetched_ms > 5ull * 60 * 1000)) load_section(i);
+    }
     mark();
 }
 
