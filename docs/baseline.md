@@ -81,3 +81,16 @@ perf of the playing process: about half of the CPU is the mp3 decoder (dr_mp3), 
 ## After the cache work (2026-11-03)
 
 Same machine and method, 1000-song fake library, fresh profile: idle PSS 48.8 MB (HEAD before: 48.4 MB), playing 43.2 MB (42.1 MB). Warm profile idle 37.8-38.5 MB against the 32.8 MB SDL2 floor. Details and the 100k-song cache benchmark are in `docs/cache-design.md`.
+
+## Native app measurements (2026-11-05, same machine, fake server, `docs/ui-ref/fake-subsonic.js`)
+
+Method: `cpu.sh` samples utime+stime of the process between 6 s and 16 s after start, PSS from `smaps_rollup`; `perf record -F 999 --call-graph dwarf -p PID` for the profile (KDE Hotspot opens the `.data`).
+
+| State | CPU (% of one core) | PSS |
+|---|---|---|
+| Home, idle | 0 | 60 MB |
+| Playing (Home) | 0.3 | 60 MB |
+| Car Mode, Pulse Deck off | 0.5 | 57 MB |
+| Car Mode, Pulse Deck on (30 fps, 32 bands) | 3.3 | 49 MB |
+
+Changes measured: `spectrum_bands` 81 -> 45 us per call (cached bit-reversal, Hann and twiddle tables, no per-call allocation; identical output checksum over 32 bands). Release LTO + `-ffunction-sections -Wl,--gc-sections`: binary 3,731,216 -> 2,911,808 bytes (-22%), Pulse Deck CPU unchanged (3.3 vs 3.4%), PSS -0.7 MB. Remaining Pulse Deck cost is spread across SDL render submission and the kernel (no single user function above 3% of samples); libdbus frames come from SDL's session-bus handling, not from MPRIS (change-detected).
