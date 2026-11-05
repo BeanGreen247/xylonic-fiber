@@ -38,6 +38,7 @@ public:
     void clear_queue();                          // cancels and removes every song that is not finished
     int remove_album(const std::string& album_id);   // deletes the finished songs of one album; returns how many
     void remove(const std::string& id);          // cancels and deletes file + row
+    void remove_many(const std::vector<std::string>& ids);   // same for a batch: one manifest save and one notification (clearing a 5000-song queue)
     void clear_all();
     int verify();                                // drops rows whose file is gone or short; returns how many
     int reconcile();                             // removes unowned files and stale partials
@@ -46,15 +47,19 @@ public:
     // Every download with live byte counts. Cached: rebuilt only after something changed, and songs are parsed once per id, so a
     // 5000-song queue costs a few ms per frame instead of 5000 JSON parses.
     Snapshot snapshot() const;
+    // Bytes received so far for a download in progress (the snapshot is not rebuilt for every chunk), else the snapshot value.
+    int64_t live_bytes(const std::string& id, int64_t fallback) const;
     uint64_t media_bytes() const { return media_ ? media_->total_bytes() : 0; }
     size_t media_files() const { return media_ ? media_->blob_count() : 0; }
     int pending() const;                         // queued + active
     std::vector<Album> done_albums() const;      // albums that have at least one finished track (songs = finished ones)
 
 private:
+    bool remove_one(const std::string& id);   // returns true when the media manifest changed
     void loop();
     bool fetch(const Store::Row& row);
-    void changed();
+    enum class Change { Progress, Background, User };
+    void changed(Change kind = Change::User);
     std::string file_for(const Song& s) const;
 
     Store& store_;
@@ -68,8 +73,9 @@ private:
     mutable std::mutex m_;
     mutable Snapshot snap_;
     mutable std::unordered_map<std::string, Song> songs_;   // parsed song_json by id
-    mutable uint64_t snap_gen_ = ~0ull;
-    std::atomic<uint64_t> change_gen_{0};
+    std::atomic<uint64_t> struct_gen_{0}, force_gen_{0};   // snapshot invalidation: any structural change / a user-initiated one
+    mutable uint64_t snap_struct_ = ~0ull, snap_force_ = ~0ull;
+    mutable uint32_t snap_time_ = 0;
     std::condition_variable cv_;
     std::vector<std::thread> th_;
     std::atomic<bool> stop_{false};

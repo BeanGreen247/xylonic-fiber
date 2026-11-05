@@ -350,16 +350,17 @@ bool Store::dl_upsert_many(const std::vector<Row>& rows) {
         if (!journal_->append_transaction(++transaction_, ++generation_, payloads)) return false;
     }
     for (const Row& r : rows) downloads_[r.id] = r;
+    ++dl_ver_;
     unsaved_ops_ = 0;
     return save_locked();   // compacts the journal: one rewrite for the whole batch instead of one per 64 rows
 }
 
-bool Store::dl_upsert(const Row& r) { std::lock_guard<std::mutex> lk(m_); if (!journal_download_locked('D', r)) return false; downloads_[r.id] = r; return maybe_save_locked(); }
+bool Store::dl_upsert(const Row& r) { std::lock_guard<std::mutex> lk(m_); if (!journal_download_locked('D', r)) return false; downloads_[r.id] = r; ++dl_ver_; return maybe_save_locked(); }
 bool Store::dl_set(const std::string& id, int state, int64_t bytes, int64_t total, const std::string& path, const std::string& content_hash) {
     std::lock_guard<std::mutex> lk(m_); auto it = downloads_.find(id); if (it == downloads_.end()) return false;
     Row next = it->second; next.state = state; next.bytes = bytes; next.total = total; next.path = path; if (!content_hash.empty()) next.content_hash = content_hash;
     if (!journal_download_locked('D', next)) return false;
-    it->second = std::move(next); return maybe_save_locked();
+    it->second = std::move(next); ++dl_ver_; return maybe_save_locked();
 }
 bool Store::dl_get(const std::string& id, Row& out) {
     std::lock_guard<std::mutex> lk(m_); auto it = downloads_.find(id); if (it == downloads_.end()) return false; out = it->second; return true;
@@ -372,6 +373,7 @@ bool Store::dl_erase(const std::string& id) {
     auto it = downloads_.find(id); if (it == downloads_.end()) return false;
     if (!journal_download_erase_locked(id)) return false;
     downloads_.erase(it);
+    ++dl_ver_;
     index_stale_ = true;
-    return save_locked();
+    return maybe_save_locked();   // the journal already made the erase durable; a full rewrite per row made clearing a big queue O(n^2) in file writes
 }

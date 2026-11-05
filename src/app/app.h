@@ -293,6 +293,15 @@ private:
     void draw_theme_modal(float W, float H);
     void draw_theme_editor(float W, float H);
     Scroll theme_scroll_, dq_scroll_;
+    struct DmStats {   // derived from the downloads snapshot; recomputed only when the snapshot (or the cleared set) changes
+        std::vector<const Downloads::Item*> queue, active;
+        int total = 0, done = 0, failed = 0, pending = 0, cached_songs = 0;
+        uint64_t cache_bytes = 0;
+        std::map<std::string, std::pair<std::string, std::string>> albums;
+        std::map<std::string, int> album_count;
+    } dm_stats_;
+    Downloads::Snapshot dm_snap_;
+    size_t dm_cleared_n_ = ~size_t(0);
     int login_revealed_ = 0; float login_last_h_ = 0;
     float card_extra_now_[32] = {}, card_extra_prev_[32] = {};   // Settings (compact): extra height of wrapped descriptions per card, applied a frame later
     int cur_card_ = 0;

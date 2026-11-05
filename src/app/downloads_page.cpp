@@ -33,19 +33,26 @@ void App::draw_downloads(Rect r) {
     const float x = r.x + pad, w = r.w - 2 * pad - (cp ? 0.0f : 12.0f * s);
     const auto all_snap = downloads_->snapshot();
     const auto& all = *all_snap;
-    std::vector<const Downloads::Item*> queue;                       // download tasks: finished ones can be cleared from the list
-    for (const auto& it : all) if (!(it.state == Downloads::Done && dm_cleared_.count(it.song.id))) queue.push_back(&it);
-    int total = static_cast<int>(queue.size()), done = 0, failed = 0, pending = 0;
-    for (auto* it : queue) { if (it->state == Downloads::Done) ++done; else if (it->state == Downloads::Failed) ++failed; else ++pending; }
-    std::vector<const Downloads::Item*> active;
-    for (auto* it : queue) if (it->state == Downloads::Active) active.push_back(it);
-    // cache statistics: every finished song is cached
-    int cached_songs = 0; uint64_t cache_bytes = 0;
-    std::map<std::string, std::pair<std::string, std::string>> albums; std::map<std::string, int> album_count;
-    for (const auto& it : all) if (it.state == Downloads::Done) {
-        ++cached_songs; cache_bytes += static_cast<uint64_t>(std::max<int64_t>(0, it.total));
-        albums[it.song.album_id] = {it.song.album, it.song.artist}; ++album_count[it.song.album_id];
+    if (dm_snap_ != all_snap || dm_cleared_n_ != dm_cleared_.size()) {   // 5000 queued songs would otherwise be re-walked every frame
+        DmStats& st = dm_stats_;
+        st = DmStats{};
+        for (const auto& it : all) if (!(it.state == Downloads::Done && dm_cleared_.count(it.song.id))) st.queue.push_back(&it);   // finished ones can be cleared from the list
+        st.total = static_cast<int>(st.queue.size());
+        for (auto* it : st.queue) { if (it->state == Downloads::Done) ++st.done; else if (it->state == Downloads::Failed) ++st.failed; else ++st.pending; if (it->state == Downloads::Active) st.active.push_back(it); }
+        // cache statistics: every finished song is cached
+        for (const auto& it : all) if (it.state == Downloads::Done) {
+            ++st.cached_songs; st.cache_bytes += static_cast<uint64_t>(std::max<int64_t>(0, it.total));
+            st.albums[it.song.album_id] = {it.song.album, it.song.artist}; ++st.album_count[it.song.album_id];
+        }
+        dm_snap_ = all_snap; dm_cleared_n_ = dm_cleared_.size();
     }
+    const auto& queue = dm_stats_.queue;
+    const auto& active = dm_stats_.active;
+    const int total = dm_stats_.total, done = dm_stats_.done, failed = dm_stats_.failed, pending = dm_stats_.pending, cached_songs = dm_stats_.cached_songs;
+    const uint64_t cache_bytes = dm_stats_.cache_bytes;
+    const auto& albums = dm_stats_.albums;
+    auto& album_count = dm_stats_.album_count;
+    (void)done; (void)failed; (void)pending;
     const bool has_activity = total > 0;
     const bool paused = downloads_->paused_all();
     // ---- layout height first (for the scroll clamp)
@@ -146,7 +153,7 @@ void App::draw_downloads(Rect r) {
             ty += (multi ? 20 : 24) * s;
             T(400, multi ? 12.2f : 13.6f, ac.x + (multi ? 14 : 20) * s, ty, 20, it->song.artist + " - " + it->song.album, th.sub, ac.w - 40 * s);
             ty += (multi ? 22 : 30) * s;
-            const float frac = it->total > 0 ? std::min(1.0f, static_cast<float>(it->bytes) / it->total) : 0;
+            const float frac = it->total > 0 ? std::min(1.0f, static_cast<float>(downloads_->live_bytes(it->song.id, it->bytes)) / it->total) : 0;
             Rect ab{ac.x + (multi ? 14 : 20) * s, ty, ac.w - (multi ? 28 : 40) * s, 6 * s};
             gfx_->fill_round(ab, 3 * s, {255, 255, 255, 61}); if (frac > 0) gfx_->fill_round({ab.x, ab.y, std::max(6 * s, ab.w * frac), ab.h}, 3 * s, th.accent);
             const std::string ps = std::to_string(static_cast<int>(frac * 100)) + "%";

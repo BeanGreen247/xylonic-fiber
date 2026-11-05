@@ -256,7 +256,7 @@ void App::refresh_dl_state() {
     dl_state_.clear();
     if (!downloads_) return;
     auto snap = downloads_->snapshot();
-    for (auto& it : *snap) dl_state_[it.song.id] = {it.state, it.bytes, it.total};
+    for (auto& it : *snap) dl_state_[it.song.id] = {it.state, it.state == Downloads::Active ? downloads_->live_bytes(it.song.id, it.bytes) : it.bytes, it.total};
 }
 
 int App::songs_downloaded() const {

@@ -3,6 +3,7 @@
 // atomic JSON manifest while retaining the existing C++ API.
 #pragma once
 #include <cstdint>
+#include <atomic>
 #include <mutex>
 #include <memory>
 #include <string>
@@ -22,6 +23,7 @@ public:
     void erase_prefix(const std::string& prefix);
     struct Row { std::string id, album_id, path, song_json, content_hash; int state = 0; int64_t bytes = 0, total = 0; int quality = -1; };   // quality kbps, 0 original, -1 default setting
     bool dl_upsert(const Row& r);
+    uint64_t dl_version() const { return dl_ver_.load(); }   // bumps on every change to the download rows
     bool dl_upsert_many(const std::vector<Row>& rows);          // one journal transaction and one save for a whole batch (queueing a library)
     // Visits every row under the lock without copying the (large) song JSON; fn must not call back into the store.
     // First row (in id order) for which pred is true, copied into out; false when none. Cheap next-job pick for a big queue.
@@ -60,6 +62,7 @@ private:
     std::string path_;
     bool memory_ = false;
     mutable std::mutex m_;
+    std::atomic<uint64_t> dl_ver_{0};
     std::unordered_map<std::string, std::pair<std::string, int64_t>> kv_;
     std::unordered_map<std::string, Row> downloads_;
     std::unique_ptr<xf::cache::Journal> journal_;

@@ -120,7 +120,7 @@ int main() {
         d.retry_failed(); CHECK(wait_for([&] { return d.pending() == 0; }));  // still 404: fails again
         // pause / resume on a slow file
         d.enqueue({mk("slow", "alC", 400000)});
-        CHECK(wait_for([&] { auto sp = d.snapshot(); for (auto& it : *sp) if (it.song.id == "slow" && it.state == Downloads::Active && it.bytes > 0) return true; return false; }));
+        CHECK(wait_for([&] { auto sp = d.snapshot(); for (auto& it : *sp) if (it.song.id == "slow" && it.state == Downloads::Active && d.live_bytes(it.song.id, it.bytes) > 0) return true; return false; }));
         d.pause("slow");
         CHECK(wait_for([&] { auto sp = d.snapshot(); for (auto& it : *sp) if (it.song.id == "slow") return it.state == Downloads::Paused; return false; }));
         d.resume("slow");
@@ -132,6 +132,24 @@ int main() {
         std::string missing = d.path_if_done("3"); unlink(missing.c_str()); CHECK(d.verify() == 1 && d.path_if_done("3").empty());
         FILE* orphan = std::fopen((dir + "/files/orphan.mp3").c_str(), "wb"); if (orphan) { std::fputs("orphan", orphan); std::fclose(orphan); }
         CHECK(d.reconcile() == 1 && access((dir + "/files/orphan.mp3").c_str(), F_OK) != 0);
+    }
+    { // a library-sized queue stays cheap: batch enqueue, repeated snapshots and pending(), batch clear (paused so nothing downloads)
+        Store st; CHECK(st.open(dir + "/big.json"));
+        Downloads d(st, dir + "/bigfiles", urlf, ConnectOptions{});
+        d.pause_all();
+        std::vector<Song> many;
+        for (int i = 0; i < 4000; ++i) many.push_back(mk("big" + std::to_string(i), "alBig" + std::to_string(i / 10)));
+        auto t0 = std::chrono::steady_clock::now();
+        d.enqueue(many);
+        auto ms = [&] { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count(); };
+        CHECK(ms() < 3000);
+        t0 = std::chrono::steady_clock::now();
+        int n = 0;
+        for (int i = 0; i < 200; ++i) { n += d.pending(); auto sp = d.snapshot(); n += static_cast<int>(sp->size()); }
+        CHECK(n == 200 * 8000 && ms() < 1500);   // cached snapshot + non-copying pending()
+        t0 = std::chrono::steady_clock::now();
+        d.clear_queue();
+        CHECK(d.pending() == 0 && d.snapshot()->empty() && ms() < 5000);
     }
     { // persistence across restart
         Store st; CHECK(st.open(dbp));

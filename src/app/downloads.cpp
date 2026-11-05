@@ -39,8 +39,9 @@ Downloads::~Downloads() {
 
 std::string Downloads::file_for(const Song& s) const { return dir_ + s.id + "." + (s.suffix.empty() ? "mp3" : s.suffix); }
 
-void Downloads::changed() {
-    ++change_gen_;   // invalidates the cached snapshot (every call, before the notification throttle)
+void Downloads::changed(Change kind) {
+    if (kind != Change::Progress) ++struct_gen_;   // chunks arriving do not change the list, only the live byte counts
+    if (kind == Change::User) ++force_gen_;
     uint32_t n = now_ms();
     uint32_t l = last_notify_.load();
     if (n - l < 100) return;  // coalesce progress notifications to 10 Hz
@@ -88,7 +89,8 @@ void Downloads::retry_failed() {
     changed();
 }
 
-void Downloads::remove(const std::string& id) {
+bool Downloads::remove_one(const std::string& id) {
+    bool media_dirty = false;
     {
         std::lock_guard<std::mutex> lk(m_);
         auto it = cancel_.find(id);
@@ -97,15 +99,28 @@ void Downloads::remove(const std::string& id) {
     Store::Row r;
     if (store_.dl_get(id, r)) {
         const bool managed = media_ && r.path.compare(0, media_->root().size(), media_->root()) == 0;
-        if (managed) { media_->release_prefix("song:" + id + "@"); media_->save(); }   // file goes when its last owner goes
-        else {                                                                           // downloaded before the manifest existed
+        if (managed) { media_->release_prefix("song:" + id + "@"); media_dirty = true; }   // file goes when its last owner goes
+        else {                                                                           // downloaded before the manifest existed, or still queued
             bool shared = false;
-            for (const auto& other : store_.dl_all()) if (other.id != id && other.path == r.path) { shared = true; break; }
+            store_.dl_each([&](const Store::Row& other) { if (!shared && other.id != id && other.path == r.path) shared = true; });
             if (!shared) ::unlink(r.path.c_str());
         }
         ::unlink((r.path + ".part").c_str());
         store_.dl_erase(id);
     }
+    return media_dirty;
+}
+
+void Downloads::remove(const std::string& id) {
+    if (remove_one(id) && media_) media_->save();
+    last_notify_ = 0;
+    changed();
+}
+
+void Downloads::remove_many(const std::vector<std::string>& ids) {
+    bool dirty = false;
+    for (const std::string& id : ids) dirty |= remove_one(id);
+    if (dirty && media_) media_->save();
     last_notify_ = 0;
     changed();
 }
@@ -126,17 +141,22 @@ void Downloads::resume_all() {
 }
 
 void Downloads::clear_queue() {
-    for (auto& r : store_.dl_all()) if (r.state != Done) remove(r.id);
+    std::vector<std::string> ids;
+    store_.dl_each([&](const Store::Row& r) { if (r.state != Done) ids.push_back(r.id); });
+    remove_many(ids);
 }
 
 int Downloads::remove_album(const std::string& album_id) {
-    int n = 0;
-    for (auto& r : store_.dl_all()) if (r.album_id == album_id && r.state == Done) { remove(r.id); ++n; }
-    return n;
+    std::vector<std::string> ids;
+    store_.dl_each([&](const Store::Row& r) { if (r.album_id == album_id && r.state == Done) ids.push_back(r.id); });
+    remove_many(ids);
+    return static_cast<int>(ids.size());
 }
 
 void Downloads::clear_all() {
-    for (auto& r : store_.dl_all()) remove(r.id);
+    std::vector<std::string> ids;
+    store_.dl_each([&](const Store::Row& r) { ids.push_back(r.id); });
+    remove_many(ids);
 }
 
 int Downloads::verify() {
@@ -185,8 +205,10 @@ int Downloads::pending() const {
 
 Downloads::Snapshot Downloads::snapshot() const {
     std::lock_guard<std::mutex> lk(m_);
-    const uint64_t gen = change_gen_.load();
-    if (snap_ && snap_gen_ == gen) return snap_;
+    const uint64_t sg = store_.dl_version(), fg = force_gen_.load();
+    const uint32_t now = now_ms();
+    // unchanged, or only background state changes of a long list within the last 400 ms: serve the cached list
+    if (snap_ && (snap_struct_ == sg || (snap_force_ == fg && now - snap_time_ < 400))) return snap_;
     auto v = std::make_shared<std::vector<Item>>();
     store_.dl_each([&](const Store::Row& r) {
         Item it;
@@ -204,8 +226,14 @@ Downloads::Snapshot Downloads::snapshot() const {
         for (const Item& it : *v) keep.emplace(it.song.id, it.song);
         songs_.swap(keep);
     }
-    snap_ = v; snap_gen_ = gen;
+    snap_ = v; snap_struct_ = sg; snap_force_ = fg; snap_time_ = now;
     return snap_;
+}
+
+int64_t Downloads::live_bytes(const std::string& id, int64_t fallback) const {
+    std::lock_guard<std::mutex> lk(m_);
+    auto lb = live_bytes_.find(id);
+    return lb != live_bytes_.end() ? lb->second : fallback;
 }
 
 std::vector<Album> Downloads::done_albums() const {
@@ -247,7 +275,7 @@ bool Downloads::fetch(const Store::Row& row) {
             if (std::fwrite(p, 1, n, f) != n) return false;
             got += static_cast<int64_t>(n);
             { std::lock_guard<std::mutex> lk(m_); live_bytes_[row.id] = got; }
-            changed();
+            changed(Change::Progress);
             return true;
         }, opt_, {}, [&](int, int64_t len) { if (len > 0) total = len; });
         ok = r.error.empty() && r.status == 200 && (total <= 0 || got == total) && got > 0;
@@ -300,7 +328,7 @@ bool Downloads::fetch(const Store::Row& row) {
         ::unlink(part.c_str());
     }
     last_notify_ = 0;
-    changed();
+    changed(Change::Background);
     return ok;
 }
 
