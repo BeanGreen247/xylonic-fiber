@@ -31,7 +31,8 @@ void App::draw_downloads(Rect r) {
     const bool cp = mobile_;
     const float pad = (cp ? 12.0f : 24.0f) * s;
     const float x = r.x + pad, w = r.w - 2 * pad - (cp ? 0.0f : 12.0f * s);
-    auto all = downloads_->snapshot();
+    const auto all_snap = downloads_->snapshot();
+    const auto& all = *all_snap;
     std::vector<const Downloads::Item*> queue;                       // download tasks: finished ones can be cleared from the list
     for (const auto& it : all) if (!(it.state == Downloads::Done && dm_cleared_.count(it.song.id))) queue.push_back(&it);
     int total = static_cast<int>(queue.size()), done = 0, failed = 0, pending = 0;

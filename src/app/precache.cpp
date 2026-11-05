@@ -278,7 +278,15 @@ void App::draw_precache(float W, float H) {
     if (failed) body_h = 8 + 42 + 12 + 19.5f * fail_lines + 12 + 35;
     else if (complete) body_h = 182.5f;                                    // 1 + 16 + 39.5 + 10 + 56 + 10 + 33 + 16 + 1
     else body_h = 16 + 20 + 35;                                            // status, its margin, Skip for Now
-    const float dh = 1 + pad_t + title_h + 6 + subtitle_h + (short_win ? 16 : 28) + gauge_h + 18 + body_h + pad_b + 1;
+    std::string subtitle = "Building image cache and search index for instant performance";
+    if (pre_library_change_) {
+        std::string parts;
+        auto add = [&](int n, const char* noun) { if (!n) return; if (!parts.empty()) parts += ", "; parts += (n > 0 ? "+" : "") + std::to_string(n) + " " + noun + (std::abs(n) != 1 ? "s" : ""); };
+        add(pre_change_artists_, "artist"); add(pre_change_songs_, "song");
+        subtitle = parts.empty() ? "Library changed \xE2\x80\x94 rebuilding cache" : parts + " detected \xE2\x80\x94 rebuilding cache";
+    }
+    const int sub_lines = wrap_count(400, 12, subtitle, (dw - 2 * pad_x) * s);   // narrow screens wrap the subtitle onto two lines
+    const float dh = 1 + pad_t + title_h + 6 + subtitle_h * sub_lines + (short_win ? 16 : 28) + gauge_h + 18 + body_h + pad_b + 1;
     Rect d{(W - dw * s) / 2, std::max(12 * s, (H - dh * s) / 2), dw * s, dh * s};
     gfx_->fill_round(d, 18 * s, {255, 255, 255, 31});                                   // 1px border-subtle (rgba(255,255,255,.12))
     gfx_->fill_round({d.x + 1 * s, d.y + 1 * s, d.w - 2 * s, d.h - 2 * s}, 17 * s, rgb(0x1a1a1a));
@@ -292,15 +300,8 @@ void App::draw_precache(float W, float H) {
     centred(700, short_win ? 15.0f : 17.0f, title_h, pre_library_change_ ? "Updating Library Cache" : "Building Performance Cache", rgb(0xffffff), y);
     gfx_->set_letter_spacing(0);
     y += (title_h + 6) * s;
-    std::string subtitle = "Building image cache and search index for instant performance";
-    if (pre_library_change_) {
-        std::string parts;
-        auto add = [&](int n, const char* noun) { if (!n) return; if (!parts.empty()) parts += ", "; parts += (n > 0 ? "+" : "") + std::to_string(n) + " " + noun + (std::abs(n) != 1 ? "s" : ""); };
-        add(pre_change_artists_, "artist"); add(pre_change_songs_, "song");
-        subtitle = parts.empty() ? "Library changed \xE2\x80\x94 rebuilding cache" : parts + " detected \xE2\x80\x94 rebuilding cache";
-    }
-    centred(400, 12, subtitle_h, subtitle, rgb(0x666666), y);
-    y += (subtitle_h + (short_win ? 16 : 28)) * s;
+    TWC(400, 12, cx, y, subtitle_h, subtitle, rgb(0x666666), (dw - 2 * pad_x) * s);
+    y += (subtitle_h * sub_lines + (short_win ? 16 : 28)) * s;
 
     // gauges
     struct G { const char* label; float pct; int state; const std::string* elapsed; bool loading; };   // state 0 waiting, 1 active, 2 done

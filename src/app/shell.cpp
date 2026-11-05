@@ -73,7 +73,8 @@ void App::draw_main(float W, float H) {
     Ui& uin = *ui_;
     Input saved = uin.in;
     uin.tip_text.clear();
-    if (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_ || pre_open_ || newcontent_open_ || prompt_ != Prompt::None) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
+    const bool blocked = modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_ || pre_open_ || newcontent_open_ || prompt_ != Prompt::None;   // an overlay owns the input
+    if (blocked) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
     mobile_ = W / s <= 767.0f;   // LayoutModeContext COMPACT_MAX; decided before any full-screen view
     struct Restore { App* a; Input saved; ~Restore() { } } restore{this, saved};
     (void)restore;
@@ -112,8 +113,8 @@ void App::draw_main(float W, float H) {
         case Nav::Settings: draw_settings(body); break;
     }
     gfx_->clip(nullptr);
-    uin.in = saved;
-    if (mobile_) { draw_player_bar_mobile({0, H - bar - bnav, W, bar}); uin.in = saved; draw_bottom_nav(W, H); }
+    if (!blocked) uin.in = saved;   // the player bar, the nav and the panel stay inert under a dialog
+    if (mobile_) { draw_player_bar_mobile({0, H - bar - bnav, W, bar}); if (!blocked) uin.in = saved; draw_bottom_nav(W, H); }
     else draw_player_bar({navw, H - bar, W - navw, bar});
     draw_right_panel(W, H);
     if (hamburger_open_) { uin.in = saved; draw_hamburger(W, H); }
@@ -567,7 +568,12 @@ void App::draw_bottom_nav(float W, float H) {
     gfx_->fill({r.x, r.y, r.w, 1 * s}, {255, 255, 255, 33});
     static const struct { PanelTab tab; uint32_t icon; const char* label; } panel_items[3] = {{PanelTab::Queue, skin::ListUl, "Queue"}, {PanelTab::History, skin::History, "History"}, {PanelTab::Playlists, skin::Music, "Playlists"}};
     int active_tab = 0; for (int i = 0; i < 3; ++i) if (panel_items[i].tab == panel_tab_) active_tab = i;
-    const float iw = W / 5;
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+    const int nitems = 6;   // the app builds show the Remote tab (MobileBottomNav: Capacitor.isNativePlatform())
+#else
+    const int nitems = 5;
+#endif
+    const float iw = W / nitems;
     auto item = [&](int i, uint32_t icon, const char* label, bool active, bool disabled) {
         Rect ir{r.x + i * iw, r.y, iw, r.h};
         const Color col = disabled ? alpha(th.sub, 0.35f) : active ? th.accent : th.sub;
@@ -584,6 +590,16 @@ void App::draw_bottom_nav(float W, float H) {
     if (item(2, skin::Search, "Search", searching, false)) { panel_open_ = false; bottom_menu_open_ = false; set_nav(Nav::Search); ui_->focus = kSearch; }
     if (item(3, panel_open_ ? panel_items[active_tab].icon : skin::ListUl, panel_open_ ? panel_items[active_tab].label : "Queue", panel_open_ || bottom_menu_open_, false)) bottom_menu_open_ = !bottom_menu_open_;
     if (item(4, skin::Gear, "Settings", nav_ == Nav::Settings && !panel_open_, false)) { panel_open_ = false; bottom_menu_open_ = false; set_nav(Nav::Settings); }
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+    {   // Remote: enabled when other Xylonic devices answer on the network; a dot marks "available", accent while controlling
+        const bool avail = remote_ && !remote_->devices().empty();
+        const bool enabled = cfg_.control_others && (avail || remote_mode_);
+        Rect rr{r.x + 5 * iw, r.y, iw, r.h};
+        u.tip(rr, !enabled ? "No Xylonic devices found on this network" : remote_mode_ ? "Remote Mode active" : "Control another Xylonic device");
+        if (item(5, skin::Satellite, "Remote", remote_mode_, !enabled)) { panel_open_ = false; bottom_menu_open_ = false; modal_ = Modal::Remote; }
+        if (enabled && !remote_mode_) gfx_->circle(rr.x + iw / 2 + 12 * s, rr.y + 10 * s, 3.5f * s, th.accent);
+    }
+#endif
     if (bottom_menu_open_) {   // .mobile-nav-submenu: 148+ wide, 3 rows of 43, 8 px above the nav, centred over the Queue button
         const float mw = 148 * s, rh = 43 * s;
         Rect m{r.x + 3 * iw + iw / 2 - mw / 2, r.y - 8 * s - rh * 3, mw, rh * 3};

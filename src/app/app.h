@@ -111,6 +111,7 @@ private:
     // CSS-like text: y_top/line_height in logical px, glyphs centred in the line box. Returns drawn width.
     // Word-wrapped text; returns the height used (device px).
     int wrap_count(int weight, float px, const std::string& s, float max_w);
+    float TWC(int weight, float px, float cx, float y_top, float line_h, const std::string& s, Color c, float max_w);   // centred word-wrapped text
     float TW(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w);
     float T(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w = 0, bool italic = false);
     void fa(uint32_t cp, float cx, float cy, float px, Color c);   // glyph centred on (cx, cy)
@@ -291,7 +292,7 @@ private:
     void draw_firewall_modal(float W, float H);
     void draw_theme_modal(float W, float H);
     void draw_theme_editor(float W, float H);
-    Scroll theme_scroll_;
+    Scroll theme_scroll_, dq_scroll_;
     int login_revealed_ = 0; float login_last_h_ = 0;
     float card_extra_now_[32] = {}, card_extra_prev_[32] = {};   // Settings (compact): extra height of wrapped descriptions per card, applied a frame later
     int cur_card_ = 0;

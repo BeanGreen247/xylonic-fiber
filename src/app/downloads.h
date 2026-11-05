@@ -42,7 +42,10 @@ public:
     int verify();                                // drops rows whose file is gone or short; returns how many
     int reconcile();                             // removes unowned files and stale partials
     std::string path_if_done(const std::string& id) const;
-    std::vector<Item> snapshot() const;
+    using Snapshot = std::shared_ptr<const std::vector<Item>>;
+    // Every download with live byte counts. Cached: rebuilt only after something changed, and songs are parsed once per id, so a
+    // 5000-song queue costs a few ms per frame instead of 5000 JSON parses.
+    Snapshot snapshot() const;
     uint64_t media_bytes() const { return media_ ? media_->total_bytes() : 0; }
     size_t media_files() const { return media_ ? media_->blob_count() : 0; }
     int pending() const;                         // queued + active
@@ -63,6 +66,10 @@ private:
     ConnectOptions opt_;
     std::function<void()> on_change_;
     mutable std::mutex m_;
+    mutable Snapshot snap_;
+    mutable std::unordered_map<std::string, Song> songs_;   // parsed song_json by id
+    mutable uint64_t snap_gen_ = ~0ull;
+    std::atomic<uint64_t> change_gen_{0};
     std::condition_variable cv_;
     std::vector<std::thread> th_;
     std::atomic<bool> stop_{false};

@@ -107,7 +107,7 @@ int main() {
         mkdir((dir + "/files").c_str(), 0700);
         d.enqueue({mk("1", "alA"), mk("2", "alA"), mk("3", "alB"), mk("missing", "alB")});
         CHECK(wait_for([&] { return d.pending() == 0; }));
-        auto snap = d.snapshot();
+        auto snap_p = d.snapshot(); const auto& snap = *snap_p;
         int done = 0, failed = 0;
         for (auto& it : snap) { if (it.state == Downloads::Done) ++done; if (it.state == Downloads::Failed) ++failed; }
         CHECK(done == 3 && failed == 1);
@@ -120,9 +120,9 @@ int main() {
         d.retry_failed(); CHECK(wait_for([&] { return d.pending() == 0; }));  // still 404: fails again
         // pause / resume on a slow file
         d.enqueue({mk("slow", "alC", 400000)});
-        CHECK(wait_for([&] { for (auto& it : d.snapshot()) if (it.song.id == "slow" && it.state == Downloads::Active && it.bytes > 0) return true; return false; }));
+        CHECK(wait_for([&] { auto sp = d.snapshot(); for (auto& it : *sp) if (it.song.id == "slow" && it.state == Downloads::Active && it.bytes > 0) return true; return false; }));
         d.pause("slow");
-        CHECK(wait_for([&] { for (auto& it : d.snapshot()) if (it.song.id == "slow") return it.state == Downloads::Paused; return false; }));
+        CHECK(wait_for([&] { auto sp = d.snapshot(); for (auto& it : *sp) if (it.song.id == "slow") return it.state == Downloads::Paused; return false; }));
         d.resume("slow");
         CHECK(wait_for([&] { return !d.path_if_done("slow").empty(); }));
         // remove

@@ -40,6 +40,7 @@ Downloads::~Downloads() {
 std::string Downloads::file_for(const Song& s) const { return dir_ + s.id + "." + (s.suffix.empty() ? "mp3" : s.suffix); }
 
 void Downloads::changed() {
+    ++change_gen_;   // invalidates the cached snapshot (every call, before the notification throttle)
     uint32_t n = now_ms();
     uint32_t l = last_notify_.load();
     if (n - l < 100) return;  // coalesce progress notifications to 10 Hz
@@ -48,14 +49,16 @@ void Downloads::changed() {
 }
 
 void Downloads::enqueue(const std::vector<Song>& songs, int quality) {
+    std::vector<Store::Row> rows;
     for (const Song& s : songs) {
         Store::Row ex;
         if (store_.dl_get(s.id, ex) && (ex.state == Done || ex.state == Queued || ex.state == Active)) continue;
         Store::Row r;
         r.id = s.id; r.album_id = s.album_id; r.state = Queued; r.total = static_cast<int64_t>(s.size);
         r.path = file_for(s); r.song_json = to_json(s); r.quality = quality;
-        store_.dl_upsert(r);
+        rows.push_back(std::move(r));
     }
+    store_.dl_upsert_many(rows);
     cv_.notify_all();
     last_notify_ = 0;
     changed();
@@ -176,31 +179,41 @@ std::string Downloads::path_if_done(const std::string& id) const {
 
 int Downloads::pending() const {
     int n = 0;
-    for (auto& r : store_.dl_all()) if (r.state == Queued || r.state == Active) ++n;
+    store_.dl_each([&](const Store::Row& r) { if (r.state == Queued || r.state == Active) ++n; });
     return n;
 }
 
-std::vector<Downloads::Item> Downloads::snapshot() const {
-    std::vector<Item> v;
+Downloads::Snapshot Downloads::snapshot() const {
     std::lock_guard<std::mutex> lk(m_);
-    for (auto& r : store_.dl_all()) {
+    const uint64_t gen = change_gen_.load();
+    if (snap_ && snap_gen_ == gen) return snap_;
+    auto v = std::make_shared<std::vector<Item>>();
+    store_.dl_each([&](const Store::Row& r) {
         Item it;
-        from_json(r.song_json, it.song);
+        auto sc = songs_.find(r.id);
+        if (sc == songs_.end()) { Song sg; from_json(r.song_json, sg); sc = songs_.emplace(r.id, std::move(sg)).first; }
+        it.song = sc->second;
         it.state = static_cast<State>(r.state);
         auto lb = live_bytes_.find(r.id);
         it.bytes = lb != live_bytes_.end() ? lb->second : r.bytes;
         it.total = r.total; it.quality = r.quality;
-        v.push_back(std::move(it));
+        v->push_back(std::move(it));
+    });
+    if (songs_.size() > v->size() + 64) {   // forget songs of removed downloads
+        std::unordered_map<std::string, Song> keep;
+        for (const Item& it : *v) keep.emplace(it.song.id, it.song);
+        songs_.swap(keep);
     }
-    return v;
+    snap_ = v; snap_gen_ = gen;
+    return snap_;
 }
 
 std::vector<Album> Downloads::done_albums() const {
     std::vector<Album> out;
-    for (auto& r : store_.dl_all()) {
-        if (r.state != Done) continue;
-        Song s;
-        if (!from_json(r.song_json, s)) continue;
+    const auto snap = snapshot();   // songs are parsed once per id
+    for (const auto& it : *snap) {
+        if (it.state != Done) continue;
+        const Song& s = it.song;
         Album* a = nullptr;
         for (auto& x : out) if (x.id == s.album_id) { a = &x; break; }
         if (!a) {
@@ -299,14 +312,10 @@ void Downloads::loop() {
             std::unique_lock<std::mutex> lk(m_);
             for (;;) {
                 if (stop_) return;
-                for (auto& r : store_.dl_all()) {
-                    if (!paused_all_ && r.state == Queued && cancel_.find(r.id) == cancel_.end()) {
-                        // claim atomically under m_: mark Active before releasing the lock
-                        store_.dl_set(r.id, Active, 0, r.total, r.path);
-                        next = r;
-                        found = true;
-                        break;
-                    }
+                if (!paused_all_ && store_.dl_first([&](const Store::Row& r) { return r.state == Queued && cancel_.find(r.id) == cancel_.end(); }, next)) {
+                    // claim atomically under m_: mark Active before releasing the lock
+                    store_.dl_set(next.id, Active, 0, next.total, next.path);
+                    found = true;
                 }
                 if (found) break;
                 cv_.wait_for(lk, std::chrono::milliseconds(500));

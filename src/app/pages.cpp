@@ -280,7 +280,7 @@ void App::draw_album_compact(Rect r) {
     T(600, 11, cx - gfx_->measure(F(600, 11), "ALBUM") / 2 - 1 * s, ty, 17, "ALBUM", th.sub);
     gfx_->set_letter_spacing(0);
     ty += 17 * s;
-    T(700, 22, cx - gfx_->measure(F(700, 22), a->name) / 2, ty, 33, a->name, th.text, w - 32 * s);
+    T(700, 22, cx - std::min(gfx_->measure(F(700, 22), a->name), w - 32 * s) / 2, ty, 33, a->name, th.text, w - 32 * s);   // long titles truncate inside the card, centred
     ty += 38 * s;
     const int hrs = a->duration / 3600, mins = (a->duration % 3600) / 60;
     const std::string dur = hrs ? std::to_string(hrs) + " hr " + std::to_string(mins) + " min" : std::to_string(mins) + " min";

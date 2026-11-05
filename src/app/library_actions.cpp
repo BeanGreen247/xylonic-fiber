@@ -70,7 +70,7 @@ void App::shuffle_all_pressed() {
     };
     if (offline_) {
         std::vector<Song> songs;
-        if (downloads_) for (auto& it : downloads_->snapshot()) if (it.state == Downloads::Done) songs.push_back(it.song);
+        if (downloads_) { auto snap = downloads_->snapshot(); for (auto& it : *snap) if (it.state == Downloads::Done) songs.push_back(it.song); }
         if (songs.empty()) { shuffle_error_ = "No cached songs available"; fail(); shuffle_error_ = "Could not load songs for shuffle"; return; }
         shuffling_all_ = false;
         play_songs(songs, static_cast<size_t>(SDL_GetTicks()) % songs.size(), true);
@@ -181,7 +181,8 @@ void App::draw_download_picker(float W, float H) {
     const bool sheet = mobile_;
     const float item_h = sheet ? 74.0f : 62.0f;
     const float head_h = 48 + 4 + 16.5f + 10;
-    const float mh = std::min(head_h + 5 * item_h + 8 + 1 + 12 + 42 + 16, H / s * 0.8f);
+    const float footer_h = 8 + 1 + 12 + 42 + 16;
+    const float mh = std::min(head_h + 5 * item_h + footer_h, H / s * (sheet ? 0.9f : 0.8f));
     const float mw = sheet ? W / s : std::min(420.0f, 0.92f * W / s);
     Rect m = sheet ? Rect{0, H - mh * s, W, mh * s} : Rect{(W - mw * s) / 2, (H - mh * s) / 2, mw * s, mh * s};
     if (sheet) gfx_->fill_round({m.x, m.y, m.w, m.h + 20 * s}, 16 * s, th.bg_light);
@@ -192,8 +193,14 @@ void App::draw_download_picker(float W, float H) {
     Rect cl{m.x + m.w - 18 * s - 32 * s + 9 * s, m.y + 16 * s, 32 * s, 32 * s};
     fa(skin::Xmark, cl.x + 16 * s, cl.y + 16 * s, 14, u.hover(cl) ? th.text : th.sub);
     if (u.clicked(cl) || u.in.escape) { modal_ = Modal::None; mark(); return; }
-    T(400, 11, m.x + 18 * s, m.y + (16 + 32 + 4) * s, 16.5f, "Choose quality for offline storage. Higher quality uses more space.", {255, 255, 255, 153}, m.w - 36 * s);
-    float y = m.y + head_h * s;
+    TW(400, 11, m.x + 18 * s, m.y + (16 + 32 + 4) * s, 16.5f, "Choose quality for offline storage. Higher quality uses more space.", {255, 255, 255, 153}, m.w - 36 * s);
+    // the list scrolls between the header and the pinned buttons when the screen is too short for all five options (phones, the G88)
+    Rect list{m.x, m.y + head_h * s, m.w, (mh - head_h - footer_h) * s};
+    dq_scroll_.clamp(5 * item_h * s, list.h);
+    if (u.hover(list)) dq_scroll_.y -= u.in.wheel * 60 * s;
+    dq_scroll_.clamp(5 * item_h * s, list.h);
+    gfx_->clip(&list);
+    float y = list.y - dq_scroll_.y;
     for (int i = 0; i < 5; ++i) {
         const QOpt& o = kQualityOptions[i];
         Rect ir{m.x, y, m.w, item_h * s};
@@ -210,10 +217,11 @@ void App::draw_download_picker(float W, float H) {
         T(600, name_px, tx, y + (item_h - (name_px * 1.3f + 2 + desc_px * 1.4f)) / 2 * s, name_px * 1.3f, o.label, active ? th.accent : th.text);
         T(400, desc_px, tx, y + (item_h - (name_px * 1.3f + 2 + desc_px * 1.4f)) / 2 * s + (name_px * 1.3f + 2) * s, desc_px * 1.4f, o.desc, th.sub);
         if (active) fa(skin::Check, m.x + m.w - (sheet ? 20 : 18) * s - 8 * s, y + item_h * s / 2, 16, th.accent);
-        if (u.clicked(ir)) dq_value_ = o.kbps;
+        if (u.clicked(ir) && list.contains(u.in.mx, u.in.my)) dq_value_ = o.kbps;
         y += item_h * s;
     }
-    y += 8 * s;
+    gfx_->clip(nullptr);
+    y = m.y + (mh - footer_h) * s + 8 * s;
     gfx_->fill({m.x, y, m.w, 1 * s}, {255, 255, 255, 31});
     y += (1 + 12) * s;
     const float cw = m.w - 36 * s - 10 * s, c1 = cw / 3.0f * 1.0f * 0.96f;

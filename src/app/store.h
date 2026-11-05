@@ -22,6 +22,11 @@ public:
     void erase_prefix(const std::string& prefix);
     struct Row { std::string id, album_id, path, song_json, content_hash; int state = 0; int64_t bytes = 0, total = 0; int quality = -1; };   // quality kbps, 0 original, -1 default setting
     bool dl_upsert(const Row& r);
+    bool dl_upsert_many(const std::vector<Row>& rows);          // one journal transaction and one save for a whole batch (queueing a library)
+    // Visits every row under the lock without copying the (large) song JSON; fn must not call back into the store.
+    // First row (in id order) for which pred is true, copied into out; false when none. Cheap next-job pick for a big queue.
+    template <class P> bool dl_first(P&& pred, Row& out) const { std::lock_guard<std::mutex> lk(m_); for (const auto& x : downloads_) if (pred(x.second)) { out = x.second; return true; } return false; }
+    template <class F> void dl_each(F&& fn) const { std::lock_guard<std::mutex> lk(m_); for (const auto& x : downloads_) fn(x.second); }
     bool dl_set(const std::string& id, int state, int64_t bytes, int64_t total, const std::string& path, const std::string& content_hash = "");
     bool dl_get(const std::string& id, Row& out);
     std::vector<Row> dl_all();

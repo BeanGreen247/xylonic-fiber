@@ -294,13 +294,17 @@ void App::draw_settings(Rect r) {
         y += 26 * s;
     };
     int row_i = 0;
+    float last_extra_ = 0;   // extra height (logical px) the last row gained from wrapping: dropdowns centre on it
     // Row primitive. kind: 0 info, 1 button, 2 danger. Returns true when clicked (kind != info).
     auto row = [&](uint32_t icon, const std::string& title, const std::string& sub, int kind, bool chevron, const std::string& pill, bool pill_on, float h_logical) {
         if (row_i++) { gfx_->fill({x + 17 * s, y, w - 34 * s, 1 * s}, {255, 255, 255, 15}); y += 1 * s; }
         int sub_lines = 1;
+        const bool dd_row = cp && kind == 0 && pill.empty() && !chevron && !sub.empty();   // a row with a dropdown on its right: narrower text column
+        const float reserve = cp ? (dd_row ? 160.0f : 90.0f) : 140.0f;
+        last_extra_ = 0;
         if (cp && !sub.empty()) {   // compact: descriptions wrap instead of truncating; the row (and its card) grow
-            sub_lines = wrap_count(400, 12, sub, w - 2 * s - 54 * s - 90 * s);
-            if (sub_lines > 1) { h_logical += (sub_lines - 1) * 18; card_extra_now_[cur_card_] += (sub_lines - 1) * 18; }
+            sub_lines = wrap_count(400, 12, sub, w - 2 * s - 54 * s - reserve * s);
+            if (sub_lines > 1) { h_logical += (sub_lines - 1) * 18; card_extra_now_[cur_card_] += (sub_lines - 1) * 18; last_extra_ = (sub_lines - 1) * 18; }
         }
         Rect rr{x + 1 * s, y, w - 2 * s, h_logical * s};
         bool hov = kind != 0 && u.hover(rr) && r.contains(u.in.mx, u.in.my);
@@ -310,7 +314,7 @@ void App::draw_settings(Rect r) {
         bool has_sub = !sub.empty();
         Color tc = kind == 2 ? th.danger : th.text;
         if (has_sub) {
-            const float tw = rr.w - 54 * s - (cp ? 90.0f : 140.0f) * s;
+            const float tw = rr.w - 54 * s - reserve * s;
             T(400, 15, rr.x + 54 * s, rr.y + 10 * s, 22.5f, title, tc, tw);
             if (sub_lines > 1) TW(400, 12, rr.x + 54 * s, rr.y + 33 * s, 18, sub, rgb(0xb5b5b5), tw);
             else T(400, 12, rr.x + 54 * s, rr.y + 33 * s, 18, sub, rgb(0xb5b5b5), tw);
@@ -364,7 +368,7 @@ void App::draw_settings(Rect r) {
     card_fill(y, 126 * s);
     {
         row(0xf186, "Mode", "Light / dark \xE2\x80\x94 follows your system by default", 0, false, "", false, 71);
-        Rect sel{x + w - 16 * s - 120 * s, y - 71 * s + 21 * s, 120 * s, 29 * s};
+        Rect sel{x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s};
         int cur = cfg_.theme_mode;
         int p = dropdown(1, sel, {"System", "Light", "Dark"}, cur);
         (void)p;
@@ -507,7 +511,7 @@ void App::draw_settings(Rect r) {
         static const int q[] = {0, 320, 256, 192, 128, 64};
         std::vector<std::string> o = {"Original", "320 kbps", "256 kbps", "192 kbps", "128 kbps", "64 kbps"};
         int cur = 0; for (int i = 0; i < 6; ++i) if (q[i] == cfg_.stream_quality) cur = i;
-        dropdown(2, {x + w - 16 * s - 120 * s, y - 71 * s + 21 * s, 120 * s, 29 * s}, o, cur);
+        dropdown(2, {x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s}, o, cur);
         if (pick_id == 2 && pick >= 0) { cfg_.stream_quality = q[pick]; cfg_.save(cfg_path_); dropdown_open_ = 0; }
     }
     y += (1 + 32) * s; row_i = 0;
@@ -519,11 +523,11 @@ void App::draw_settings(Rect r) {
         static const int q[] = {0, 320, 256, 128, 64};
         std::vector<std::string> o = {"Original", "320 kbps", "256 kbps", "128 kbps", "64 kbps"};
         int cur = 0; for (int i = 0; i < 5; ++i) if (q[i] == cfg_.download_quality) cur = i;
-        dropdown(3, {x + w - 16 * s - 120 * s, y - 71 * s + 21 * s, 120 * s, 29 * s}, o, cur);
+        dropdown(3, {x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s}, o, cur);
         if (pick_id == 3 && pick >= 0) { cfg_.download_quality = q[pick]; cfg_.save(cfg_path_); if (downloads_) downloads_->set_quality_label(q[pick] ? std::to_string(q[pick]) : "original"); dropdown_open_ = 0; }
         row(0xf5fd, "Concurrent Downloads", "Up to " + std::to_string(cfg_.concurrent_downloads) + " songs at once", 0, false, "", false, 71);
         std::vector<std::string> n = {"1", "2", "3", "4", "5", "6", "7", "8"};
-        dropdown(4, {x + w - 16 * s - 120 * s, y - 71 * s + 21 * s, 120 * s, 29 * s}, n, cfg_.concurrent_downloads - 1);
+        dropdown(4, {x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s}, n, cfg_.concurrent_downloads - 1);
         if (pick_id == 4 && pick >= 0) { cfg_.concurrent_downloads = pick + 1; cfg_.save(cfg_path_); dropdown_open_ = 0; }
     }
     y += (1 + 32) * s; row_i = 0;
@@ -533,7 +537,7 @@ void App::draw_settings(Rect r) {
     {
         row(skin::BookOpen, "Default View", "", 0, false, "", false, 71);
         std::vector<std::string> o = {"Artists", "Albums", "Songs", "Liked"};
-        dropdown(5, {x + w - 16 * s - 120 * s, y - 71 * s + 21 * s, 120 * s, 29 * s}, o, cfg_.default_view);
+        dropdown(5, {x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s}, o, cfg_.default_view);
         if (pick_id == 5 && pick >= 0) { cfg_.default_view = pick; lib_mode_ = pick; cfg_.save(cfg_path_); dropdown_open_ = 0; }
     }
     y += (1 + 32) * s; row_i = 0;

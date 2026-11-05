@@ -333,3 +333,21 @@ void App::draw_splash(float W, float H) {
     gfx_->set_letter_spacing(0);
     mark();
 }
+
+float App::TWC(int weight, float px, float cx, float y_top, float line_h, const std::string& str, Color c, float max_w) {
+    const int f = F(weight, px);
+    std::string line, word;
+    float y = y_top;
+    auto flush = [&]() { if (!line.empty()) { T(weight, px, cx - gfx_->measure(f, line) / 2, y, line_h, line, c); y += line_h * S_; line.clear(); } };
+    for (size_t i = 0; i <= str.size(); ++i) {
+        if (i == str.size() || str[i] == ' ') {
+            if (!word.empty()) {
+                const std::string cand = line.empty() ? word : line + " " + word;
+                if (!line.empty() && gfx_->measure(f, cand) > max_w) { flush(); line = word; } else line = cand;
+                word.clear();
+            }
+        } else word += str[i];
+    }
+    flush();
+    return y - y_top;
+}

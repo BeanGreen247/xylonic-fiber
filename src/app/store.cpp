@@ -88,8 +88,7 @@ void Store::apply_journal_locked(const std::string& payload) {
     kv_[payload.substr(5, n)] = {payload.substr(5 + n), static_cast<int64_t>(std::time(nullptr))};
 }
 
-bool Store::journal_download_locked(char op, const Row& row) {
-    if (!journal_) return true;
+static std::string download_payload(char op, const Store::Row& row) {
     std::string payload(1, op);
     put32(payload, static_cast<uint32_t>(row.id.size())); payload += row.id;
     put32(payload, static_cast<uint32_t>(row.album_id.size())); payload += row.album_id;
@@ -97,7 +96,12 @@ bool Store::journal_download_locked(char op, const Row& row) {
     put32(payload, static_cast<uint32_t>(row.song_json.size())); payload += row.song_json;
     put32(payload, static_cast<uint32_t>(row.content_hash.size())); payload += row.content_hash;
     put64(payload, static_cast<uint64_t>(row.state)); put64(payload, static_cast<uint64_t>(row.bytes)); put64(payload, static_cast<uint64_t>(row.total)); put64(payload, static_cast<uint64_t>(static_cast<int64_t>(row.quality)));
-    return journal_->append_transaction(++transaction_, ++generation_, {payload});
+    return payload;
+}
+
+bool Store::journal_download_locked(char op, const Row& row) {
+    if (!journal_) return true;
+    return journal_->append_transaction(++transaction_, ++generation_, {download_payload(op, row)});
 }
 
 bool Store::journal_download_erase_locked(const std::string& id) {
@@ -336,6 +340,20 @@ void Store::erase_prefix(const std::string& prefix) {
     if (prefix.empty() || prefix.rfind("album", 0) == 0) index_stale_ = true;
     save_locked();
 }
+bool Store::dl_upsert_many(const std::vector<Row>& rows) {
+    if (rows.empty()) return true;
+    std::lock_guard<std::mutex> lk(m_);
+    if (journal_) {
+        std::vector<std::string> payloads;
+        payloads.reserve(rows.size());
+        for (const Row& r : rows) payloads.push_back(download_payload('D', r));
+        if (!journal_->append_transaction(++transaction_, ++generation_, payloads)) return false;
+    }
+    for (const Row& r : rows) downloads_[r.id] = r;
+    unsaved_ops_ = 0;
+    return save_locked();   // compacts the journal: one rewrite for the whole batch instead of one per 64 rows
+}
+
 bool Store::dl_upsert(const Row& r) { std::lock_guard<std::mutex> lk(m_); if (!journal_download_locked('D', r)) return false; downloads_[r.id] = r; return maybe_save_locked(); }
 bool Store::dl_set(const std::string& id, int state, int64_t bytes, int64_t total, const std::string& path, const std::string& content_hash) {
     std::lock_guard<std::mutex> lk(m_); auto it = downloads_.find(id); if (it == downloads_.end()) return false;

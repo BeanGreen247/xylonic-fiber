@@ -255,12 +255,13 @@ void App::refresh_dl_state() {
     dl_dirty_ = false;
     dl_state_.clear();
     if (!downloads_) return;
-    for (auto& it : downloads_->snapshot()) dl_state_[it.song.id] = {it.state, it.bytes, it.total};
+    auto snap = downloads_->snapshot();
+    for (auto& it : *snap) dl_state_[it.song.id] = {it.state, it.bytes, it.total};
 }
 
 int App::songs_downloaded() const {
     int n = 0;
-    if (downloads_) for (const auto& it : downloads_->snapshot()) if (it.state == Downloads::Done) ++n;
+    if (downloads_) { auto snap = downloads_->snapshot(); for (const auto& it : *snap) if (it.state == Downloads::Done) ++n; }
     return n;
 }
 
@@ -913,7 +914,7 @@ void App::draw_render_hud(float W, float H) {
     const float s = S_;
     const Theme& th = ui_->th;
     const float w = 178 * s, h = 48 * s;
-    Rect b{W - w - 12 * s, H - h - 12 * s, w, h};
+    Rect b{W - w - 12 * s, 68 * s, w, h};   // RenderTimerHUD.css: top 68, right 12 (below the header)
     gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 8 * s, th.border);
     gfx_->fill_round(b, 7 * s, {0, 0, 0, 205});
     char line[96];
