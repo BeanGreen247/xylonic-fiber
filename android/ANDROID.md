@@ -9,6 +9,7 @@ The Android app is the same C++ code as the desktop app, loaded by SDL2's `SDLAc
 3. Assets: `android/app/build.gradle` packages `../../assets` into the APK; the app reads fonts and icons through
    `SDL_RWFromFile` (APK assets), so no extra code is needed.
 
-Platform gaps to fill next (tracked in docs/port-map.md): media notification + foreground service for
-background playback and downloads, battery-optimisation exemption dialog, rotation lock for Car Mode, SD-card cache
+Background playback: `MediaService.java` (foreground service with a MediaSession and notification: lock screen, headset buttons, prev/play/next) is driven from `src/app/mpris.cpp` over JNI (`MediaBridge.java`); the notification permission is requested by `XylonicActivity.java` on Android 13+. Written without an Android toolchain here: your first Gradle build may need small fixes.
+
+Platform gaps to fill next (tracked in docs/port-map.md): foreground service for downloads, battery-optimisation exemption dialog, rotation lock for Car Mode, SD-card cache
 location. Touch scrolling and DPI scaling are already in `src/app/app.cpp`.

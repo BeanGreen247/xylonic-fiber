@@ -16,7 +16,7 @@ The Apple code paths were written against the Apple C APIs and syntax-checked on
 |---|---|---|---|---|
 | Credentials (`src/app/secrets.cpp`) | libsecret (dlopen) | Keystore AES-GCM via `SecretStore.java` over JNI | Keychain (`SecItem*`) | Keychain |
 | Metered network (`src/app/metered.cpp`) | NetworkManager `Metered` | `ConnectivityManager.isActiveNetworkMetered` over JNI | none (false) | SCNetworkReachability WWAN flag |
-| Media controls | MPRIS2 (sd-bus) | todo (MediaSession + foreground service) | todo (MPNowPlayingInfoCenter, needs Objective-C++) | todo (same) |
+| Media controls | MPRIS2 (sd-bus) | MediaSession + foreground service (`MediaService.java`, untested) | todo (MPNowPlayingInfoCenter, needs Objective-C++) | todo (same) |
 | Artwork decode | SDL_image | stb_image | SDL_image | stb_image |
 | Folder picker (`src/app/storage.cpp`) | zenity / kdialog | volumes list (internal, SD) | osascript | volumes list |
 | Sockets | `MSG_NOSIGNAL` | same | `MSG_NOSIGNAL` defined 0 + `SIGPIPE` ignored in `main` | same |

@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application android:label="xylonic-fiber" android:allowBackup="false" android:usesCleartextTraffic="true"
                  android:hardwareAccelerated="true" android:installLocation="auto">
-        <activity android:name="org.libsdl.app.SDLActivity" android:exported="true"
+        <activity android:name="org.xylonic.fiber.XylonicActivity" android:exported="true"
                   android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode"
                   android:launchMode="singleTask" android:screenOrientation="fullUser">
             <intent-filter>
@@ -18,5 +18,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service android:name="org.xylonic.fiber.MediaService" android:exported="false"
+                 android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>
