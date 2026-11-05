@@ -630,7 +630,7 @@ void App::preload_next() {
         auto dec = std::make_shared<std::unique_ptr<Decoder>>(open_track(url, perm, strm, kind, c, err));
         ui_post([this, gen, dec, song] {
             preloading_ = false;
-            if (gen != play_gen_ || !*dec) { if (gen == play_gen_) preloaded_id_.clear(); return; }
+            if (gen != play_gen_ || !*dec) return;   // a failed preload keeps preloaded_id_ set so the same song is not retried every tick
             player_.set_next(std::move(*dec), static_cast<double>(song.duration));
         });
     });
