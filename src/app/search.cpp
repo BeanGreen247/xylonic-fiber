@@ -63,7 +63,7 @@ void App::draw_search(Rect r) {
     if (mobile_) {   // .sr-mobile-bar: in-page search input (the header has none on phones), 12 above and 16 below
         Rect wrap{x, y + 12 * s, w, 44 * s};
         const bool focus = u.focus == kSearch;
-        gfx_->fill_round(wrap, 22 * s, {255, 255, 255, focus ? 38 : 31});
+        gfx_->fill_round(wrap, 22 * s, {255, 255, 255, static_cast<uint8_t>(focus ? 38 : 31)});
         gfx_->stroke_round(wrap, 22 * s, 1.5f * s, focus ? th.accent : Color{255, 255, 255, 61});
         fa(skin::Search, wrap.x + 16 * s + 7 * s, wrap.y + wrap.h / 2, 14, {255, 255, 255, 153});
         Rect fld{wrap.x + 40 * s, wrap.y + 2 * s, wrap.w - 40 * s - 44 * s, wrap.h - 4 * s};

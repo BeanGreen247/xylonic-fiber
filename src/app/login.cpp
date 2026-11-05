@@ -164,19 +164,33 @@ void App::draw_login(float W, float H) {
     if (u.clicked({lx, oy, colw, 23 * s})) { offline_check_ = !offline_check_; test_ok_ = false; login_msg_.clear(); }
     small(lx, oy + 27 * s, secret_available() ? "Use cached data and stored credentials without a network" : "Secure storage not available on this system");
     // right: server, user, password
+    // Keep the focused field above the on-screen keyboard (phones shrink the window while it is shown): scroll once per focus or height change.
+    if (u.focus != kUrl && u.focus != kUser && u.focus != kPass) login_revealed_ = 0;
+    auto reveal = [&](int id, const Rect& f) {
+        if (u.focus != id) return;
+        if (login_revealed_ == id && login_last_h_ == H) return;
+        login_revealed_ = id; login_last_h_ = H;
+        const float over = f.y + f.h + 72 * s - H;
+        if (over > 0) login_scroll_.y += over;
+        else if (f.y < 8 * s) login_scroll_.y += f.y - 8 * s;
+        mark();
+    };
     label(rx, ry, 0xf233, "Server URL");
     std::string before = f_url_;
     {
         Rect f{rx, ry + 24 * s, colw, 41 * s};
         gfx_->fill_round(f, 20.5f * s, th.panel); gfx_->stroke_round(f, 20.5f * s, 1 * s, u.focus == kUrl ? th.accent : edge);
+        reveal(kUrl, f);
         u.text_field(kUrl, f, f_url_, "http://192.168.1.100:4040", false, false, 15 * s, F(400, 15));
     }
     small(rx, ry + 69 * s, "Include http:// or https:// and port number");
     label(rx, ry + 100 * s, 0xf007, "Username");
     { Rect f{rx, ry + 124 * s, colw, 41 * s}; gfx_->fill_round(f, 20.5f * s, th.panel); gfx_->stroke_round(f, 20.5f * s, 1 * s, u.focus == kUser ? th.accent : edge);
+      reveal(kUser, f);
       u.text_field(kUser, f, f_user_, "Your username", false, false, 15 * s, F(400, 15)); }
     label(rx, ry + 179 * s, skin::Lock, "Password");
     { Rect f{rx, ry + 204 * s, colw, 41 * s}; gfx_->fill_round(f, 20.5f * s, th.panel); gfx_->stroke_round(f, 20.5f * s, 1 * s, u.focus == kPass ? th.accent : edge);
+      reveal(kPass, f);
       u.text_field(kPass, f, f_pass_, "Your password", !show_pass_, false, 15 * s, F(400, 15));
       Rect eye{f.x + f.w - 40 * s, f.y + 9 * s, 31 * s, 23 * s};
       fa(show_pass_ ? 0xf070 : 0xf06e, eye.x + 15 * s, eye.y + 11.5f * s, 15, th.sub);

@@ -60,7 +60,7 @@ void App::svg(int which, Rect r, Color tint) {
     int px = static_cast<int>(std::lround(r.w));
     if (!svg_tex_[which] || svg_px_[which] != px) {
         if (svg_tex_[which]) SDL_DestroyTexture(svg_tex_[which]);
-        svg_tex_[which] = svg_texture_from_file(ren_, (assets_dir_ + "../icons/" + files[which]).c_str(), px, px);
+        svg_tex_[which] = svg_texture_from_file(ren_, (icons_dir_ + files[which]).c_str(), px, px);
         svg_px_[which] = px;
     }
     if (svg_tex_[which]) gfx_->image(svg_tex_[which], r, tint);

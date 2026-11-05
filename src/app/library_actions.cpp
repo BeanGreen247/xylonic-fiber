@@ -156,14 +156,14 @@ void App::draw_missing_banner(float W, float y, float& height) {
     }
     // dismiss (30 round) and Download Missing (pill with chevron)
     Rect x{W - pad_x * s - 30 * s, cy - 15 * s, 30 * s, 30 * s};
-    gfx_->circle(x.x + 15 * s, x.y + 15 * s, 15 * s, {255, 255, 255, u.hover(x) ? 77 : 102});
+    gfx_->circle(x.x + 15 * s, x.y + 15 * s, 15 * s, {255, 255, 255, static_cast<uint8_t>(u.hover(x) ? 77 : 102)});
     fa(skin::Xmark, x.x + 15 * s, x.y + 15 * s, 13, rgb(0xffffff));
     const std::string label = bulk_downloading_ ? "Queuing\xE2\x80\xA6" : "Download Missing";
     const float fpx = compact ? 12.0f : 13.0f;
     const float lw = gfx_->measure(F(600, fpx), label);
     const float bw = lw + (compact ? 20 : 28) * s + 14 * s + 18 * s + 8 * s;
     Rect b{x.x - 8 * s - bw, cy - 16 * s, bw, 32 * s};   // even height: the stroke corners meet exactly
-    gfx_->fill_round(b, 16 * s, {255, 255, 255, u.hover(b) ? 82 : 102});
+    gfx_->fill_round(b, 16 * s, {255, 255, 255, static_cast<uint8_t>(u.hover(b) ? 82 : 102)});
     gfx_->stroke_round(b, 16 * s, 1 * s, {255, 255, 255, 89});
     fa(skin::Download, b.x + (compact ? 10 : 14) * s + 6 * s, cy, 12, rgb(0xffffff));
     T(600, fpx, b.x + (compact ? 10 : 14) * s + 20 * s, b.y, 31, label, rgb(0xffffff));

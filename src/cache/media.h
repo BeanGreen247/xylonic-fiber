@@ -45,7 +45,8 @@ private:
     void bind_locked(const std::string& key, MediaKind kind, const std::string& hash, uint64_t size, bool pinned);
     void unlink_key_locked(const std::string& key);
     void drop_blob_locked(const std::string& hash);
-    std::string dir_, manifest() const { return dir_ + "/cache.manifest"; }
+    std::string manifest() const { return dir_ + "/cache.manifest"; }
+    std::string dir_;
     mutable std::mutex m_;
     std::unordered_map<std::string, Blob> blobs_;
     std::unordered_map<std::string, Key> keys_;

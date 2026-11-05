@@ -244,10 +244,11 @@ private:
     Queue queue_;
     Config cfg_;
     std::string pref_, cfg_path_, perm_dir_, stream_dir_, img_dir_;
-    float S_ = 1.0f;
+    float S_ = 1.0f;   // UI scale
+    float M_ = 1.0f;   // mouse: window units -> render pixels
     bool touch_moved_ = false;
     float touch_accum_ = 0;  // device pixels per logical unit
-    bool dirty_ = true, running_ = true;
+    bool dirty_ = true, running_ = true, background_ = false;
     double render_ms_ = 0.0, render_fps_ = 0.0;
     uint64_t render_frames_ = 0, render_window_start_ = 0;
     uint32_t shot_deadline_ = 0;
@@ -273,7 +274,7 @@ private:
     Section sections_[4];   // newest, recent, frequent, random
     Scroll discover_scroll_;
     std::unordered_map<int, int> font_ids_;
-    std::string assets_dir_;
+    std::string assets_dir_, icons_dir_;
     int svg_px_[3] = {0, 0, 0};
     bool show_help_ = false, playing_random_ = false, hamburger_open_ = false, nav_expanded_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
@@ -290,6 +291,7 @@ private:
     void draw_theme_modal(float W, float H);
     void draw_theme_editor(float W, float H);
     Scroll theme_scroll_;
+    int login_revealed_ = 0; float login_last_h_ = 0;
     float card_extra_now_[32] = {}, card_extra_prev_[32] = {};   // Settings (compact): extra height of wrapped descriptions per card, applied a frame later
     int cur_card_ = 0;
     bool fw_init_ = false; int fw_tab_ = 0; uint32_t fw_copied_until_ = 0;

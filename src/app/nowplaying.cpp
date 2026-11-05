@@ -279,7 +279,7 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
     const float sw = (W - 44 * s - 8 * s) / 2, sh = 38 * s;
     Rect qb{22 * s, y, sw, sh}, sp{22 * s + sw + 8 * s, y, sw, sh};
     for (Rect* r : {&qb, &sp}) {
-        gfx_->fill_round(*r, 6 * s, {255, 255, 255, u.hover(*r) ? 41 : 33});
+        gfx_->fill_round(*r, 6 * s, {255, 255, 255, static_cast<uint8_t>(u.hover(*r) ? 41 : 33)});
         gfx_->stroke_round(*r, 6 * s, 1 * s, {255, 255, 255, 102});
     }
     {

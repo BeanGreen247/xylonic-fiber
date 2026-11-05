@@ -53,6 +53,12 @@ App::~App() {
 
 bool App::init() {
     SDL_SetHint(SDL_HINT_RENDER_BATCHING, "1");
+#if defined(__ANDROID__)
+    // Keep running (and playing) when the activity is paused: the foreground MediaService keeps the process alive, and the
+    // media session commands, the gapless hand-over and the next-track logic all run on this loop.
+    SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "0");
+    SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE_PAUSEAUDIO, "0");
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_AUDIO) < 0) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
@@ -69,6 +75,7 @@ bool App::init() {
     SDL_GetWindowSize(win_, &ww, &wh);
     SDL_GetRendererOutputSize(ren_, &dw, &dh);
     S_ = ww > 0 ? static_cast<float>(dw) / ww : 1.0f;
+    M_ = S_;   // window coordinates -> render pixels for the mouse; S_ below may become a DPI-based UI scale instead (phones)
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
     {   // phones report pixel sizes with no density scaling: derive the UI scale from the display DPI (reference 160 dpi = 1x)
         float ddpi = 0;
@@ -94,7 +101,13 @@ bool App::init() {
     ui_ = std::make_unique<Ui>(*gfx_);
     apply_theme();
     char* base = SDL_GetBasePath();
+#if defined(__ANDROID__)
+    assets_dir_ = "fonts/";      // APK assets are opened through SDL_RWFromFile relative to the asset root; there is no ../
+    icons_dir_ = "icons/";
+#else
     assets_dir_ = std::string(base ? base : "./") + "assets/fonts/";
+    icons_dir_ = std::string(base ? base : "./") + "assets/icons/";
+#endif
     SDL_free(base);
     ui_->f_body = F(400, 15);
     ui_->f_small = F(400, 12.5f);
@@ -106,6 +119,7 @@ bool App::init() {
     };
     if (ui_->f_body < 0 || ui_->f_title < 0) {
         std::fprintf(stderr, "fonts not found in %s\n", assets_dir_.c_str());
+        SDL_Log("fonts not found in %s", assets_dir_.c_str());
         return false;
     }
     worker_ = std::make_unique<Worker>(3);
@@ -692,16 +706,18 @@ void App::handle(const SDL_Event& e) {
     Input& in = ui_->in;
     switch (e.type) {
     case SDL_QUIT: running_ = false; break;
+    case SDL_APP_DIDENTERBACKGROUND: background_ = true; break;
+    case SDL_APP_WILLENTERFOREGROUND: case SDL_APP_DIDENTERFOREGROUND: background_ = false; mark(); break;
     case SDL_WINDOWEVENT:
         if (e.window.event == SDL_WINDOWEVENT_RESIZED || e.window.event == SDL_WINDOWEVENT_EXPOSED || e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || e.window.event == SDL_WINDOWEVENT_RESTORED) mark();
         break;
-    case SDL_MOUSEMOTION: in.mx = e.motion.x * S_; in.my = e.motion.y * S_; mark(); break;
+    case SDL_MOUSEMOTION: in.mx = e.motion.x * M_; in.my = e.motion.y * M_; mark(); break;
     case SDL_MOUSEBUTTONDOWN:
-        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * S_; in.my = e.button.y * S_; in.down = in.pressed = true; in.press_x = in.mx; in.press_y = in.my; mark(); }
+        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = in.pressed = true; in.press_x = in.mx; in.press_y = in.my; mark(); }
         break;
     case SDL_MOUSEBUTTONUP:
-        if (e.button.button == SDL_BUTTON_RIGHT) { in.rclick = true; in.rx = e.button.x * S_; in.ry = e.button.y * S_; mark(); }
-        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * S_; in.my = e.button.y * S_; in.down = false; in.released = !touch_moved_; touch_moved_ = false; mark(); }
+        if (e.button.button == SDL_BUTTON_RIGHT) { in.rclick = true; in.rx = e.button.x * M_; in.ry = e.button.y * M_; mark(); }
+        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = false; in.released = !touch_moved_; touch_moved_ = false; mark(); }
         break;
     case SDL_FINGERDOWN: touch_moved_ = false; touch_accum_ = 0; break;
     case SDL_FINGERMOTION: {  // touch drag scrolls (the synthesized mouse events only click/drag widgets)
@@ -781,7 +797,7 @@ int App::run() {
         if (dirty_) {
             dirty_ = false;
             ui_->wants_frames = false;
-            frame();
+            if (!background_) frame();   // nothing is visible while the app is in the background; playback logic still runs above
             ui_theme_cache_ = ui_->th;
             if (mini_win_) draw_mini();
             last_draw = SDL_GetTicks();

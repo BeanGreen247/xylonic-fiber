@@ -94,9 +94,9 @@ void App::handle_mini(const SDL_Event& e) {
         if (e.window.event == SDL_WINDOWEVENT_CLOSE) close_mini();
         else mark();
         break;
-    case SDL_MOUSEMOTION: in.mx = e.motion.x * S_; in.my = e.motion.y * S_; mark(); break;
-    case SDL_MOUSEBUTTONDOWN: if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * S_; in.my = e.button.y * S_; in.down = in.pressed = true; in.press_x = in.mx; in.press_y = in.my; mark(); } break;
-    case SDL_MOUSEBUTTONUP: if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * S_; in.my = e.button.y * S_; in.down = false; in.released = true; mark(); } break;
+    case SDL_MOUSEMOTION: in.mx = e.motion.x * M_; in.my = e.motion.y * M_; mark(); break;
+    case SDL_MOUSEBUTTONDOWN: if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = in.pressed = true; in.press_x = in.mx; in.press_y = in.my; mark(); } break;
+    case SDL_MOUSEBUTTONUP: if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = false; in.released = true; mark(); } break;
     case SDL_KEYDOWN:
         if ((e.key.keysym.mod & KMOD_CTRL) && e.key.keysym.sym == SDLK_m) close_mini();
         else if (e.key.keysym.sym == SDLK_SPACE) toggle_play();
