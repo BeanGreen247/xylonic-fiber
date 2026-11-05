@@ -40,3 +40,15 @@ Not tested on a physical phone, so the numbers that matter there (touch feel, DP
 - A multicast lock is held while the activity exists so Remote-mode discovery receives UDP broadcasts.
 - App icon: `python3 tools/make-icon.py` renders it (assets/icons/app-icon-*.png, adaptive and legacy launcher icons, themed monochrome note).
 - Release builds: put `storeFile`, `storePassword`, `keyAlias`, `keyPassword` in `android/keystore.properties` (git-ignored), then `./gradlew assembleRelease`.
+
+## Found on the Oilsky G88 (2026-11-05) and fixed
+
+- Audio: SDL's OpenSL ES backend fails to open ("notificationFrames=-2 not permitted for non-fast track"); AAudio at the device's native rate works (`SDL_HINT_AUDIODRIVER=aaudio`, `MediaBridge.outputRate`).
+- Artwork: servers answer with WebP (Navidrome's artist placeholder always); decoded through `BitmapFactory` when the bundled JPEG/PNG decoder rejects the bytes.
+- UI scale follows the display-size override (`DisplayMetrics.density`, 320 dpi on the G88), not the physical DPI (260).
+- Transcoded playback (`maxBitRate`) now always asks for `format=mp3`; without it the server may answer Opus/AAC, which the native decoders cannot play.
+- TLS: concurrent handshakes corrupted Mbed TLS 3.6's global PSA state ("This is a bug in the library"); `third_party/mbedtls_user_config.h` enables `MBEDTLS_THREADING_C`.
+- Downloads: a 5000-song queue froze the UI (snapshot re-parsed every row per frame, a full store rewrite per removed row, `dl_all()` copies per pick). Now cached snapshots, batch enqueue/erase, throttled compaction; `tests/downloads_test.cpp` has a 4000-song stress case.
+- Dialogs and sheets fit 320 px wide screens; the download quality list scrolls; the bottom nav is inert under a dialog; a dialog no longer receives the tap that opened it; long press opens the song context menu (the original relies on Chromium's `contextmenu`).
+- Offline mode persists across restarts, lists cached albums and songs, and going online signs in again with the stored password.
+- Car Mode forces landscape and restores the previous orientation; a tight layout for 320 px tall screens.

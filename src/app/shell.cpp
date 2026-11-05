@@ -117,6 +117,8 @@ void App::draw_main(float W, float H) {
     if (mobile_) { draw_player_bar_mobile({0, H - bar - bnav, W, bar}); if (!blocked) uin.in = saved; draw_bottom_nav(W, H); }
     else draw_player_bar({navw, H - bar, W - navw, bar});
     draw_right_panel(W, H);
+    // A dialog that opened during this frame must not see the touch that opened it: on a phone its first row sits under the finger
+    if (!blocked && (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_ || pre_open_ || newcontent_open_ || prompt_ != Prompt::None)) { saved.pressed = saved.released = saved.rclick = false; }
     if (hamburger_open_) { uin.in = saved; draw_hamburger(W, H); }
     if (add_song_) { uin.in = saved; draw_add_to_playlist(W, H); return; }
     if (show_help_) { uin.in = saved; draw_help(W, H); return; }

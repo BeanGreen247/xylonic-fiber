@@ -72,3 +72,7 @@ Done: movable permanent cache (Settings Storage on mobile, Change Location with 
 Apple and Android: see docs/APPLE.md (Keychain, reachability, bundles, build scripts) and `SecretStore.java` / JNI metered detection for Android. Still open: Last.fm settings row (informational in the original too), media controls on Android/Apple, mobile page-by-page spacing diff against the original (Artist, Album, Search), Now Playing mobile overlay screenshot compare.
 
 Compared against the running original at 390x844 (2026-11-05, Library, Artist, Album, Search, Now Playing overlay): the tinted Shuffle All / Download All / Download Artist buttons were drawn without their fill (`Gfx::stroke_round` ignores its last argument since the anti-aliasing rewrite, callers must `fill_round` first); fixed. Library toggle icon size matched. Layout of Artist, Album and Now Playing matches; Search differs only by fixture (the original had its local song index built).
+
+## Pass 2026-11-05 night (Oilsky G88 on-device)
+
+See android/ANDROID.md "Found on the Oilsky G88". New: Remote tab in the compact bottom nav (app builds only), tooltips, HUD position (top 68 / right 12), offline persistence and cached Albums/Songs lists, cover art fetched with each download, Vice City app icon (`python3 tools/make-icon.py`), launcher settings in `/home/bean/oilsky-home`.
