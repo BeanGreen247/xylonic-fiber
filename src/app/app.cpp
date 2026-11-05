@@ -784,11 +784,11 @@ void App::handle(const SDL_Event& e) {
         break;
     case SDL_MOUSEMOTION: in.mx = e.motion.x * M_; in.my = e.motion.y * M_; mark(); break;
     case SDL_MOUSEBUTTONDOWN:
-        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = in.pressed = true; in.press_x = in.mx; in.press_y = in.my; mark(); }
+        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = in.pressed = true; in.press_x = in.mx; in.press_y = in.my; press_ms_ = SDL_GetTicks(); long_fired_ = false; press_touch_ = e.button.which == SDL_TOUCH_MOUSEID; mark(); }
         break;
     case SDL_MOUSEBUTTONUP:
         if (e.button.button == SDL_BUTTON_RIGHT) { in.rclick = true; in.rx = e.button.x * M_; in.ry = e.button.y * M_; mark(); }
-        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = false; in.released = !touch_moved_; touch_moved_ = false; mark(); }
+        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = false; in.released = !touch_moved_ && !long_fired_; touch_moved_ = false; long_fired_ = false; press_touch_ = false; mark(); }
         break;
     case SDL_FINGERDOWN: touch_moved_ = false; touch_accum_ = 0; break;
     case SDL_FINGERMOTION: {  // touch drag scrolls (the synthesized mouse events only click/drag widgets)
@@ -847,12 +847,12 @@ int App::run() {
     uint32_t last_draw = 0;
     while (running_) {
         bool pulse_live = car_open_ && cfg_.car_pulse && !pulse_off_ && player_.playing();
-        bool animating = pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_ || tip_pending_;
+        bool animating = pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_ || tip_pending_ || (press_touch_ && !long_fired_ && ui_->in.down);
         SDL_Event e;
         bool got;
         if (dirty_) got = SDL_PollEvent(&e) != 0;
         else if (shot_deadline_) got = SDL_WaitEventTimeout(&e, 50) != 0;
-        else if (animating) got = SDL_WaitEventTimeout(&e, pulse_live ? 33 : tip_pending_ ? 80 : 250) != 0;
+        else if (animating) got = SDL_WaitEventTimeout(&e, pulse_live ? 33 : (tip_pending_ || press_touch_) ? 80 : 250) != 0;
         else got = SDL_WaitEvent(&e) != 0;
         while (got) {
             handle(e);
@@ -866,6 +866,10 @@ int App::run() {
         if (ui_->wants_frames && now - last_draw > 400) mark();
         if (pulse_live && now - last_draw >= 33) mark();
         if (tip_pending_ && now - last_draw >= 80) mark();
+        if (press_touch_ && !long_fired_ && !touch_moved_ && ui_->in.down && ui_->active == 0 && now - press_ms_ >= 500) {   // the original: Chromium turns a long press into "contextmenu"
+            Input& in = ui_->in;
+            in.rclick = true; in.rx = in.mx; in.ry = in.my; long_fired_ = true; mark();
+        }
         if (dirty_) {
             dirty_ = false;
             ui_->wants_frames = false;

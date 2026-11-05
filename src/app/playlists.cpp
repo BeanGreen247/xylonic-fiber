@@ -284,7 +284,7 @@ void App::draw_add_to_playlist(float W, float H) {
     const float s = S_;
     const Theme& th = u.th;
     gfx_->fill({0, 0, W, H}, {0, 0, 0, 170});
-    float bw = 360 * s, bh = std::min(H - 80 * s, (110 + 52 * std::max<size_t>(1, playlists_.size())) * s);
+    float bw = std::min(360 * s, W - 24 * s), bh = std::min(H - 80 * s, (110 + 52 * std::max<size_t>(1, playlists_.size())) * s);
     Rect b{(W - bw) / 2, (H - bh) / 2, bw, bh};
     gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 3 * s, th.border);
     gfx_->fill_round(b, 2 * s, th.bg_light);

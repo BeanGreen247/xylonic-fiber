@@ -248,7 +248,8 @@ private:
     std::string pref_, cfg_path_, perm_dir_, stream_dir_, img_dir_;
     float S_ = 1.0f;   // UI scale
     float M_ = 1.0f;   // mouse: window units -> render pixels
-    bool touch_moved_ = false;
+    bool touch_moved_ = false, long_fired_ = false, press_touch_ = false;   // long_fired_: a held touch already became a right click (context menu)
+    uint32_t press_ms_ = 0;
     float touch_accum_ = 0;  // device pixels per logical unit
     bool dirty_ = true, running_ = true, background_ = false;
     double render_ms_ = 0.0, render_fps_ = 0.0;

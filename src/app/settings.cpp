@@ -54,6 +54,8 @@ void App::draw_modal(float W, float H) {
     const Theme& th = u.th;
     gfx_->fill({0, 0, W, H}, {0, 0, 0, 170});  // the old modal blurs the page; a dark scrim keeps the cost at zero
     auto frame = [&](float w, float h, uint32_t icon, const char* title) {
+        w = std::min(w, W / s - 24);   // dialogs never wider than the screen (the G88 is 320 logical px wide)
+        h = std::min(h, H / s - 24);
         Rect b{(W - w * s) / 2, (H - h * s) / 2, w * s, h * s};
         gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 3 * s, th.border);
         gfx_->fill_round(b, 2 * s, th.bg_light);
@@ -69,12 +71,29 @@ void App::draw_modal(float W, float H) {
     if (modal_ == Modal::Firewall) { draw_firewall_modal(W, H); return; }
     if (modal_ == Modal::Theme) { draw_theme_modal(W, H); return; }
     if (modal_ == Modal::ThemeEdit) { draw_theme_editor(W, H); return; }
+    // wrapped paragraphs: height first (so the dialog fits its text on a narrow screen), then drawing
+    auto para_h = [&](float w, const std::vector<std::string>& ls) {
+        const float inner = (std::min(w, W / s - 24) - 40) * s;
+        float h = 0;
+        for (const auto& l : ls) h += (l.empty() ? 1 : wrap_count(400, 13, l, inner)) * 22.0f;
+        return h;
+    };
+    auto para_draw = [&](const Rect& b, float y0, const std::vector<std::string>& ls) {
+        float y = b.y + y0 * s;
+        for (const auto& l : ls) { if (l.empty()) { y += 22 * s; continue; } y += TW(400, 13, b.x + 20 * s, y, 20, l, th.sub, b.w - 40 * s) + 2 * s; }
+    };
+    // Cancel + primary action side by side, sharing the width when it is small
+    auto buttons = [&](const Rect& b, float go_w) {
+        const float avail = b.w - 40 * s - 10 * s;
+        float gw = std::min(go_w * s, avail * 0.62f);
+        return std::make_pair(Rect{b.x + 20 * s, b.y + b.h - 56 * s, avail - gw, 36 * s}, Rect{b.x + b.w - 20 * s - gw, b.y + b.h - 56 * s, gw, 36 * s});
+    };
     if (modal_ == Modal::ConfirmWipe) {
-        Rect b = frame(420, 190, skin::Warning, "Clear all app data?");
-        T(400, 13, b.x + 20 * s, b.y + 64 * s, 20, "This removes downloaded songs, cover art, credentials and all settings.", th.sub, b.w - 40 * s);
-        T(400, 13, b.x + 20 * s, b.y + 86 * s, 20, "It cannot be undone.", th.sub);
-        if (u.button({b.x + 20 * s, b.y + b.h - 56 * s, 150 * s, 36 * s}, "Cancel")) modal_ = Modal::None;
-        Rect go{b.x + b.w - 20 * s - 190 * s, b.y + b.h - 56 * s, 190 * s, 36 * s};
+        const std::vector<std::string> ls{"This removes downloaded songs, cover art, credentials and all settings.", "It cannot be undone."};
+        Rect b = frame(420, 64 + para_h(420, ls) + 70, skin::Warning, "Clear all app data?");
+        para_draw(b, 64, ls);
+        auto [cancel_r, go] = buttons(b, 190);
+        if (u.button(cancel_r, "Cancel")) modal_ = Modal::None;
         gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.danger, 0.9f) : th.danger);
         T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Clear everything")) / 2, go.y, 36, "Clear everything", rgb(0xffffff));
         if (u.clicked(go)) { wipe_all_data(); modal_ = Modal::None; }
@@ -91,11 +110,11 @@ void App::draw_modal(float W, float H) {
         T(400, 11, b.x + 20 * s, b.y + 294 * s, 18, "Full attribution is included with the distributed assets.", th.sub);
         if (u.button({b.x + b.w - 130 * s, b.y + b.h - 48 * s, 110 * s, 32 * s}, "Close")) modal_ = Modal::None;
     } else if (modal_ == Modal::ConfirmCarMode) {   // window.confirm('Start Car Mode?...')
-        Rect b = frame(460, 200, skin::Car, "Start Car Mode?");
-        T(400, 13, b.x + 20 * s, b.y + 62 * s, 20, "Car Mode opens a distraction-free widescreen player with", th.sub, b.w - 40 * s);
-        T(400, 13, b.x + 20 * s, b.y + 84 * s, 20, "large driving-friendly controls.", th.sub, b.w - 40 * s);
-        if (u.button({b.x + 20 * s, b.y + b.h - 56 * s, 150 * s, 36 * s}, "Cancel")) modal_ = Modal::None;
-        Rect go{b.x + b.w - 20 * s - 190 * s, b.y + b.h - 56 * s, 190 * s, 36 * s};
+        const std::vector<std::string> ls{"Car Mode opens a distraction-free widescreen player with large driving-friendly controls."};
+        Rect b = frame(460, 62 + para_h(460, ls) + 70, skin::Car, "Start Car Mode?");
+        para_draw(b, 62, ls);
+        auto [cancel_r, go] = buttons(b, 190);
+        if (u.button(cancel_r, "Cancel")) modal_ = Modal::None;
         gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.accent, 0.9f) : th.accent);
         T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Start Car Mode")) / 2, go.y, 36, "Start Car Mode", rgb(0x121212));
         if (u.clicked(go)) { modal_ = Modal::None; set_car_mode(true); }
@@ -140,13 +159,13 @@ void App::draw_modal(float W, float H) {
         if (ready && (u.clicked(go) || enter)) switch_to(switch_idx_, switch_pass_);
     } else if (modal_ == Modal::ConfirmRebuild || modal_ == Modal::ConfirmClearCaches) {
         const bool rebuild = modal_ == Modal::ConfirmRebuild;
-        Rect b = frame(460, rebuild ? 230 : 330, rebuild ? skin::Sync : skin::Warning, rebuild ? "Rebuild Cache?" : "Clear All Caches?");
         const std::vector<std::string> lines = rebuild
-            ? std::vector<std::string>{"This will clear the image and search caches and re-run the initial", "precaching process on reload.", "Downloaded audio files will not be affected."}
+            ? std::vector<std::string>{"This will clear the image and search caches and re-run the initial precaching process on reload.", "Downloaded audio files will not be affected."}
             : std::vector<std::string>{"This will:", "\xE2\x80\xA2 Delete all cached album artwork", "\xE2\x80\xA2 Delete all offline cache data", "\xE2\x80\xA2 Reset all precache flags", "", "The cache will rebuild automatically on next launch."};
-        for (size_t i = 0; i < lines.size(); ++i) T(400, 13, b.x + 20 * s, b.y + 62 * s + i * 22 * s, 20, lines[i], th.sub, b.w - 40 * s);
-        if (u.button({b.x + 20 * s, b.y + b.h - 56 * s, 150 * s, 36 * s}, "Cancel")) modal_ = Modal::None;
-        Rect go{b.x + b.w - 20 * s - 190 * s, b.y + b.h - 56 * s, 190 * s, 36 * s};
+        Rect b = frame(460, 62 + para_h(460, lines) + 70, rebuild ? skin::Sync : skin::Warning, rebuild ? "Rebuild Cache?" : "Clear All Caches?");
+        para_draw(b, 62, lines);
+        auto [cancel_r, go] = buttons(b, 190);
+        if (u.button(cancel_r, "Cancel")) modal_ = Modal::None;
         const Color gc = rebuild ? th.accent : th.danger;
         gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(gc, 0.9f) : gc);
         const char* gl = rebuild ? "Rebuild Cache" : "Clear All Caches";
@@ -300,7 +319,8 @@ void App::draw_settings(Rect r) {
         if (row_i++) { gfx_->fill({x + 17 * s, y, w - 34 * s, 1 * s}, {255, 255, 255, 15}); y += 1 * s; }
         int sub_lines = 1;
         const bool dd_row = cp && kind == 0 && pill.empty() && !chevron && !sub.empty();   // a row with a dropdown on its right: narrower text column
-        const float reserve = cp ? (dd_row ? 160.0f : 90.0f) : 140.0f;
+        float reserve = cp ? (dd_row ? 160.0f : 90.0f) : 140.0f;
+        if (cp && !pill.empty()) reserve = std::max(reserve, (gfx_->measure(F(600, 12), pill) / s + 24 + (chevron ? 30.0f : 0.0f) + 32));   // the description stops before the pill
         last_extra_ = 0;
         if (cp && !sub.empty()) {   // compact: descriptions wrap instead of truncating; the row (and its card) grow
             sub_lines = wrap_count(400, 12, sub, w - 2 * s - 54 * s - reserve * s);
