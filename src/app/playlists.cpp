@@ -181,12 +181,14 @@ void App::draw_playlists_tab(Rect p, float cy) {
         if (u.hover(sq)) gfx_->fill_round(sq, 8 * s, th.hover);
         fa(0xf0c7, sq.x + 14 * s, sq.y + 11 * s, 12, th.sub);
         T(400, 12, sq.x + 26 * s, sq.y, 22, "Save Queue", th.sub);
+        u.tip(sq, "Save current queue as playlist");
         if (u.clicked(sq)) pl_create("Queue " + std::to_string(playlists_.size() + 1), queue_.songs());
     }
     Rect sy{p.x + p.w - 6 * s - 61 * s, cy + 8 * s, 61 * s, 22 * s};
     if (u.hover(sy)) gfx_->fill_round(sy, 8 * s, th.hover);
     fa(skin::Sync, sy.x + 16 * s, sy.y + 11 * s, 12, th.sub);
     T(400, 12, sy.x + 28 * s, sy.y, 22, "Sync", th.sub);
+    u.tip(sy, "Sync playlists from server");
     if (u.clicked(sy)) pl_sync();
     cy += 39 * s;
     std::vector<size_t> vis;
@@ -231,17 +233,18 @@ void App::draw_playlists_tab(Rect p, float cy) {
         std::string cnt = std::to_string(pl.songs.size());
         T(400, 11, hd.x + hd.w - 112 * s - gfx_->measure(F(400, 11), cnt), hd.y + 11 * s, 16.5f, cnt, th.muted);
         float ax = hd.x + hd.w - 108 * s;
-        auto ab = [&](float bx, uint32_t ic, bool danger) {
+        auto ab = [&](float bx, uint32_t ic, bool danger, const char* tip) {
             Rect b{bx, hd.y + 9 * s, 24 * s, 22 * s};
+            if (hov) u.tip(b, tip);
             if (hov && u.hover(b)) gfx_->fill_round(b, 8 * s, th.hover);
             if (hov) fa(ic, b.x + 12 * s, b.y + 11 * s, 11, u.hover(b) ? (danger ? th.danger : th.accent) : th.sub);
             return hov && u.clicked(b);
         };
         bool acted = false;
-        if (ab(ax, skin::ListUl, false)) { for (auto& sg : pl.songs) queue_.add(sg); acted = true; }
-        else if (ab(ax + 26 * s, skin::Play, false)) { if (!pl.songs.empty()) play_songs(pl.songs, 0, false); acted = true; }
-        else if (ab(ax + 52 * s, skin::Pen, false)) { pl_rename_id_ = pl.id; pl_rename_text_ = pl.name; u.focus = kPlRename; acted = true; }
-        else if (ab(ax + 78 * s, 0xf1f8, true)) { pl_delete_pending_ = pl.id; modal_ = Modal::ConfirmDeletePlaylist; gfx_->clip(nullptr); return; }   // window.confirm("Delete this playlist?")
+        if (ab(ax, skin::ListUl, false, "Add all to queue")) { for (auto& sg : pl.songs) queue_.add(sg); acted = true; }
+        else if (ab(ax + 26 * s, skin::Play, false, "Play playlist")) { if (!pl.songs.empty()) play_songs(pl.songs, 0, false); acted = true; }
+        else if (ab(ax + 52 * s, skin::Pen, false, "Rename")) { pl_rename_id_ = pl.id; pl_rename_text_ = pl.name; u.focus = kPlRename; acted = true; }
+        else if (ab(ax + 78 * s, 0xf1f8, true, "Delete playlist")) { pl_delete_pending_ = pl.id; modal_ = Modal::ConfirmDeletePlaylist; gfx_->clip(nullptr); return; }   // window.confirm("Delete this playlist?")
         if (u.clicked(hd) && !acted && !renaming && list.contains(u.in.mx, u.in.my)) pl_expanded_ = exp ? "" : pl.id;
         y += 40 * s;
         gfx_->fill({p.x, y - 1 * s, p.w, 1 * s}, th.border_subtle);
@@ -261,6 +264,7 @@ void App::draw_playlists_tab(Rect p, float cy) {
                     fa(skin::ListUl, a1.x + 14 * s, a1.y + 11 * s, 12, u.hover(a1) ? th.accent : th.sub);
                     if (u.hover(a2)) gfx_->fill_round(a2, 8 * s, th.hover);
                     fa(skin::Xmark, a2.x + 14 * s, a2.y + 11 * s, 12, u.hover(a2) ? th.danger : th.sub);
+                    u.tip(a1, "Add to queue"); u.tip(a2, "Remove from playlist");
                     if (u.clicked(a1)) queue_.add(sg);
                     else if (u.clicked(a2)) { std::string id = pl.id; pl_remove_song(id, static_cast<int>(k)); gfx_->clip(nullptr); return; }
                     else if (u.clicked(row)) { play_songs(pl.songs, k, false); gfx_->clip(nullptr); return; }

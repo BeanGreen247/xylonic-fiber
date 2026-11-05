@@ -41,6 +41,7 @@ void App::draw_mini() {
     std::swap(ui_, mini_ui_);
     std::swap(font_ids_, mini_fonts_);
     Ui& u = *ui_;
+    u.tip_text.clear();
     u.th = ui_theme_cache_;
     const float s = S_;
     int dw, dh;
@@ -58,23 +59,26 @@ void App::draw_mini() {
         T(600, 13, 15 * s, 31 * s, 20, cur->title, rgb(0xffffff), 160 * s);
         T(400, 11, 15 * s, 53 * s, 17, cur->artist, {255, 255, 255, 204}, 160 * s);
     }
-    auto circle_btn = [&](float x, float y, float d, float a, uint32_t ic, float px) {
+    auto circle_btn = [&](float x, float y, float d, float a, uint32_t ic, float px, const char* tip) {
         Rect r{x * s, y * s, d * s, d * s};
+        u.tip(r, tip);
         gfx_->circle(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, {255, 255, 255, static_cast<uint8_t>((a + (u.hover(r) ? 0.15f : 0.0f)) * 255)});
         fa(ic, r.x + r.w / 2, r.y + r.h / 2, px, rgb(0xffffff));
         return u.clicked(r);
     };
-    if (circle_btn(185, 34, 32, 0.4f, skin::StepBack, 12)) prev_track();
-    if (circle_btn(223, 32, 36, 0.25f, player_.playing() ? skin::Pause : skin::Play, 14)) toggle_play();
-    if (circle_btn(265, 34, 32, 0.4f, skin::StepFwd, 12)) next_track();
+    if (circle_btn(185, 34, 32, 0.4f, skin::StepBack, 12, "Previous")) prev_track();
+    if (circle_btn(223, 32, 36, 0.25f, player_.playing() ? skin::Pause : skin::Play, 14, track_loading_ ? "Loading\xE2\x80\xA6" : player_.playing() ? "Pause" : "Play")) toggle_play();
+    if (circle_btn(265, 34, 32, 0.4f, skin::StepFwd, 12, "Next")) next_track();
     Rect ret{307 * s, 36 * s, 28 * s, 28 * s};
     gfx_->fill_round(ret, 6 * s, {255, 255, 255, static_cast<uint8_t>((u.hover(ret) ? 0.25f : 0.13f) * 255)});
     fa(0xf065, ret.x + 14 * s, ret.y + 14 * s, 11, {255, 255, 255, 179});
+    u.tip(ret, "Return to main window (Ctrl+M)");
     bool close = u.clicked(ret);
     double dur = player_.duration_seconds(), pos = player_.position_seconds();
     float frac = dur > 0 ? static_cast<float>(std::min(1.0, pos / dur)) : 0;
     gfx_->fill({0, H - 3 * s, W, 3 * s}, {255, 255, 255, 102});
     gfx_->fill({0, H - 3 * s, W * frac, 3 * s}, ui_theme_cache_.accent);
+    draw_tooltip(W, H);
     gfx_->end_frame();
     u.in.new_frame();
     std::swap(gfx_, mini_gfx_);

@@ -280,6 +280,8 @@ private:
     void start_cache_move(const std::string& to);
     void choose_cache_folder();
     void draw_storage_modal(float W, float H);
+    void draw_tooltip(float W, float H);
+    std::string tip_shown_; uint32_t tip_since_ = 0; bool tip_pending_ = false;
     std::atomic<uint64_t> move_done_{0};
     uint64_t move_total_ = 0;
     int move_state_ = 0;   // 0 idle, 1 running, 2 failed

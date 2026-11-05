@@ -754,12 +754,12 @@ int App::run() {
     uint32_t last_draw = 0;
     while (running_) {
         bool pulse_live = car_open_ && cfg_.car_pulse && !pulse_off_ && player_.playing();
-        bool animating = pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_;
+        bool animating = pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_ || tip_pending_;
         SDL_Event e;
         bool got;
         if (dirty_) got = SDL_PollEvent(&e) != 0;
         else if (shot_deadline_) got = SDL_WaitEventTimeout(&e, 50) != 0;
-        else if (animating) got = SDL_WaitEventTimeout(&e, pulse_live ? 33 : 250) != 0;
+        else if (animating) got = SDL_WaitEventTimeout(&e, pulse_live ? 33 : tip_pending_ ? 80 : 250) != 0;
         else got = SDL_WaitEvent(&e) != 0;
         while (got) {
             handle(e);
@@ -772,6 +772,7 @@ int App::run() {
         uint32_t now = SDL_GetTicks();
         if (ui_->wants_frames && now - last_draw > 400) mark();
         if (pulse_live && now - last_draw >= 33) mark();
+        if (tip_pending_ && now - last_draw >= 80) mark();
         if (dirty_) {
             dirty_ = false;
             ui_->wants_frames = false;

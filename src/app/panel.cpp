@@ -190,6 +190,7 @@ void App::draw_right_panel(float W, float H) {
         if (panel_tab_ == PanelTab::Queue) {
             Rect g{row.x + 12 * s, row.y + 15 * s, 23 * s, 22 * s};
             fa(skin::Grip, g.x + 11 * s, g.y + 11 * s, 12, rgb(0xb5b5b5));
+            u.tip(g, "Drag to reorder");
             if (u.in.pressed && g.contains(u.in.mx, u.in.my)) { panel_drag_ = static_cast<int>(k); }
         }
         float tw = row.w - 45 * s - 6 * s - (panel_tab_ == PanelTab::Queue ? 112 : 112) * s;
@@ -204,14 +205,15 @@ void App::draw_right_panel(float W, float H) {
         }
         Rect a1{row.x + row.w - 76 * s, row.y + 15 * s, 29 * s, 22 * s}, a2{row.x + row.w - 46 * s, row.y + 15 * s, 29 * s, 22 * s};
         if (hov || is_cur) {
-            auto ab = [&](Rect b, uint32_t ic, bool danger) {
+            auto ab = [&](Rect b, uint32_t ic, bool danger, const char* tip) {
+                u.tip(b, tip);
                 if (u.hover(b)) gfx_->fill_round(b, 8 * s, th.hover);
                 fa(ic, b.x + b.w / 2, b.y + b.h / 2, 12, u.hover(b) ? (danger ? th.danger : th.accent) : th.sub);
                 return u.clicked(b);
             };
             if (panel_tab_ == PanelTab::Queue) {
-                if (ab(a1, skin::CirclePlus, false)) add_song_ = sg;
-                if (ab(a2, skin::Xmark, true)) {
+                if (ab(a1, skin::CirclePlus, false, "Add to playlist")) add_song_ = sg;
+                if (ab(a2, skin::Xmark, true, "Remove from queue")) {
                     bool was_cur = is_cur;
                     queue_.remove(static_cast<size_t>(i));
                     if (was_cur) { if (queue_.empty()) { player_.stop(); ++play_gen_; } else start_current(); }
@@ -221,9 +223,9 @@ void App::draw_right_panel(float W, float H) {
             } else {
                 // HistoryTab: Add to queue, Add to playlist, Play (there is no per-entry remove; Clear empties the list)
                 Rect a0{row.x + row.w - 106 * s, a1.y, 29 * s, 22 * s};
-                if (ab(a0, skin::ListUl, false)) queue_.add(sg);
-                if (ab(a1, skin::CirclePlus, false)) add_song_ = sg;
-                if (ab(a2, skin::Play, false)) { std::vector<Song> one{sg}; play_songs(one, 0, false); gfx_->clip(nullptr); return; }
+                if (ab(a0, skin::ListUl, false, "Add to queue")) queue_.add(sg);
+                if (ab(a1, skin::CirclePlus, false, "Add to playlist")) add_song_ = sg;
+                if (ab(a2, skin::Play, false, "Play")) { std::vector<Song> one{sg}; play_songs(one, 0, false); gfx_->clip(nullptr); return; }
             }
         }
         ctx_hit(row, sg);

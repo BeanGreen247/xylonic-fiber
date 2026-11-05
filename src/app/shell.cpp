@@ -72,6 +72,7 @@ void App::draw_main(float W, float H) {
     const float s = S_;
     Ui& uin = *ui_;
     Input saved = uin.in;
+    uin.tip_text.clear();
     if (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_ || pre_open_ || newcontent_open_ || prompt_ != Prompt::None) { uin.in.mx = uin.in.my = -1000; uin.in.pressed = uin.in.released = false; uin.in.wheel = 0; uin.in.down = false; uin.in.escape = 0; }
     mobile_ = W / s <= 767.0f;   // LayoutModeContext COMPACT_MAX; decided before any full-screen view
     struct Restore { App* a; Input saved; ~Restore() { } } restore{this, saved};
@@ -121,6 +122,7 @@ void App::draw_main(float W, float H) {
     if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); }
     if (client_ && modal_ == Modal::None && !offline_ && client_->auth_failed()) { modal_ = Modal::Reauth; reauth_pass_.clear(); reauth_msg_.clear(); }
     if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); }
+    else draw_tooltip(W, H);
 }
 
 void App::draw_header(float W) {
@@ -153,10 +155,12 @@ void App::draw_header(float W) {
     };
     if (!mob) {
         Rect gh{155 * s, 10 * s, 44 * s, 44 * s};
+        u.tip(gh, "View on GitHub");
         if (round_btn(gh, 22 * s)) SDL_OpenURL("https://github.com/BeanGreen247/xylonic-fiber");
         svg(1, {gh.x + 13 * s, gh.y + 13 * s, 18 * s, 18 * s}, th.sub);
 #if !defined(XF_APP_STORE)
         Rect sup{215 * s, 10 * s, 44 * s, 44 * s};
+        u.tip(sup, "Support the Project");
         if (round_btn(sup, 22 * s)) SDL_OpenURL("https://github.com/sponsors/BeanGreen247");
         fa(skin::Heart, sup.x + 22 * s, sup.y + 22 * s, 18, th.sub);
 #endif
@@ -199,8 +203,10 @@ void App::draw_header(float W) {
     };
     {
         const Rect rb{gx + sw + 12 * s, 10 * s, 116 * s, 43 * s}, mb{rb.x + rb.w + 12 * s, 10 * s, 95 * s, 43 * s};
+        u.tip(rb, remote_mode_ ? "Remote: connected \xE2\x80\x94 click to manage" : "Connect to another Xylonic device on your network");
         if (pill(rb, skin::Satellite, remote_mode_ ? "Remote \xE2\x97\x8F" : "Remote")) modal_ = Modal::Remote;
         const bool has_song = queue_.current() != nullptr;           // Mini Player is disabled until a song is loaded
+        u.tip(mb, has_song ? "Mini Player (Ctrl+M)" : "No song loaded - play a song to use Mini Player");
         if (pill(mb, skin::Compress, "Mini") && has_song) toggle_mini();
         if (!has_song) gfx_->fill_round(mb, 21.5f * s, {th.panel.r, th.panel.g, th.panel.b, 150});
     }
@@ -233,6 +239,7 @@ void App::draw_header(float W) {
             if (u.hover(gl)) gfx_->fill_round(gl, 18 * s, th.hover);
             fa(skin::Globe, gl.x + 18 * s, gl.y + 18 * s, 14, th.sub);
         }
+        u.tip(gl, offline_ ? "Offline Mode active \xE2\x80\x94 tap to go online" : "Go offline (play cached library without network)");
         if (u.clicked(gl)) toggle_offline();
     }
 }
@@ -395,6 +402,7 @@ void App::draw_player_bar(Rect r) {
             if (on) gfx_->fill_round(b, 8 * s, alpha(th.accent, 0.16f));
             else if (u.hover(b)) gfx_->fill_round(b, 8 * s, th.hover);
             fa(tabs[i].icon, b.x + b.w / 2, b.y + b.h / 2, 14, on ? th.accent : th.sub);
+            u.tip(b, tabs[i].tab == PanelTab::Queue ? "Queue" : tabs[i].tab == PanelTab::History ? "History" : "Playlists");
             if (u.clicked(b)) toggle_panel(tabs[i].tab);
         }
         right -= 108 * s;
@@ -465,6 +473,7 @@ void App::draw_player_bar(Rect r) {
         if (u.in.pressed && !pop.contains(u.in.mx, u.in.my) && !qual.contains(u.in.mx, u.in.my)) quality_popup_ = false;
     }
     bool muted = vol_ <= 0.001f;
+    u.tip(spd, "Playback speed");
     Rect sp{vol.x, vol.y, 24 * s, 24 * s};
     fa(skin::VolumeHigh, sp.x + 12 * s, sp.y + 12 * s, 14, muted ? th.muted : th.sub);
     if (u.clicked(sp)) set_volume(muted ? 0.8f : 0);
@@ -479,25 +488,27 @@ void App::draw_player_bar(Rect r) {
     // centre: transport, centred between the info block and the right controls
     float gap_l = info.x + 200 * s, gap_r = right - 366 * s;  // right already excludes the panel toggles
     float mid = (gap_l + gap_r) / 2 + 3 * s;  // group centre: measured 464 at 1024 wide
-    auto cbtn = [&](float cx, uint32_t ic, bool on) {
+    auto cbtn = [&](float cx, uint32_t ic, bool on, const char* tip) {
         Rect b{cx - 16.5f * s, cy + 12 * s, 33 * s, 27 * s};
+        u.tip(b, tip);
         if (u.hover(b)) gfx_->fill_round(b, 13 * s, th.hover);
         fa(ic, b.x + b.w / 2, b.y + b.h / 2, 13.3f, on ? th.accent : th.sub);
         return u.clicked(b);
     };
-    if (cbtn(mid - 102.5f * s, skin::Shuffle, queue_.shuffle())) { if (have_remote) remote_send("toggleShuffle"); else queue_.set_shuffle(!queue_.shuffle()); }
-    if (cbtn(mid - 67.5f * s, skin::StepBack, false)) prev_track();
+    if (cbtn(mid - 102.5f * s, skin::Shuffle, queue_.shuffle(), "Shuffle")) { if (have_remote) remote_send("toggleShuffle"); else queue_.set_shuffle(!queue_.shuffle()); }
+    if (cbtn(mid - 67.5f * s, skin::StepBack, false, "Previous")) prev_track();
     Rect pp{mid - 41 * s, cy + 2 * s, 40 * s, 40 * s};
     gfx_->circle(pp.x + 20 * s, pp.y + 20 * s, 20 * s, u.hover(pp) ? rgb(0xe8e8e8) : rgb(0xffffff));
     fa(playing_now ? skin::Pause : skin::Play, pp.x + 20 * s + (playing_now ? 0 : 1 * s), pp.y + 20 * s, 16, rgb(0x121212));
+    u.tip(pp, track_loading_ ? "Loading\xE2\x80\xA6" : playing_now ? "Pause" : "Play");
     if (u.clicked(pp)) toggle_play();
-    if (cbtn(mid + 25.5f * s, skin::StepFwd, false)) next_track();
-    if (cbtn(mid + 59.5f * s, skin::Repeat, queue_.repeat() != Repeat::Off) && have_remote) remote_send("toggleRepeat");
+    if (cbtn(mid + 25.5f * s, skin::StepFwd, false, "Next")) next_track();
+    if (cbtn(mid + 59.5f * s, skin::Repeat, queue_.repeat() != Repeat::Off, queue_.repeat() == Repeat::Off ? "Repeat: off" : queue_.repeat() == Repeat::All ? "Repeat: all" : "Repeat: one") && have_remote) remote_send("toggleRepeat");
     else if (!have_remote && u.clicked({mid + 59.5f * s - 16.5f * s, cy + 12 * s, 33 * s, 27 * s}))
         queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
     if (queue_.repeat() == Repeat::One) T(700, 8, mid + 59.5f * s + 4 * s, cy + 12 * s, 10, "1", th.accent);
     bool liked = cur && cur->starred;
-    if (cbtn(mid + 102.5f * s, skin::Heart, liked) && cur && client_) {
+    if (cbtn(mid + 102.5f * s, skin::Heart, liked, liked ? "Unlike" : "Like") && cur && client_) {
         set_current_liked(!cur->starred);
     }
 }
@@ -763,4 +774,24 @@ void App::play_random_mix() {
         for (const Album& a : albums) { Album full; std::string e; if (c->album(a.id, full, e)) for (auto& sg : full.songs) songs.push_back(sg); }
         ui_post([this, s, songs = std::move(songs)] { if (s != session_) return; playing_random_ = false; if (!songs.empty()) play_songs(songs, 0, false); mark(); });
     });
+}
+
+// Tooltip: shown after 500 ms of hovering the same target, placed below the pointer-side of the target and kept on screen.
+void App::draw_tooltip(float W, float H) {
+    Ui& u = *ui_;
+    const float s = S_;
+    tip_pending_ = false;
+    if (u.tip_text.empty() || mobile_) { tip_shown_.clear(); return; }
+    const uint32_t now = SDL_GetTicks();
+    if (u.tip_text != tip_shown_) { tip_shown_ = u.tip_text; tip_since_ = now; }
+    if (now - tip_since_ < 500) { tip_pending_ = true; return; }
+    const int f = F(400, 12);
+    const float tw = gfx_->measure(f, tip_shown_) + 16 * s, th_ = 24 * s;
+    float x = std::min(std::max(4 * s, u.tip_rect.x + u.tip_rect.w / 2 - tw / 2), W - tw - 4 * s);
+    float y = u.tip_rect.y + u.tip_rect.h + 6 * s;
+    if (y + th_ > H - 4 * s) y = u.tip_rect.y - th_ - 6 * s;
+    Rect b{x, y, tw, th_};
+    gfx_->fill_round(b, 4 * s, {0, 0, 0, 120});
+    gfx_->fill_round({b.x + 1, b.y + 1, b.w - 2, b.h - 2}, 4 * s, rgb(0x242424));
+    T(400, 12, b.x + 8 * s, b.y, 24, tip_shown_, rgb(0xe6e6e6));
 }
