@@ -155,9 +155,11 @@ void App::draw_header(float W) {
         Rect gh{155 * s, 10 * s, 44 * s, 44 * s};
         if (round_btn(gh, 22 * s)) SDL_OpenURL("https://github.com/BeanGreen247/xylonic-fiber");
         svg(1, {gh.x + 13 * s, gh.y + 13 * s, 18 * s, 18 * s}, th.sub);
+#if !defined(XF_APP_STORE)
         Rect sup{215 * s, 10 * s, 44 * s, 44 * s};
         if (round_btn(sup, 22 * s)) SDL_OpenURL("https://github.com/sponsors/BeanGreen247");
         fa(skin::Heart, sup.x + 22 * s, sup.y + 22 * s, 18, th.sub);
+#endif
     }
 
     if (!mob) {

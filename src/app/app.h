@@ -19,6 +19,7 @@
 #include "config.h"
 #include "downloads.h"
 #include "model_json.h"
+#include "storage.h"
 #include "store.h"
 #include "images.h"
 #include "mpris.h"
@@ -274,7 +275,17 @@ private:
     bool show_help_ = false, playing_random_ = false, hamburger_open_ = false, nav_expanded_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
-    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, Firewall, TechStack, Licenses, DownloadQuality, Reauth, ConfirmRebuild, ConfirmClearCaches, ConfirmCarMode, SwitchServer, SwitchPass, ConfirmDeletePlaylist };
+    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, Firewall, TechStack, Licenses, DownloadQuality, Reauth, ConfirmRebuild, ConfirmClearCaches, ConfirmCarMode, SwitchServer, SwitchPass, ConfirmDeletePlaylist, MoveCache, StoragePick };
+    std::string cache_base() const { return resolve_cache_root(cfg_.cache_root, pref_); }
+    void start_cache_move(const std::string& to);
+    void choose_cache_folder();
+    void draw_storage_modal(float W, float H);
+    std::atomic<uint64_t> move_done_{0};
+    uint64_t move_total_ = 0;
+    int move_state_ = 0;   // 0 idle, 1 running, 2 failed
+    std::string move_error_, move_target_;
+    std::vector<StorageVolume> vols_;
+    int vol_choice_ = -1;
     std::string pl_delete_pending_;
     std::string switch_pass_, switch_err_; int switch_idx_ = -1; bool switching_ = false;   // Settings > Account > Switch Server
     void switch_to(int conn_idx, const std::string& password);

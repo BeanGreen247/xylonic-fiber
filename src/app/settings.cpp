@@ -64,6 +64,7 @@ void App::draw_modal(float W, float H) {
         if (u.clicked(cl) || u.in.escape) modal_ = Modal::None;
         return b;
     };
+    if (modal_ == Modal::MoveCache || modal_ == Modal::StoragePick) { draw_storage_modal(W, H); return; }
     if (modal_ == Modal::ConfirmWipe) {
         Rect b = frame(420, 190, skin::Warning, "Clear all app data?");
         T(400, 13, b.x + 20 * s, b.y + 64 * s, 20, "This removes downloaded songs, cover art, credentials and all settings.", th.sub, b.w - 40 * s);
@@ -301,6 +302,12 @@ void App::draw_settings(Rect r) {
     const bool cp = mobile_;   // compact: 12 px side padding, full width, 24 px title
     const float x = r.x + (cp ? 12.0f : 24.0f) * s, w = cp ? r.w - 24 * s : std::min(680 * s, r.w - 48 * s - 12 * s);
     float total = 3260 * s;
+#if defined(XF_APP_STORE)
+    total += 222 * s;
+#endif
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+    total += 183 * s;
+#endif
     if (u.hover(r)) settings_scroll_.y -= u.in.wheel * 60 * s;
     settings_scroll_.clamp(total, r.h);
     float y = r.y + (cp ? 12.0f : 24.0f) * s - settings_scroll_.y;
@@ -364,6 +371,26 @@ void App::draw_settings(Rect r) {
         gfx_->fill_round({x + 1 * s, top + 1 * s, w - 2 * s, h - 2 * s}, 15 * s, th.panel);
     };
 
+#if defined(XF_APP_STORE)
+    {   // Thank-you banner (app store build only)
+        const float ch = 190 * s;
+        gfx_->fill_round({x, y, w, ch}, 16 * s, alpha(th.accent, 0.25f));
+        gfx_->fill_round({x + 1 * s, y + 1 * s, w - 2 * s, ch - 2 * s}, 15 * s, th.panel);
+        gfx_->fill_round({x + 1 * s, y + 1 * s, w - 2 * s, ch - 2 * s}, 15 * s, alpha(th.accent, 0.05f));
+        fa(0xf004, x + w / 2, y + 44 * s, 26, th.accent);
+        const std::string t1 = "Thank you for supporting Xylonic!";
+        T(600, 16, x + (w - gfx_->measure(F(600, 16), t1)) / 2, y + 66 * s, 24, t1, th.text);
+        T(400, 13, x + (w - std::min(380.0f * s, w - 48 * s)) / 2, y + 94 * s, 20, "Your purchase helps keep this project alive and growing. You're awesome \xE2\x80\x94 thank you for being part of this journey.", th.sub, std::min(380.0f * s, w - 48 * s));
+        const std::string gl = "View source on GitHub";
+        const float gw = gfx_->measure(F(500, 13), gl) + 56 * s;
+        Rect gb{x + (w - gw) / 2, y + ch - 52 * s, gw, 34 * s};
+        gfx_->fill_round(gb, 17 * s, u.hover(gb) ? alpha(th.text, 0.12f) : alpha(th.text, 0.06f));
+        fa(0xf09b, gb.x + 22 * s, gb.y + gb.h / 2, 14, th.sub);
+        T(500, 13, gb.x + 40 * s, gb.y, 34, gl, th.sub);
+        if (u.clicked(gb) && r.contains(u.in.mx, u.in.my)) SDL_OpenURL("https://github.com/BeanGreen247/xylonic-fiber");
+        y += ch + 32 * s;
+    }
+#endif
     // ---- APPEARANCE
     section("APPEARANCE");
     card_fill(y, 126 * s);
@@ -561,6 +588,26 @@ void App::draw_settings(Rect r) {
         if (row(0xf201, "Performance Overlay", "Shows FPS, CPU load, and OS RAM usage \xE2\x80\x94 green <16 ms, yellow <50 ms, red \xE2\x89\xA5 50 ms", 1, false, cfg_.render_timer ? "On" : "Off", cfg_.render_timer, 61)) { cfg_.render_timer = !cfg_.render_timer; cfg_.save(cfg_path_); mark(); }
     }
     y += (1 + 32) * s; row_i = 0;
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+    // ---- STORAGE (mobile: the original shows this on Android only)
+    section("STORAGE");
+    card_fill(y, 124 * s);
+    {
+        const auto vols = storage_volumes();
+        std::string sub = "Loading\xE2\x80\xA6";
+        for (auto& v : vols) if (v.path == cache_base()) {
+            char t[96]; std::snprintf(t, sizeof t, "%s \xC2\xB7 %.1f GB free", v.label.c_str(), v.free_bytes / 1073741824.0); sub = t;
+        }
+        if (vols.empty()) sub = cache_base();
+        if (row(0xf0a0, "Permanent cache location", sub, 1, true, "", false, 61)) choose_cache_folder();
+#if defined(__ANDROID__)
+        if (row(0xf013, "App install location", "Android can move the app itself to an SD card or adopted storage: Storage \xE2\x86\x92 Change", 1, false, "Open", true, 61)) SDL_OpenURL("package:settings");
+#else
+        row(0xf013, "App install location", "Managed by iOS", 0, false, "", false, 61);
+#endif
+    }
+    y += (1 + 32) * s; row_i = 0;
+#endif
     // ---- DANGER ZONE
     section("DANGER ZONE");
     card_fill(y, 80 * s);

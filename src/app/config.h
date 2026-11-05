@@ -5,6 +5,7 @@
 
 struct Config {
     std::string server_url, username, pin_sha256;  // the password is never written to disk here
+    std::string cache_root;   // permanent cache base (downloads/ and stream/ below it); empty = the app data folder
     int volume_pct = 80;
     int stream_quality = 0;  // max kbps, 0 = original
     int download_quality = 320;   // kbps, 0 = original (the original app defaults to 320)

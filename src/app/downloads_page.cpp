@@ -240,7 +240,7 @@ void App::draw_downloads(Rect r) {
         if (u.hover(cb)) gfx_->fill_round(cb, 10 * s, {255, 255, 255, 18}); else gfx_->fill_round(cb, 10 * s, {0, 0, 0, 36});
         fa(0xf07c, cb.x + 20 * s + 7 * s, cb.y + 22 * s, 14, rgb(0xffffff));
         T(600, 15.2f, cb.x + 44 * s, cb.y, 44, chg, rgb(0xffffff));
-        if (u.clicked(cb) && r.contains(u.in.mx, u.in.my)) { toast_ = "Changing the cache folder needs a folder picker (not available yet)"; toast_until_ = SDL_GetTicks() + 3500; mark(); }
+        if (u.clicked(cb) && r.contains(u.in.mx, u.in.my)) choose_cache_folder();
         if (have_disk) {
             const uint64_t avail = static_cast<uint64_t>(sv.f_bavail) * sv.f_frsize, totald = static_cast<uint64_t>(sv.f_blocks) * sv.f_frsize;
             const float ly = ls.y + 52 * s + 44 * s + 10 * s;

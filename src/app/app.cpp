@@ -80,11 +80,11 @@ bool App::init() {
     pref_ = p ? p : "./";
     SDL_free(p);
     cfg_path_ = pref_ + "config.json";
-    perm_dir_ = pref_ + "downloads/";
-    stream_dir_ = pref_ + "stream/";
     img_dir_ = pref_ + "covers/";
-    mkdirs(perm_dir_); mkdirs(stream_dir_); mkdirs(img_dir_);
+    mkdirs(img_dir_);
     cfg_.load(cfg_path_);
+    perm_dir_ = cache_base() + "downloads/"; stream_dir_ = cache_base() + "stream/";
+    mkdirs(perm_dir_); mkdirs(stream_dir_);
     xf_log_configure(cfg_.debug_log, pref_ + "logs");
     vol_ = static_cast<float>(cfg_.volume_pct) / 100.0f;
     player_.set_volume(vol_);
@@ -186,11 +186,19 @@ void App::connect(bool trust_pin) {
 
 void App::open_account_data() {
     acct_ = hash8(cfg_.server_url + "|" + cfg_.username);
-    perm_dir_ = pref_ + "downloads/" + acct_ + "/";
-    stream_dir_ = pref_ + "stream/" + acct_ + "/";
+    const std::string base = cache_base();
+    perm_dir_ = base + "downloads/" + acct_ + "/";
+    stream_dir_ = base + "stream/" + acct_ + "/";
     mkdirs(perm_dir_); mkdirs(stream_dir_);
     store_ = std::make_unique<Store>();
     if (!store_->open(pref_ + "data_" + acct_ + ".json")) store_.reset();
+    if (store_) {   // the cache may have moved since these rows were written: re-root them under the current folder
+        const std::string marker = "/downloads/" + acct_ + "/";
+        for (auto& r : store_->dl_all()) {
+            const std::string np = heal_path(r.path, marker, perm_dir_);
+            if (np != r.path) store_->dl_set(r.id, r.state, r.bytes, r.total, np, r.content_hash);
+        }
+    }
     downloads_.reset();
     if (store_) {
         auto c = client_;
