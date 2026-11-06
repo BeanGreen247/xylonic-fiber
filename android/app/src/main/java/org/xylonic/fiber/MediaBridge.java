@@ -33,6 +33,29 @@ public final class MediaBridge {
 
     private MediaBridge() {}
 
+    /** Launcher icon choice: exactly one "Icon*" activity-alias stays enabled (the new one first, so the app is never without a launcher entry). name is e.g. "vice_ocean". */
+    public static void setAppIcon(Activity a, String name) {
+        try {
+            StringBuilder cls = new StringBuilder("org.xylonic.fiber.Icon");
+            for (String p : name.split("_")) if (!p.isEmpty()) cls.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1));
+            android.content.pm.PackageManager pm = a.getPackageManager();
+            android.content.pm.PackageInfo pi = pm.getPackageInfo(a.getPackageName(), android.content.pm.PackageManager.GET_ACTIVITIES | android.content.pm.PackageManager.MATCH_DISABLED_COMPONENTS);
+            if (pi.activities == null) return;
+            for (int pass = 0; pass < 2; pass++) {
+                for (android.content.pm.ActivityInfo ai : pi.activities) {
+                    if (!ai.name.startsWith("org.xylonic.fiber.Icon")) continue;
+                    boolean on = ai.name.contentEquals(cls);
+                    if (on != (pass == 0)) continue;
+                    pm.setComponentEnabledSetting(new android.content.ComponentName(a.getPackageName(), ai.name),
+                        on ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        android.content.pm.PackageManager.DONT_KILL_APP);
+                }
+            }
+        } catch (Exception e) {
+            // the launcher keeps the previous icon
+        }
+    }
+
     /** Called from native code (src/app/android_bridge.cpp) on the SDL thread. */
     public static void update(Context c, boolean hasSong, boolean playing, String title, String artist, String album, String artPath, long durationMs, long positionMs, int downloads) {
         State s = new State(hasSong, playing, title, artist, album, artPath, durationMs, positionMs, downloads);

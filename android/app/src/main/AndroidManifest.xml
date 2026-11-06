@@ -15,11 +15,123 @@
         <activity android:name="org.xylonic.fiber.XylonicActivity" android:exported="true"
                   android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode"
                   android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:screenOrientation="user">
+        </activity>
+        <!-- app-icons:begin -->
+        <activity-alias android:name="org.xylonic.fiber.IconVice" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="true" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconCassette" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_cassette" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconVinyl" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_vinyl" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconEqualizer" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_equalizer" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconNote" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_note" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconGrid" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_grid" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconPixel" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_pixel" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconViceOcean" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_vice_ocean" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconCassetteMint" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_cassette_mint" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconVinylEmber" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_vinyl_ember" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconEqualizerSunset" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_equalizer_sunset" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconGridOcean" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_grid_ocean" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconNoteViolet" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_note_violet" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconPixelLime" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_pixel_lime" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconMaterialNote" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_material_note" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconMaterialNoteDark" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_material_note_dark" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconMaterialVinyl" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_material_vinyl" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconMaterialBars" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_material_bars" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name="org.xylonic.fiber.IconMaterialCassette" android:targetActivity="org.xylonic.fiber.XylonicActivity" android:exported="true" android:enabled="false" android:icon="@mipmap/ic_launcher_material_cassette" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <!-- app-icons:end -->
         <service android:name="org.xylonic.fiber.MediaService" android:exported="false"
                  android:foregroundServiceType="mediaPlayback|dataSync" />
     </application>

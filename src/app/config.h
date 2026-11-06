@@ -13,7 +13,7 @@ struct Config {
     int default_view = 0;       // Library default: 0 artists, 1 albums, 2 songs, 3 liked
     int car_minimal = 0;        // 0 auto, 1 always, 2 never
     bool offline_mode = false;   // localStorage "offlineMode": the app starts offline again
-    bool car_keep_on = true, car_start = false, car_pulse = false, debug_log = false, render_timer = false;
+    bool car_keep_on = true, car_start = false, car_pulse = false, debug_log = false, render_timer = false, software_render = false;
     int perf_mode = 0;          // 0 balanced, 1 gaming, 2 eco
     bool be_controlled = true, control_others = true;
     bool auto_offline_metered = false;   // switch to offline mode on a metered connection when songs are downloaded
@@ -22,6 +22,7 @@ struct Config {
     void remember_connection(const std::string& url, const std::string& user);
     void forget_connection(const std::string& url, const std::string& user);
     int theme = 0;           // 0..7 presets, 8..11 custom slots
+    int app_icon = 0;        // launcher / window / splash icon: index into kAppIcons (app.h)
     int icon_set = 1;        // 0 classic (solid), 1 GitHub (Octicons), 2 Phosphor, 3 Material
     int theme_mode = 0;      // 0 system, 1 light, 2 dark
     struct Custom { std::string name; uint32_t primary = 0x00bcd4; };

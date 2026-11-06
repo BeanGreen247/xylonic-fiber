@@ -8,7 +8,7 @@
 namespace {
 struct Bridge {
     jclass cls = nullptr;   // global ref
-    jmethodID update = nullptr, landscape = nullptr, back = nullptr, exempt = nullptr, request = nullptr, density = nullptr, decode = nullptr, rate = nullptr;
+    jmethodID update = nullptr, appicon = nullptr, landscape = nullptr, back = nullptr, exempt = nullptr, request = nullptr, density = nullptr, decode = nullptr, rate = nullptr;
     bool tried = false;
 };
 Bridge g;
@@ -37,6 +37,7 @@ bool bind(JNIEnv* env, jobject act) {
         g.request = env->GetStaticMethodID(gcls, "requestBatteryExemption", "(Landroid/app/Activity;)V");
         if (env->ExceptionCheck()) env->ExceptionClear();
         g.landscape = env->GetStaticMethodID(gcls, "setLandscape", "(Landroid/app/Activity;Z)V");
+        g.appicon = env->GetStaticMethodID(gcls, "setAppIcon", "(Landroid/app/Activity;Ljava/lang/String;)V");
         g.density = env->GetStaticMethodID(gcls, "density", "(Landroid/content/Context;)F");
         g.decode = env->GetStaticMethodID(gcls, "decode", "([BI)[I");
         g.rate = env->GetStaticMethodID(gcls, "outputRate", "(Landroid/content/Context;)I");
@@ -129,6 +130,15 @@ void back(bool keep_running) {
     Scope j;
     if (!j.ok() || !g.back) { SDL_Quit(); return; }
     j.env->CallStaticVoidMethod(g.cls, g.back, j.act, static_cast<jboolean>(keep_running));
+    if (j.env->ExceptionCheck()) j.env->ExceptionClear();
+}
+
+void set_app_icon(const char* name) {
+    Scope j;
+    if (!j.ok() || !g.appicon) return;
+    jstring n = j.env->NewStringUTF(name);
+    j.env->CallStaticVoidMethod(g.cls, g.appicon, j.act, n);
+    j.env->DeleteLocalRef(n);
     if (j.env->ExceptionCheck()) j.env->ExceptionClear();
 }
 

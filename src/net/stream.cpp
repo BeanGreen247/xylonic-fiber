@@ -1,14 +1,6 @@
 #include "stream.h"
 #include "portable.h"
-#include <arpa/inet.h>
 #include <cerrno>
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/entropy.h>
@@ -16,37 +8,37 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <psa/crypto.h>
+#if defined(_WIN32)
+#include <wincrypt.h>   // system root store (crypt32)
+#endif
 
 namespace {
 class TcpStream : public Stream {
 public:
-    explicit TcpStream(int fd, int timeout_ms) : fd_(fd), timeout_(timeout_ms) {}
-    ~TcpStream() override { if (fd_ >= 0) ::close(fd_); }
+    explicit TcpStream(xf_sock_t fd, int timeout_ms) : fd_(fd), timeout_(timeout_ms) {}
+    ~TcpStream() override { if (fd_ != kBadSock) xf_close(fd_); }
     long read(void* buf, size_t n) override {
         if (!wait(POLLIN)) return -1;
-        ssize_t r = ::recv(fd_, buf, n, 0);
+        long r = xf_recv(fd_, buf, n);
         return r < 0 ? -1 : r;
     }
     bool write_all(const void* buf, size_t n) override {
         const char* p = static_cast<const char*>(buf);
         while (n) {
             if (!wait(POLLOUT)) return false;
-            ssize_t w = ::send(fd_, p, n, MSG_NOSIGNAL);
+            long w = xf_send(fd_, p, n);
             if (w <= 0) return false;
             p += w;
             n -= static_cast<size_t>(w);
         }
         return true;
     }
-    int fd() const { return fd_; }
+    xf_sock_t fd() const { return fd_; }
     bool wait(short ev) {
-        pollfd pf{fd_, ev, 0};
-        int r;
-        do { r = ::poll(&pf, 1, timeout_); } while (r < 0 && errno == EINTR);
-        return r > 0;
+        return xf_poll(fd_, ev, timeout_) > 0;
     }
 private:
-    int fd_;
+    xf_sock_t fd_;
     int timeout_;
 };
 
@@ -127,6 +119,16 @@ public:
 private:
     bool load_roots(const std::string& ca_file) {
         if (!ca_file.empty()) return mbedtls_x509_crt_parse_file(&ca_, ca_file.c_str()) >= 0 && ca_.version;
+#if defined(_WIN32)
+        // Windows keeps its trusted roots in the system "ROOT" store; each certificate is handed to mbedTLS as DER.
+        if (HCERTSTORE st = CertOpenSystemStoreA(0, "ROOT")) {
+            for (PCCERT_CONTEXT c = CertEnumCertificatesInStore(st, nullptr); c; c = CertEnumCertificatesInStore(st, c))
+                mbedtls_x509_crt_parse_der(&ca_, c->pbCertEncoded, c->cbCertEncoded);   // unparsable ones are skipped
+            CertCloseStore(st, 0);
+            if (ca_.version) return true;
+        }
+        return false;
+#endif
         static const char* files[] = {"/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
                                       "/etc/ssl/cert.pem", "/etc/ssl/ca-bundle.pem"};
         for (const char* f : files)
@@ -137,13 +139,13 @@ private:
     static int bio_send(void* ctx, const unsigned char* b, size_t n) {
         auto* s = static_cast<TlsStream*>(ctx);
         if (!s->tcp_->wait(POLLOUT)) return MBEDTLS_ERR_SSL_TIMEOUT;
-        ssize_t w = ::send(s->tcp_->fd(), b, n, MSG_NOSIGNAL);
+        long w = xf_send(s->tcp_->fd(), b, n);
         return w < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : static_cast<int>(w);
     }
     static int bio_recv(void* ctx, unsigned char* b, size_t n) {
         auto* s = static_cast<TlsStream*>(ctx);
         if (!s->tcp_->wait(POLLIN)) return MBEDTLS_ERR_SSL_TIMEOUT;
-        ssize_t r = ::recv(s->tcp_->fd(), b, n, 0);
+        long r = xf_recv(s->tcp_->fd(), b, n);
         return r < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : static_cast<int>(r);
     }
     std::unique_ptr<TcpStream> tcp_;
@@ -156,36 +158,28 @@ private:
 };
 
 std::unique_ptr<TcpStream> tcp_connect(const std::string& host, int port, int timeout_ms, std::string& err) {
+    xf_net_init();
     addrinfo hints{}, *res = nullptr;
     hints.ai_socktype = SOCK_STREAM;
     std::string ps = std::to_string(port);
     if (getaddrinfo(host.c_str(), ps.c_str(), &hints, &res) != 0 || !res) { err = "resolve " + host; return nullptr; }
-    int fd = -1;
+    xf_sock_t fd = kBadSock;
     for (addrinfo* a = res; a; a = a->ai_next) {
         fd = ::socket(a->ai_family, a->ai_socktype, a->ai_protocol);
-        if (fd < 0) continue;
-        int fl = fcntl(fd, F_GETFL, 0);
-        fcntl(fd, F_SETFL, fl | O_NONBLOCK);
-        int r = ::connect(fd, a->ai_addr, a->ai_addrlen);
-        if (r < 0 && errno == EINPROGRESS) {
-            pollfd pf{fd, POLLOUT, 0};
-            if (::poll(&pf, 1, timeout_ms) > 0) {
-                int e = 0;
-                socklen_t l = sizeof e;
-                getsockopt(fd, SOL_SOCKET, SO_ERROR, &e, &l);
-                r = e ? -1 : 0;
-            } else {
-                r = -1;
-            }
+        if (fd == kBadSock) continue;
+        xf_set_nonblock(fd, true);
+        int r = ::connect(fd, a->ai_addr, static_cast<int>(a->ai_addrlen));
+        if (r < 0 && xf_in_progress()) {
+            if (xf_poll(fd, POLLOUT, timeout_ms) > 0) r = xf_sockopt_error(fd) ? -1 : 0;
+            else r = -1;
         }
-        if (r == 0) { fcntl(fd, F_SETFL, fl); break; }
-        ::close(fd);
-        fd = -1;
+        if (r == 0) { xf_set_nonblock(fd, false); break; }
+        xf_close(fd);
+        fd = kBadSock;
     }
     freeaddrinfo(res);
-    if (fd < 0) { err = "connect " + host + ":" + ps; return nullptr; }
-    int one = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+    if (fd == kBadSock) { err = "connect " + host + ":" + ps; return nullptr; }
+    xf_nodelay(fd);
     return std::make_unique<TcpStream>(fd, timeout_ms);
 }
 }  // namespace

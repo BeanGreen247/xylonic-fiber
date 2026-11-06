@@ -1,4 +1,6 @@
+#include <cctype>
 #include "app.h"
+#include <thread>
 #include "android_bridge.h"
 #if !defined(__ANDROID__)
 #include <SDL_image.h>
@@ -44,6 +46,7 @@ std::string lower_ext(const std::string& s) {
 App::App(AppOptions o) : opt_(std::move(o)) {}
 
 App::~App() {
+    *alive_ = false;
     cancel_cache_preload();
     if (metered_timer_) SDL_RemoveTimer(metered_timer_);
     if (scan_cancel_) scan_cancel_->store(true);
@@ -74,21 +77,32 @@ bool App::init() {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
     }
+    {   // the stored settings are needed before the renderer exists (software rendering)
+        char* p = SDL_GetPrefPath(kOrg, kApp);
+        pref_ = p ? p : "./";
+        SDL_free(p);
+        cfg_path_ = pref_ + "config.json";
+        cfg_.load(cfg_path_);
+    }
     win_ = SDL_CreateWindow("Xylonic Fiber", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, opt_.width, opt_.height,
                             SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
-#if !defined(__ANDROID__) && !(defined(__APPLE__) && TARGET_OS_IPHONE)
-    if (win_) {   // taskbar / window-switcher icon (macOS takes it from the app bundle instead)
-        char* ib = SDL_GetBasePath();
-        const std::string ip = std::string(ib ? ib : "./") + "assets/icons/app-icon-256.png";
-        SDL_free(ib);
-        if (SDL_Surface* ic = IMG_Load(ip.c_str())) { SDL_SetWindowIcon(win_, ic); SDL_FreeSurface(ic); }
-    }
-#endif
     if (!win_) return false;
     SDL_SetWindowMinimumSize(win_, 320, 480);
-    ren_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    // CPU rasteriser (SDL's software renderer) when asked for (--software, XF_SOFTWARE=1, Settings > Advanced) and as the fallback
+    // when no GPU renderer can be created, so a machine with a broken or missing GL driver still gets a window.
+    const char* envsw = std::getenv("XF_SOFTWARE");
+    const bool want_sw = opt_.software || cfg_.software_render || (envsw && *envsw && *envsw != '0');
+    ren_ = nullptr;
+    if (!want_sw) {
+        ren_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        if (!ren_) ren_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_ACCELERATED);   // some drivers refuse vsync
+    }
     if (!ren_) ren_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_SOFTWARE);
     if (!ren_) return false;
+    {
+        SDL_RendererInfo ri{};
+        if (SDL_GetRendererInfo(ren_, &ri) == 0) { software_ = (ri.flags & SDL_RENDERER_SOFTWARE) != 0; renderer_name_ = ri.name ? ri.name : ""; xf_log("renderer: %s", ri.name); }
+    }
     SDL_SetRenderDrawBlendMode(ren_, SDL_BLENDMODE_BLEND);
     int ww, wh, dw, dh;
     SDL_GetWindowSize(win_, &ww, &wh);
@@ -106,13 +120,8 @@ bool App::init() {
     }
 #endif
 
-    char* p = SDL_GetPrefPath(kOrg, kApp);
-    pref_ = p ? p : "./";
-    SDL_free(p);
-    cfg_path_ = pref_ + "config.json";
     img_dir_ = pref_ + "covers/";
     mkdirs(img_dir_);
-    cfg_.load(cfg_path_);
     perm_dir_ = cache_base() + "downloads/"; stream_dir_ = cache_base() + "stream/";
     mkdirs(perm_dir_); mkdirs(stream_dir_);
     xf_log_configure(cfg_.debug_log, pref_ + "logs");
@@ -123,7 +132,16 @@ bool App::init() {
 #endif
 
     gfx_ = std::make_unique<Gfx>();
-    if (!gfx_->init(win_, ren_)) return false;
+    if (!gfx_->init(win_, ren_)) {   // the GPU renderer came up but cannot hold the glyph atlas: fall back to the CPU rasteriser
+        if (software_) return false;
+        SDL_DestroyRenderer(ren_);
+        ren_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_SOFTWARE);
+        if (!ren_) return false;
+        software_ = true; renderer_name_ = "software";
+        SDL_SetRenderDrawBlendMode(ren_, SDL_BLENDMODE_BLEND);
+        gfx_ = std::make_unique<Gfx>();
+        if (!gfx_->init(win_, ren_)) return false;
+    }
     ui_ = std::make_unique<Ui>(*gfx_);
     apply_theme();
     char* base = SDL_GetBasePath();
@@ -135,6 +153,7 @@ bool App::init() {
     icons_dir_ = std::string(base ? base : "./") + "assets/icons/";
 #endif
     SDL_free(base);
+    apply_app_icon(false);
     ui_->f_body = F(400, 15);
     ui_->f_small = F(400, 12.5f);
     ui_->f_title = F(700, 26);
@@ -164,17 +183,40 @@ bool App::init() {
     if (opt_.server.empty() && !cfg_.server_url.empty() && !cfg_.username.empty()) {
         if (cfg_.offline_mode) enter_offline();   // like the original: offline mode survives a restart and nothing connects until it is switched off
         else {
-            std::string saved;
-            if (secret_lookup(cfg_.server_url + "|" + cfg_.username, saved)) { f_pass_ = saved; connect(false); }
+            // The sign-in screen draws at once; the stored password arrives later and signs in by itself.
+            lookup_secret_async(cfg_.server_url + "|" + cfg_.username, [this](bool ok, std::string saved) {
+                if (ok && screen_ == Screen::Login && !connecting_ && !client_ && f_pass_.empty()) { f_pass_ = std::move(saved); connect(false); }
+            });
         }
     }
     if (!opt_.server.empty() && !opt_.pass.empty()) connect(false);
-    if (opt_.offline) { enter_offline(); if (opt_.nav == "downloads") set_nav(Nav::Downloads); else if (opt_.nav == "library") set_nav(Nav::Library); }
+    if (opt_.offline) { enter_offline(); if (opt_.nav == "downloads") set_nav(Nav::Downloads); else if (opt_.nav == "library") set_nav(Nav::Library); else if (opt_.nav == "settings") set_nav(Nav::Settings); }
+    if (opt_.offline && opt_.modal == "appicon") modal_ = Modal::AppIcon;
     if (!opt_.shot_path.empty()) shot_deadline_ = SDL_GetTicks() + static_cast<uint32_t>(opt_.shot_after_ms);
     return true;
 }
 
 // ---------------------------------------------------------------- session
+
+void App::lookup_secret_async(const std::string& account, std::function<void(bool, std::string)> done) {
+    std::thread([alive = alive_, account, done = std::move(done)] {
+        std::string pw;
+        const bool ok = secret_lookup(account, pw);
+        ui_post([alive, ok, pw = std::move(pw), done = std::move(done)]() mutable { if (*alive) done(ok, std::move(pw)); });
+    }).detach();
+}
+
+// Saves into the OS keyring (libsecret / Keystore / Keychain) off the UI thread: an unlock prompt or a slow D-Bus start must not freeze the window.
+void App::store_secret_async(const std::string& account, const std::string& pw) {
+    if (!secret_available()) { toast_ = "No system keyring found: the password was not saved"; toast_until_ = SDL_GetTicks() + 4000; mark(); return; }
+    std::thread([this, alive = alive_, account, pw] {
+        const bool ok = secret_store(account, pw);
+        if (!ok) ui_post([this, alive] {
+            if (!*alive) return;
+            toast_ = "Keyring locked or unavailable: the password was not saved"; toast_until_ = SDL_GetTicks() + 4000; mark();
+        });
+    }).detach();
+}
 
 void App::connect(bool trust_pin) {
     if (connecting_) return;
@@ -212,7 +254,7 @@ void App::connect(bool trust_pin) {
                 cfg_.pin_sha256 = copt_.pin_sha256;
                 cfg_.remember_connection(url, f_user_);
                 cfg_.save(cfg_path_);
-                if (opt_.server.empty()) secret_store(url + "|" + f_user_, f_pass_);  // not for scripted test logins
+                if (opt_.server.empty()) store_secret_async(url + "|" + f_user_, f_pass_);  // not for scripted test logins
                 on_connected();
             } else if (!fp.empty()) {
                 cert_fp_ = fp;
@@ -257,11 +299,48 @@ void App::open_account_data() {
     dl_dirty_ = true;
 }
 
+// ArtistList: the main artist of "A feat. B", "A & B", ... lower-cased with collapsed spaces
+std::string App::norm_artist(const std::string& full) {
+    static const char* seps[] = {", ", " \xE2\x80\xA2 ", " - ", " feat.", " feat ", " ft.", " ft ", " with ", " & "};
+    std::string m = full;
+    for (const char* sp : seps) { size_t i = full.find(sp); if (i != std::string::npos && i > 0) { m = full.substr(0, i); break; } }
+    std::string o; bool sp = false;
+    for (unsigned char c : m) { if (std::isspace(c)) { sp = true; continue; } if (sp && !o.empty()) o += ' '; sp = false; o += static_cast<char>(std::tolower(c)); }
+    return o;
+}
+
+bool App::album_cached(const Album& al) const {
+    auto it = cached_album_songs_.find(al.id);
+    if (it == cached_album_songs_.end()) return false;
+    return al.song_count ? it->second >= al.song_count : it->second > 0;
+}
+
+// AlbumList: "Cover art cached" (top-left, 24 px) once the cover sits in the on-disk image cache
+void App::draw_cover_cached_badge(const Rect& cov, const std::string& cover_id) {
+    if (cover_id.empty() || !images_ || !images_->on_disk(cover_id)) return;
+    const float s = S_;
+    Rect b{cov.x + 8 * s, cov.y + 8 * s, 24 * s, 24 * s};
+    gfx_->fill_round(b, 12 * s, {0, 0, 0, 178});
+    fa(0xf03e, b.x + 12 * s, b.y + 12 * s, 12, ui_->th.accent);
+}
+
+void App::draw_cached_badge(const Rect& cov) {
+    const float s = S_;
+    Rect b{cov.x + cov.w - 36 * s, cov.y + 8 * s, 28 * s, 28 * s};
+    gfx_->fill_round(b, 14 * s, {0, 0, 0, 178});
+    fa(skin::CircleCheck, b.x + 14 * s, b.y + 14 * s, 16, ui_->th.accent);
+}
+
 void App::refresh_dl_state() {
     dl_dirty_ = false;
     dl_state_.clear();
+    cached_artists_.clear(); cached_album_songs_.clear();
     if (!downloads_) return;
     auto snap = downloads_->snapshot();
+    for (auto& it : *snap) if (it.state == Downloads::Done) {   // library badges: "Has cached songs" (artist) and "Album cached"
+        cached_artists_.insert(norm_artist(it.song.artist));
+        ++cached_album_songs_[it.song.album_id];
+    }
     for (auto& it : *snap) dl_state_[it.song.id] = {it.state, it.state == Downloads::Active ? downloads_->live_bytes(it.song.id, it.bytes) : it.bytes, it.total};
 }
 
@@ -349,7 +428,7 @@ void App::on_connected() {
     if (opt_.dm.find("queue") != std::string::npos) dm_show_queue_ = true;
     if (opt_.dm.find("manage") != std::string::npos) dm_manage_ = true;
     if (!opt_.panel.empty()) toggle_panel(opt_.panel == "history" ? PanelTab::History : opt_.panel == "playlists" ? PanelTab::Playlists : PanelTab::Queue);
-    if (opt_.modal == "dlpicker") { open_download_picker(false); } else if (opt_.modal == "banner") { missing_songs_ = 25; missing_banner_ = true; } else if (opt_.modal == "offlineprompt") { prompt_ = Prompt::Offline; } else if (opt_.modal == "cellprompt") { prompt_ = Prompt::Cellular; } else if (opt_.modal == "newcontent") { nc_outdated_ = false; nc_artists_ = 3; nc_songs_ = 25; newcontent_open_ = true; } else if (opt_.modal == "outdated") { nc_outdated_ = true; newcontent_open_ = true; } else if (opt_.modal == "rebuild") modal_ = Modal::ConfirmRebuild; else if (opt_.modal == "dlquality") modal_ = Modal::DownloadQuality; else if (opt_.modal == "reauth") modal_ = Modal::Reauth; else if (opt_.modal == "theme") modal_ = Modal::Theme; else if (opt_.modal == "themeedit") modal_ = Modal::ThemeEdit; else if (opt_.modal == "firewall") modal_ = Modal::Firewall;
+    if (opt_.modal == "dlpicker") { open_download_picker(false); } else if (opt_.modal == "banner") { missing_songs_ = 25; missing_banner_ = true; } else if (opt_.modal == "offlineprompt") { prompt_ = Prompt::Offline; } else if (opt_.modal == "cellprompt") { prompt_ = Prompt::Cellular; } else if (opt_.modal == "newcontent") { nc_outdated_ = false; nc_artists_ = 3; nc_songs_ = 25; newcontent_open_ = true; } else if (opt_.modal == "outdated") { nc_outdated_ = true; newcontent_open_ = true; } else if (opt_.modal == "rebuild") modal_ = Modal::ConfirmRebuild; else if (opt_.modal == "dlquality") modal_ = Modal::DownloadQuality; else if (opt_.modal == "reauth") modal_ = Modal::Reauth; else if (opt_.modal == "theme") modal_ = Modal::Theme; else if (opt_.modal == "themeedit") modal_ = Modal::ThemeEdit; else if (opt_.modal == "firewall") modal_ = Modal::Firewall; else if (opt_.modal == "appicon") modal_ = Modal::AppIcon;
     if (!opt_.search.empty()) { search_q_ = opt_.search; nav_ = Nav::Search; views_.clear(); views_.push_back({ViewKind::Root, "", "Search", {}}); run_search(); }
     if (!opt_.download_album.empty()) {
         worker_->post([this, c = client_, s = session_, id = opt_.download_album] {
@@ -788,7 +867,8 @@ void App::handle(const SDL_Event& e) {
         break;
     case SDL_MOUSEBUTTONUP:
         if (e.button.button == SDL_BUTTON_RIGHT) { in.rclick = true; in.rx = e.button.x * M_; in.ry = e.button.y * M_; mark(); }
-        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = false; in.released = !touch_moved_ && !long_fired_; touch_moved_ = false; long_fired_ = false; press_touch_ = false; mark(); }
+        if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = false; const bool slid = press_touch_ && std::hypot(in.mx - in.press_x, in.my - in.press_y) > 12 * S_;   // a touch that travelled is a scroll or drag, never a tap, even when no finger-motion event marked it
+            in.released = !touch_moved_ && !slid && !long_fired_; touch_moved_ = false; long_fired_ = false; press_touch_ = false; mark(); }
         break;
     case SDL_FINGERDOWN: touch_moved_ = false; touch_accum_ = 0; break;
     case SDL_FINGERMOTION: {  // touch drag scrolls (the synthesized mouse events only click/drag widgets)
@@ -850,7 +930,7 @@ int App::run() {
         bool animating = pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_ || tip_pending_ || (press_touch_ && !long_fired_ && ui_->in.down);
         SDL_Event e;
         bool got;
-        if (dirty_) got = SDL_PollEvent(&e) != 0;
+        if (dirty_ || opt_.bench > 0) got = SDL_PollEvent(&e) != 0;
         else if (shot_deadline_) got = SDL_WaitEventTimeout(&e, 50) != 0;
         else if (animating) got = SDL_WaitEventTimeout(&e, pulse_live ? 33 : (tip_pending_ || press_touch_) ? 80 : 250) != 0;
         else got = SDL_WaitEvent(&e) != 0;
@@ -866,9 +946,29 @@ int App::run() {
         if (ui_->wants_frames && now - last_draw > 400) mark();
         if (pulse_live && now - last_draw >= 33) mark();
         if (tip_pending_ && now - last_draw >= 80) mark();
-        if (press_touch_ && !long_fired_ && !touch_moved_ && ui_->in.down && ui_->active == 0 && now - press_ms_ >= 500) {   // the original: Chromium turns a long press into "contextmenu"
+        if (press_touch_ && !long_fired_ && !touch_moved_ && ui_->in.down && ui_->active == 0 && now - press_ms_ >= 500 && std::hypot(ui_->in.mx - ui_->in.press_x, ui_->in.my - ui_->in.press_y) <= 8 * S_) {   // the original: Chromium turns a long press into "contextmenu"
             Input& in = ui_->in;
             in.rclick = true; in.rx = in.mx; in.ry = in.my; long_fired_ = true; mark();
+        }
+        if (opt_.bench > 0 && screen_ == Screen::Main && !track_loading_ && !loading_home_ && !pre_open_) {
+            // benchmark: after the page has settled for 2.5 s, wheel the content up and down, one frame per iteration, no event waits
+            if (!bench_start_) bench_start_ = SDL_GetTicks() + 2500;
+            if (SDL_GetTicks() >= bench_start_) {
+                const int k = static_cast<int>(bench_ms_.size());
+                if (k >= opt_.bench) {
+                    std::vector<double> v = bench_ms_;
+                    std::sort(v.begin(), v.end());
+                    double sum = 0; for (double d : v) sum += d;
+                    auto pc = [&](double q) { return v[std::min(v.size() - 1, static_cast<size_t>(q * static_cast<double>(v.size())))]; };
+                    std::printf("bench %zu frames (%s): avg %.2f ms  p50 %.2f  p95 %.2f  p99 %.2f  max %.2f  over16.7ms %zu  (present avg %.2f ms)\n", v.size(), renderer_name_.c_str(), sum / static_cast<double>(v.size()),
+                                pc(0.5), pc(0.95), pc(0.99), v.back(), static_cast<size_t>(std::count_if(v.begin(), v.end(), [](double d) { return d > 16.7; })), bench_present_ / static_cast<double>(v.size()));
+                    running_ = false;
+                } else {
+                    ui_->in.mx = W_last_ / 2; ui_->in.my = H_last_ / 2;
+                    ui_->in.wheel = (k / 20) % 2 == 0 ? -1.0f : 1.0f;   // 20 notches down, 20 up
+                    dirty_ = true;
+                }
+            }
         }
         if (dirty_) {
             dirty_ = false;
@@ -903,7 +1003,7 @@ void App::frame() {
     if (dl_dirty_) refresh_dl_state();
     gfx_->begin_frame(ui_->th.bg);
     const Input in0 = ui_->in;
-    if (screen_ == Screen::Login) draw_login(W, H);
+    if (screen_ == Screen::Login) { draw_login(W, H); if (connecting_) draw_signing_in(W, H); }
     else {
         draw_main(W, H);
         if (pre_open_ || newcontent_open_ || prompt_ != Prompt::None) { ui_->in = in0; if (pre_open_) draw_precache(W, H); else if (prompt_ != Prompt::None) draw_connectivity_prompt(W, H); else draw_new_content_prompt(W, H); }
@@ -914,6 +1014,8 @@ void App::frame() {
     const uint64_t now = SDL_GetPerformanceCounter();
     const double freq = static_cast<double>(SDL_GetPerformanceFrequency());
     render_ms_ = freq > 0 ? static_cast<double>(now - frame_start) * 1000.0 / freq : 0.0;
+    W_last_ = W; H_last_ = H;
+    if (opt_.bench > 0 && bench_start_ && SDL_GetTicks() >= bench_start_ && ui_->in.wheel != 0) { bench_ms_.push_back(render_ms_); bench_present_ += gfx_->present_ms(); }
     ++render_frames_;
     if (!render_window_start_) render_window_start_ = now;
     const double window_s = freq > 0 ? static_cast<double>(now - render_window_start_) / freq : 0.0;
@@ -935,7 +1037,7 @@ void App::draw_render_hud(float W, float H) {
     if (mobile_) {   // one small pill inside the header (hidden with the header while the keyboard is up)
         if (ui_->focus != 0 && H / s < 420) return;
         char t[48];
-        std::snprintf(t, sizeof t, "%.1f ms \xC2\xB7 %.0f FPS", render_ms_, render_fps_);
+        std::snprintf(t, sizeof t, "%s \xC2\xB7 %.1f ms \xC2\xB7 %.0f FPS", software_ ? "CPU" : "GPU", render_ms_, render_fps_);
         const int f = F(500, 10);
         const float pw = gfx_->measure(f, t) + 16 * s;
         Rect p{W - 56 * s - pw, 17 * s, pw, 22 * s};
@@ -943,7 +1045,7 @@ void App::draw_render_hud(float W, float H) {
         T(500, 10, p.x + 8 * s, p.y, 22, t, th.sub);
         return;
     }
-    const float w = 178 * s, h = 48 * s;
+    const float w = 178 * s, h = 64 * s;
     Rect b{W - w - 12 * s, 68 * s, w, h};   // RenderTimerHUD.css: top 68, right 12 (below the header)
     gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 8 * s, th.border);
     gfx_->fill_round(b, 7 * s, {0, 0, 0, 205});
@@ -953,4 +1055,20 @@ void App::draw_render_hud(float W, float H) {
     const char* mode = cfg_.perf_mode == 1 ? "Gaming" : cfg_.perf_mode == 2 ? "Eco" : "Balanced";
     std::snprintf(line, sizeof line, "Mode: %s", mode);
     T(400, 10, b.x + 10 * s, b.y + 25 * s, 16, line, th.sub);
+    std::snprintf(line, sizeof line, "Renderer: %s (%s)", renderer_name_.c_str(), software_ ? "CPU" : "GPU");
+    T(400, 10, b.x + 10 * s, b.y + 41 * s, 16, line, software_ ? th.accent : th.sub);
+}
+
+void App::apply_app_icon(bool launcher) {
+    const int i = cfg_.app_icon >= 0 && cfg_.app_icon < kAppIconCount ? cfg_.app_icon : 0;
+#if !defined(__ANDROID__) && !(defined(__APPLE__) && TARGET_OS_IPHONE)
+    if (win_) {   // taskbar / window-switcher icon (macOS takes it from the app bundle instead)
+        if (SDL_Surface* ic = IMG_Load((icons_dir_ + "styles/" + kAppIcons[i].name + std::string("-256.png")).c_str())) { SDL_SetWindowIcon(win_, ic); SDL_FreeSurface(ic); }
+    }
+#endif
+#if defined(__ANDROID__)
+    if (launcher) android_bridge::set_app_icon(kAppIcons[i].name);
+#endif
+    (void)launcher;
+    if (splash_tex_) { SDL_DestroyTexture(splash_tex_); splash_tex_ = nullptr; }
 }

@@ -1,4 +1,5 @@
 #include "images.h"
+#include "log.h"
 #include "android_bridge.h"
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -336,7 +337,7 @@ SDL_Texture* ImageCache::get(const std::string& key, UrlFn url_fn, const std::st
         if (now - it->second.stat_ms > 2000) { ++mem_hits_; it->second.stat_ms = now; }   // counted when a tile (re)appears, not per frame
         return it->second.t;
     }
-    if (blackout_.load() && key.compare(0, 3, "hi:") != 0) return nullptr;
+    // (the bulk precache used to blank every on-demand cover while it ran, which left Discover empty behind its dialog; the visible covers now load alongside it)
     if (fallback_.count(key) || pending_.count(key)) return nullptr;
     auto rt = retry_.find(key);
     if (rt != retry_.end() && static_cast<int32_t>(SDL_GetTicks() - rt->second.second) < 0) return nullptr;
@@ -391,7 +392,7 @@ void ImageCache::run_job(const std::string& key, Key k, UrlFn url_fn, std::strin
     else { if (have) SDL_Log("IMG decode failed key=%s bytes=%zu", key.c_str(), bytes.size()); data.clear(); if (st == Fetch::Ok) st = Fetch::Failed; }
     ui_post([this, key, data = std::move(data), w, h, avg, st, hi = k.hi, net = k.net]() mutable {
         pending_.erase(key);
-        SDL_Log("IMG done key=%s st=%d data=%zu %dx%d tex=%zu pend=%zu", key.c_str(), static_cast<int>(st), data.size(), w, h, tex_.size(), pending_.size());
+        if (xf_log_enabled()) xf_log("IMG done key=%s st=%d data=%zu %dx%d tex=%zu pend=%zu", key.c_str(), static_cast<int>(st), data.size(), w, h, tex_.size(), pending_.size());
         if (st == Fetch::Placeholder) { fallback_.insert(key); fallback_ids_.insert(parse(key).id); if (on_ready_) on_ready_(); return; }
         if (st != Fetch::Ok || data.empty()) {
             auto& rt = retry_[key]; ++rt.first;

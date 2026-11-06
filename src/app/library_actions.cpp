@@ -255,9 +255,14 @@ void App::toggle_offline() {
     offline_ = !offline_;
     cfg_.offline_mode = offline_; cfg_.save(cfg_path_);
     if (!offline_ && !client_ && !connecting_) {   // going online after an offline start: sign in again with the stored password
-        std::string saved;
-        if (secret_lookup(cfg_.server_url + "|" + cfg_.username, saved)) { f_url_ = cfg_.server_url; f_user_ = cfg_.username; f_pass_ = saved; connect(false); }
-        else { toast_ = "Sign in again to go online"; toast_until_ = SDL_GetTicks() + 3500; logout(); return; }   // no stored password: back to the sign-in screen
+        // keyring lookup off the UI thread (it can block for seconds); without a stored password go back to the sign-in screen
+        lookup_secret_async(cfg_.server_url + "|" + cfg_.username, [this](bool ok, std::string saved) {
+            if (offline_ || client_ || connecting_) return;   // switched back meanwhile
+            if (ok) { f_url_ = cfg_.server_url; f_user_ = cfg_.username; f_pass_ = std::move(saved); connect(false); }
+            else { toast_ = "Sign in again to go online"; toast_until_ = SDL_GetTicks() + 3500; logout(); }
+        });
+        mark();
+        return;
     }
     alb_loaded_page_ = song_loaded_page_ = -1;   // the Albums and Songs lists switch between the server and the downloads
     if (offline_ && nav_ == Nav::Home) set_nav(Nav::Library);
@@ -314,15 +319,23 @@ Rect App::qp_frame(float W, float H, float content_h, const char* title, uint32_
 }
 
 // SwitchServerSection: with a saved password the connection is tried at once; otherwise (or when it fails) the password is asked for.
-void App::switch_to(int idx, const std::string& password) {
+void App::switch_to(int idx, const std::string& password, bool from_keyring) {
     if (idx < 0 || idx >= static_cast<int>(cfg_.conns.size()) || switching_) return;
     const Config::Conn conn = cfg_.conns[static_cast<size_t>(idx)];
     std::string pass = password;
-    if (pass.empty()) secret_lookup(conn.url + "|" + conn.user, pass);
+    if (pass.empty() && !switch_lookup_done_) {   // keyring read off the UI thread, then come back with whatever it found
+        switch_lookup_done_ = true;
+        lookup_secret_async(conn.url + "|" + conn.user, [this, idx](bool ok, std::string saved) {
+            if (ok) switch_to(idx, saved, true);
+            else { switch_lookup_done_ = true; switch_to(idx, ""); }
+        });
+        return;
+    }
+    switch_lookup_done_ = false;
     if (pass.empty()) { switch_idx_ = idx; switch_pass_.clear(); switch_err_.clear(); modal_ = Modal::SwitchPass; mark(); return; }
     switching_ = true;
     auto probe = std::make_shared<SubsonicClient>(conn.url, conn.user, pass, copt_);
-    worker_->post([this, probe, idx, pass, from_prompt = !password.empty(), s = session_] {
+    worker_->post([this, probe, idx, pass, from_prompt = !password.empty() && !from_keyring, s = session_] {
         std::string e; const bool ok = probe->ping(e);
         ui_post([this, ok, idx, pass, from_prompt, e, s] {
             if (s != session_) return;

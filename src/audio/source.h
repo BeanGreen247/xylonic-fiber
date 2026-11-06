@@ -30,17 +30,22 @@ public:
     bool seek(int64_t off, Origin o) override;
     int64_t tell() const override { return pos_; }
     int64_t size() const { return size_.load(); }
-    bool complete() const { return done_.load() && !failed_.load(); }
+    // Whole file present from byte 0 (a track entered by a Range jump never completes, so it is not kept as a cache file).
+    bool complete() const { return !failed_.load() && win_start_.load() == 0 && size_.load() >= 0 ? avail_.load() == size_.load() : (done_.load() && !failed_.load() && win_start_.load() == 0); }
 
 private:
     void run();
+    void request_restart(int64_t at);   // caller holds m_: re-aim the download at `at` with a Range request
     std::string url_, final_, part_;
     ConnectOptions opt_;
     std::thread th_;
     std::mutex m_;
     std::condition_variable cv_;
     int fd_w_ = -1, fd_r_ = -1;
-    std::atomic<int64_t> avail_{0}, size_{-1};
+    // The download is one contiguous window [win_start_, avail_) of the file; a seek far outside it restarts the request with Range.
+    std::atomic<int64_t> avail_{0}, size_{-1}, win_start_{0};
+    int64_t restart_at_ = -1;
+    bool range_ok_ = true;
     std::atomic<bool> done_{false}, failed_{false}, cancel_{false}, headers_{false};
     int status_ = 0;
     std::string error_;

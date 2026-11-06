@@ -4,7 +4,7 @@
 #include <string>
 
 namespace skin {
-constexpr float kHeaderH = 64, kNavW = 64, kPlayerH = 86, kContentPad = 24;
+constexpr float kHeaderH = 64, kNavW = 64, kPlayerH = 64, kPlayerFloat = 28, kPlayerInset = 12, kContentPad = 24;
 constexpr float kCardW = 180, kCardH = 239, kCardGap = 24, kCardPad = 16, kCardCover = 148;
 
 // Font Awesome 7 solid codepoints (the subset in assets/fonts/fa-solid-subset.ttf)

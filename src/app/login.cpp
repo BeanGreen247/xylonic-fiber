@@ -72,9 +72,14 @@ void App::select_connection(int idx) {
     f_url_ = c.url; f_user_ = c.user;
     f_pass_.clear();
     if (c.url == cfg_.server_url) login_pin_ = cfg_.pin_sha256;
-    std::string saved;
-    if (offline_check_ && secret_lookup(c.url + "|" + c.user, saved)) { f_pass_ = saved; test_ok_ = true; login_msg_ = "Offline mode: Using cached data and stored credentials"; }
-    else if (offline_check_) login_msg_ = secret_available() ? "Cache available but no stored credentials found. Please enter your password." : "Cache available but secure storage not available. Please enter your password.";
+    if (!offline_check_) return;
+    login_msg_ = "Checking the keyring\xE2\x80\xA6";
+    lookup_secret_async(c.url + "|" + c.user, [this, idx](bool ok, std::string saved) {
+        if (sel_conn_ != idx || !offline_check_) return;   // selection changed meanwhile
+        if (ok) { f_pass_ = std::move(saved); test_ok_ = true; login_msg_ = "Offline mode: Using cached data and stored credentials"; }
+        else login_msg_ = secret_available() ? "Cache available but no stored credentials found. Please enter your password." : "Cache available but secure storage not available. Please enter your password.";
+        mark();
+    });
 }
 
 void App::draw_login(float W, float H) {
@@ -270,4 +275,29 @@ void App::draw_login(float W, float H) {
         }
         if (u.in.pressed && !pb.contains(u.in.mx, u.in.my) && !trig.contains(u.in.mx, u.in.my)) picker_open_ = false;
     }
+}
+
+// Full-window "Signing in" card shown from pressing Login until the server answers and the main window takes over.
+void App::draw_signing_in(float W, float H) {
+    const Theme& th = ui_->th;
+    const float s = S_;
+    const uint32_t t = SDL_GetTicks();
+    gfx_->fill({0, 0, W, H}, {0, 0, 0, 150});
+    const float cw = std::min(300 * s, W - 40 * s), ch = 150 * s;
+    Rect c{(W - cw) / 2, (H - ch) / 2, cw, ch};
+    for (int i = 3; i >= 1; --i) gfx_->fill_round({c.x - i * 2 * s, c.y + i * 3 * s, c.w + 4 * i * s, c.h}, 20 * s + i * 2 * s, {0, 0, 0, 12});
+    gfx_->fill_round(c, 20 * s, th.panel);
+    const float cx = c.x + c.w / 2, cy = c.y + 54 * s, r = 20 * s;
+    gfx_->arc(cx, cy, r, 4 * s, 0, 6.2831853f, alpha(th.text, 0.12f), false);
+    const float a = (t % 1100) / 1100.0f * 6.2831853f;
+    gfx_->arc(cx, cy, r, 4 * s, a, 1.9f, th.accent, true);
+    const std::string host = f_url_.find("://") != std::string::npos ? f_url_.substr(f_url_.find("://") + 3) : f_url_;
+    const std::string l1 = "Signing in";
+    gfx_->text(F(700, 17), cx - gfx_->measure(F(700, 17), l1) / 2, c.y + 88 * s, l1, th.text);
+    const std::string l2 = "Connecting to " + host;
+    const float mw = c.w - 32 * s;
+    std::string cut = l2;
+    while (cut.size() > 4 && gfx_->measure(F(400, 13), cut) > mw) cut.resize(cut.size() - 2);
+    if (cut != l2) cut += "\xE2\x80\xA6";
+    gfx_->text(F(400, 13), cx - gfx_->measure(F(400, 13), cut) / 2, c.y + 114 * s, cut, th.sub);
 }

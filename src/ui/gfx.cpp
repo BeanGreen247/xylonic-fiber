@@ -1,5 +1,6 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "gfx.h"
+#include <cstdlib>
 #include <cmath>
 #include "../../third_party/stb_truetype.h"
 
@@ -130,7 +131,10 @@ void Gfx::end_frame() {
         }
         capture_path_.clear();
     }
+    SDL_RenderFlush(ren_);   // runs the queued draw commands, so the time below is the window update alone
+    const uint64_t t0 = SDL_GetPerformanceCounter();
     SDL_RenderPresent(ren_);
+    present_ms_ = static_cast<double>(SDL_GetPerformanceCounter() - t0) * 1000.0 / static_cast<double>(SDL_GetPerformanceFrequency());
 }
 
 void Gfx::quad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, Color c) {
@@ -179,7 +183,7 @@ void Gfx::fill_round(Rect r, float rad, Color c) {
     float x0 = std::round(r.x), y0 = std::round(r.y), x1 = std::round(r.x + r.w), y1 = std::round(r.y + r.h);
     float w = x1 - x0, h = y1 - y0;
     if (w <= 0 || h <= 0) return;
-    int R = static_cast<int>(std::lround(std::min(rad, std::min(w, h) / 2)));
+    int R = std::min(static_cast<int>(std::lround(rad)), static_cast<int>(std::min(w, h) / 2));  // 2R <= size so translucent fills never double-blend a seam
     if (R < 2 || R > 160) { fill({x0, y0, w, h}, c); return; }
     const Shape* sh = shape(R, 0);
     if (!sh) { fill({x0, y0, w, h}, c); return; }
@@ -195,7 +199,7 @@ void Gfx::stroke_round(Rect r, float rad, float t, Color c, Color) {
     float x0 = std::round(r.x), y0 = std::round(r.y), x1 = std::round(r.x + r.w), y1 = std::round(r.y + r.h);
     float w = x1 - x0, h = y1 - y0;
     int T = std::max(1, static_cast<int>(std::lround(t)));
-    int R = static_cast<int>(std::lround(std::min(rad, std::min(w, h) / 2)));
+    int R = std::min(static_cast<int>(std::lround(rad)), static_cast<int>(std::min(w, h) / 2));
     if (R < 2 || R > 160) { stroke({x0, y0, w, h}, static_cast<float>(T), c); return; }
     const Shape* sh = shape(R, T);
     if (!sh) { stroke({x0, y0, w, h}, static_cast<float>(T), c); return; }
@@ -325,9 +329,27 @@ void Gfx::image_round(SDL_Texture* tex, Rect d, float rad, Color tint) {
 
 void Gfx::clip(const Rect* r) {
     flush();
-    if (!r) { SDL_RenderSetClipRect(ren_, nullptr); return; }
-    SDL_Rect c{int(r->x), int(r->y), int(r->w), int(r->h)};
+    if (!r) {
+        if (has_base_) SDL_RenderSetClipRect(ren_, &base_); else SDL_RenderSetClipRect(ren_, nullptr);
+        return;
+    }
+    SDL_Rect c{int(r->x), int(r->y), std::max(0, int(r->w)), std::max(0, int(r->h))};   // SDL turns clipping off for a negative size; an empty rect clips everything
+    if (has_base_) {
+        if (grow_to_ > grow_from_ && std::abs((c.y + c.h) - grow_from_) <= 1) c.h = std::max(0, grow_to_ - c.y);
+        SDL_Rect out{0, 0, 0, 0};
+        if (!SDL_IntersectRect(&c, &base_, &out)) out = SDL_Rect{0, 0, 0, 0};
+        c = out;
+    }
     SDL_RenderSetClipRect(ren_, &c);
+}
+
+void Gfx::set_base_clip(const Rect* r, float grow_from, float grow_to) {
+    flush();
+    if (!r) { has_base_ = false; grow_from_ = grow_to_ = 0; SDL_RenderSetClipRect(ren_, nullptr); return; }
+    base_ = SDL_Rect{int(r->x), int(r->y), std::max(0, int(r->w)), std::max(0, int(r->h))};
+    has_base_ = true;
+    grow_from_ = int(grow_from); grow_to_ = int(grow_to);
+    SDL_RenderSetClipRect(ren_, &base_);
 }
 
 namespace {

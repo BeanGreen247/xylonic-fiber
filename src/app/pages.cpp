@@ -83,6 +83,8 @@ void App::draw_artist(Rect r) {
         Rect cov{px + 16 * s, py + 16 * s, 175 * s, 175 * s};
         if (SDL_Texture* t = cover(al.cover_art, 175, al.artist, al.name)) gfx_->image_round(t, cov, 4 * s);
         else draw_art_fallback(cov, al.cover_art, 4 * s);
+        if (album_cached(al)) draw_cached_badge(cov);
+        draw_cover_cached_badge(cov, al.cover_art);
         float nw = std::min(gfx_->measure(F(600, 15.2f), al.name), cov.w);
         T(600, 15.2f, cov.x + (cov.w - nw) / 2, py + 203 * s, 23, al.name, th.text, cov.w);
         std::string sub = (al.year ? std::to_string(al.year) + " \xE2\x80\xA2 " : std::string()) + std::to_string(al.song_count) + " songs";

@@ -19,6 +19,8 @@ int output_rate();
 bool decode_image(const std::string& bytes, std::vector<uint8_t>& rgba, int& w, int& h);
 // Forces landscape (Car Mode) or gives rotation back to the user setting.
 void set_landscape(bool landscape);
+// Enables the launcher activity-alias for the app icon `name` (see app_icons.h) and disables the others.
+void set_app_icon(const char* name);
 bool battery_exempt();
 void request_battery_exemption();
 }  // namespace android_bridge

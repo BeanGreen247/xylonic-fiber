@@ -8,28 +8,28 @@ Status: done / partial / todo. "exact" means constants and algorithm ported and 
 |---|---|---|
 | utils/colorContrast.ts, types/theme.ts, ThemeContext | src/ui/themes.* | done, exact, ported tests (system mode follows dark until OS detection lands) |
 | Header.tsx, AppNav.tsx (collapsed) | src/app/shell.cpp | partial: 200px expandable / 64px collapsed rail, narrow-window hamburger, and player-bar input shielding; screenshot verification and full mobile spacing todo |
-| PlaybackControls, ProgressBar, VolumeControl, StreamingQualitySelector (bar) | shell.cpp draw_player_bar | partial: layout exact; speed and quality popups todo |
+| PlaybackControls, ProgressBar, VolumeControl, StreamingQualitySelector (bar) | shell.cpp draw_player_bar | done: layout exact; speed and quality popups in shell.cpp |
 | DiscoverView.tsx | shell.cpp draw_discover | done: sections, 20 albums, skeletons, arrows, Play All; 5 min cache TTL todo |
-| subsonicApi.ts | src/subsonic | partial: core calls done; playlists, getSong stats, starred list todo |
-| PlayerContext, playerQueue, useQueueActions, playerPersistence | src/app/queue.* | partial: shuffle/repeat/wrap exact; history, play-next UI, neighbours todo |
+| subsonicApi.ts | src/subsonic | done: core calls, playlists, getSong stats, starred list |
+| PlayerContext, playerQueue, useQueueActions, playerPersistence | src/app/queue.* | done: shuffle/repeat/wrap exact, history, play-next UI, neighbour prefetch |
 | audioPlayer, usePlaybackEngine | src/audio | done: decode, resample, EQ shelves, ring, async seek, speed 0.5-2x, gapless preload 15 s before end (rate-converted), spectrum tap; ReplayGain not in the old app |
-| offlineCacheService, downloadManagerService, downloadReconciler | src/app/store, downloads | partial: resumable downloads, verify, offline browse; quality picker, refcount dedup, orphan reconcile todo |
-| imageCacheService, AlbumArt, coverArtDownloader, internetArtworkService | src/app/images.* | partial: disk + LRU; mode-aware sizing, iTunes fallback, placeholder detection todo |
-| persistentCache, metadataCache, searchCacheService, searchWorker | store.*, future search cache | partial: atomic JSON/file cache; full search index todo |
-| secureCredentialService, credentialsService | src/app/secrets.* | done (Linux Secret Service); Android Keystore, Windows, macOS todo |
-| LoginForm (layout, test-then-login, offline toggle, connection history picker), ipc/serverDiscovery + serverDiscoveryProbe | src/app/login.cpp, src/net/discovery.* | done (discovery tested; LAN, Tailscale CLI, hostnames); ReauthDialog todo |
-| ArtistList, AllAlbumsGrid, AllSongsGrid, LikedSongsView, LibraryViewToggle, ShuffleAll, Pagination | src/app/library.cpp | done (layout from reference); Shuffle All pages 500 songs serially, quality picker for Download All todo |
+| offlineCacheService, downloadManagerService, downloadReconciler | src/app/store, downloads | done: resumable downloads, verify, offline browse, quality picker, refcount dedup, orphan reconcile |
+| imageCacheService, AlbumArt, coverArtDownloader, internetArtworkService | src/app/images.* | done: disk + LRU, mode-aware sizing, iTunes fallback, placeholder detection |
+| persistentCache, metadataCache, searchCacheService, searchWorker | store.*, future search cache | done: atomic JSON/file cache, persisted search index |
+| secureCredentialService, credentialsService | src/app/secrets.* | done (Linux Secret Service, Android Keystore, macOS/iOS Keychain); Windows todo |
+| LoginForm (layout, test-then-login, offline toggle, connection history picker), ipc/serverDiscovery + serverDiscoveryProbe | src/app/login.cpp, src/net/discovery.* | done (discovery tested; LAN, Tailscale CLI, hostnames, ReauthDialog) |
+| ArtistList, AllAlbumsGrid, AllSongsGrid, LikedSongsView, LibraryViewToggle, ShuffleAll, Pagination | src/app/library.cpp | done (layout from reference, Shuffle All paging, Download All quality picker) |
 | AlbumList (artist page), SongList (album hero + rows) | src/app/pages.cpp | done (layout from reference) |
-| SearchResults, SearchContext (server search3, 300 ms debounce, best result rule) | src/app/search.cpp | done; local search index (searchCacheService) todo |
+| SearchResults, SearchContext (server search3, 300 ms debounce, best result rule) | src/app/search.cpp | done, including the persisted local search index |
 | RightPanel Queue + History tabs, recentlyPlayedService (50, per account in local JSON) | src/app/panel.cpp | done (layout from reference, drag reorder, search, Q/H/P/Esc); Playlists tab, AddToPlaylistDialog and SongContextMenu done |
 | DesktopNowPlaying | src/app/nowplaying.cpp | partial: animated low-rate cover-colour blobs and MiniPlayer desktop done; mobile overlay and screenshot verification todo |
-| CarMode (header, art, transport, seek, flip, minimal layout, keep-awake, battery) | src/app/carmode.cpp | partial: layout, Pulse Deck, EQ and 900px high-resolution art request done; artwork fallback and orientation lock todo |
-| SettingsView (all 13 sections), SleepTimerPicker, ThemeSelector + CustomThemeEditor, clear-all-data | src/app/settings.cpp | partial: settings/theme/sleep/performance modes and Render Timer HUD done; Car Mode, Remote, Tech Stack, Licenses and performance-cache stats rows still inert/placeholder |
-| lastfmService, LastfmSettings, useScrobbler | todo (plain scrobble call done) | |
-| remote (ipc/remote.js, RemoteModeContext, RemoteDevicePicker) | src/net/remote.*, src/app/remote_ui.cpp | done: UDP presence + multicast, HTTP /cmd server, pairing rules (account match, busy), Be Controlled actions, Control Others picker, player bar routes play/next/prev/seek/volume/shuffle/repeat; wire-compatible with the old app (tested on loopback, TSAN clean); FirewallSetupDialog todo, real two-device test is yours |
+| CarMode (header, art, transport, seek, flip, minimal layout, keep-awake, battery) | src/app/carmode.cpp | done: layout, Pulse Deck, EQ, 900px art, artwork fallback, landscape lock with orientation restore |
+| SettingsView (all 13 sections), SleepTimerPicker, ThemeSelector + CustomThemeEditor, clear-all-data | src/app/settings.cpp | done: settings, theme, sleep, performance modes, Render Timer HUD, Performance Cache stats, Storage, Advanced; Last.fm row is informational (as in the original) |
+| lastfmService, LastfmSettings, useScrobbler | settings.cpp, scrobble call | done: scrobbling is server side, the original hides the settings component |
+| remote (ipc/remote.js, RemoteModeContext, RemoteDevicePicker) | src/net/remote.*, src/app/remote_ui.cpp | done: UDP presence + multicast, HTTP /cmd server, pairing rules (account match, busy), Be Controlled actions, Control Others picker, player bar routes play/next/prev/seek/volume/shuffle/repeat; wire-compatible with the old app (tested on loopback, TSAN clean); FirewallSetupDialog done (modals.cpp), real two-device test is yours |
 | mpris.js | src/app/mpris.* (sd-bus, own thread) | done: status, metadata + art, transport, seek, volume, shuffle, loop; verified with busctl on the real session bus |
-| CachePreloadDialog, perfModeService (Gaming/Balanced/Eco), RenderTimerHUD | partial: performance modes, Render Timer HUD and native preload dialog done; search-index persistence and exact IndexedDB-equivalent cache still todo | |
-| Android native (capacitorBridge, MusicService, download service) | todo: SDL2 NDK project, owner builds | |
+| CachePreloadDialog, perfModeService (Gaming/Balanced/Eco), RenderTimerHUD | src/app/precache.cpp, settings.cpp | done: performance modes, Render Timer HUD, preload dialog, search-index persistence |
+| Android native (capacitorBridge, MusicService, download service) | android/ (SDL2 NDK, MediaService, MediaBridge, SecretStore) | partial: built and run on the Oilsky G88, see android/ANDROID.md; MediaService media controls untested |
 
 Reference capture tooling lives in the session scratchpad only; to recreate: run the old app with `ELECTRON_IS_DEV=0 electron . --user-data-dir=X --remote-debugging-port=9333`, log in to the fake Subsonic server, drive it over CDP (`Emulation.setDeviceMetricsOverride` 1024x768, `Page.captureScreenshot`, DOM walk with getBoundingClientRect/getComputedStyle).
 

@@ -71,6 +71,7 @@ void App::draw_modal(float W, float H) {
     if (modal_ == Modal::Firewall) { draw_firewall_modal(W, H); return; }
     if (modal_ == Modal::Theme) { draw_theme_modal(W, H); return; }
     if (modal_ == Modal::ThemeEdit) { draw_theme_editor(W, H); return; }
+    if (modal_ == Modal::AppIcon) { draw_app_icon_modal(W, H); return; }
     // wrapped paragraphs: height first (so the dialog fits its text on a narrow screen), then drawing
     auto para_h = [&](float w, const std::vector<std::string>& ls) {
         const float inner = (std::min(w, W / s - 24) - 40) * s;
@@ -203,7 +204,7 @@ void App::draw_modal(float W, float H) {
                     reauth_busy_ = false;
                     if (!ok) { reauth_msg_ = err.empty() ? "Sign in failed" : err; mark(); return; }
                     old->set_password(pass);    // same client object: queued downloads and workers pick it up
-                    secret_store(cfg_.server_url + "|" + cfg_.username, pass);
+                    store_secret_async(cfg_.server_url + "|" + cfg_.username, pass);
                     reauth_pass_.clear(); modal_ = Modal::None; load_home(); mark();
                 });
             });
@@ -278,7 +279,9 @@ void App::draw_settings(Rect r) {
     const float s = S_;
     const Theme& th = u.th;
     const bool cp = mobile_;   // compact: 12 px side padding, full width, 24 px title
-    const float x = r.x + (cp ? 12.0f : 24.0f) * s, w = cp ? r.w - 24 * s : std::min(680 * s, r.w - 48 * s - 12 * s);
+    // desktop: the column grows with the window (680 at 1024 wide, up to 980) and sits in the middle of the page
+    const float w = cp ? r.w - 24 * s : std::min(std::min(980.0f, std::max(680.0f, r.w / s * 0.6f)) * s, r.w - 48 * s - 12 * s);
+    const float x = cp ? r.x + 12 * s : r.x + std::max(24 * s, (r.w - 12 * s - w) / 2);
     float total = 3260 * s;
 #if defined(XF_APP_STORE)
     total += 222 * s;
@@ -291,6 +294,7 @@ void App::draw_settings(Rect r) {
 #endif
     for (float e : card_extra_prev_) total += e * s;
     if (u.hover(r)) settings_scroll_.y -= u.in.wheel * 60 * s;
+    if (settings_total_ > 0) total = settings_total_;   // measured last frame; the estimate only covers the first one
     settings_scroll_.clamp(total, r.h);
     float y = r.y + (cp ? 12.0f : 24.0f) * s - settings_scroll_.y;
     gfx_->clip(&r);
@@ -407,7 +411,7 @@ void App::draw_settings(Rect r) {
 #endif
     // ---- APPEARANCE
     section("APPEARANCE");
-    card_fill(y, 197 * s);
+    card_fill(y, 250 * s);
     {
         row(0xf186, "Mode", "Light / dark \xE2\x80\x94 follows your system by default", 0, false, "", false, 71);
         Rect sel = dd_rect();
@@ -420,6 +424,7 @@ void App::draw_settings(Rect r) {
         Rect isel = dd_rect();
         dropdown(9, isel, {"GitHub", "Classic", "Phosphor", "Material"}, cfg_.icon_set == 1 ? 0 : cfg_.icon_set == 0 ? 1 : cfg_.icon_set);
         if (pick_id == 9 && pick >= 0) { static const int map[4] = {1, 0, 2, 3}; cfg_.icon_set = map[pick]; cfg_.save(cfg_path_); dropdown_open_ = 0; mark(); }
+        if (row(0xf302, "App Icon", "", 1, true, kAppIcons[cfg_.app_icon].label, false, 52)) modal_ = Modal::AppIcon;
     }
     y += (1 + 32) * s; row_i = 0;
     // ---- PLAYBACK
@@ -618,9 +623,9 @@ void App::draw_settings(Rect r) {
     // ---- ADVANCED (performance tiers)
     section("ADVANCED");
 #if defined(__ANDROID__)
-    card_fill(y, (335 + 61 + 1) * s);   // + the Background activity row (the Open Log Folder row does not exist on Android)
+    card_fill(y, (335 + 61 + 1 + 62) * s);   // + the Background activity and Software rendering rows (the Open Log Folder row does not exist on Android)
 #else
-    card_fill(y, (335 + (cfg_.debug_log ? 53 : 0)) * s);
+    card_fill(y, (335 + 62 + (cfg_.debug_log ? 53 : 0)) * s);
 #endif
     {
         static const char* names[3] = {"Balanced Mode", "Gaming Mode", "Eco Mode"};
@@ -644,6 +649,7 @@ void App::draw_settings(Rect r) {
         }
 #endif
         if (row(0xf201, "Performance Overlay", "Shows FPS, CPU load, and OS RAM usage \xE2\x80\x94 green <16 ms, yellow <50 ms, red \xE2\x89\xA5 50 ms", 1, false, cfg_.render_timer ? "On" : "Off", cfg_.render_timer, 61)) { cfg_.render_timer = !cfg_.render_timer; cfg_.save(cfg_path_); mark(); }
+        if (row(0xf201, "Software Rendering", software_ ? "Drawing on the CPU. Turn off if the GPU renderer works for you; applies on the next start" : "Draw on the CPU instead of the GPU \xE2\x80\x94 use it when the window is blank or glitchy; applies on the next start", 1, false, cfg_.software_render ? "On" : "Off", cfg_.software_render, 61)) { cfg_.software_render = !cfg_.software_render; cfg_.save(cfg_path_); toast_ = "Restart the app to apply"; toast_until_ = SDL_GetTicks() + 3000; mark(); }
     }
     y += (1 + 32) * s; row_i = 0;
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
@@ -680,6 +686,10 @@ void App::draw_settings(Rect r) {
     if (row(0xf5fd, "Tech Stack", "", 1, true, "", false, 52)) modal_ = Modal::TechStack;
     if (row(0xf24e, "Licenses", "", 1, true, "", false, 52)) modal_ = Modal::Licenses;
     gfx_->clip(nullptr);
+    {
+        const float measured = (y + settings_scroll_.y - r.y) + 32 * s;   // bottom of the About card + breathing room
+        if (std::fabs(measured - settings_total_) > 1.0f) { settings_total_ = measured; mark(); }
+    }
     {
         bool changed = false;
         for (int k = 0; k < 32; ++k) if (card_extra_now_[k] != card_extra_prev_[k]) { card_extra_prev_[k] = card_extra_now_[k]; changed = true; }

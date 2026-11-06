@@ -1,4 +1,5 @@
 #include "config.h"
+#include "app_icons.h"
 #include <algorithm>
 #include <ctime>
 #include <cstdio>
@@ -12,17 +13,18 @@ bool Config::load(const std::string& path) {
     auto num = [&](const char* k, int def) { yyjson_val* v = yyjson_obj_get(r, k); return v && yyjson_is_num(v) ? static_cast<int>(yyjson_get_sint(v)) : def; };
     server_url = str("server_url"); username = str("username"); pin_sha256 = str("pin_sha256"); cache_root = str("cache_root");
     volume_pct = num("volume_pct", 80); stream_quality = num("stream_quality", 0);
-    theme = num("theme", 0); theme_mode = num("theme_mode", 0); icon_set = num("icon_set", 1);
+    theme = num("theme", 0); theme_mode = num("theme_mode", 0); icon_set = num("icon_set", 1); app_icon = num("app_icon", 0);
     download_quality = num("download_quality", 320); concurrent_downloads = std::min(8, std::max(1, num("concurrent_downloads", 3)));
     default_view = num("default_view", 0); car_minimal = num("car_minimal", 0); perf_mode = num("perf_mode", 0);
     offline_mode = num("offline_mode", 0) != 0;
     car_keep_on = num("car_keep_on", 1) != 0; car_start = num("car_start", 0) != 0; car_pulse = num("car_pulse", 0) != 0;
-    debug_log = num("debug_log", 0) != 0; render_timer = num("render_timer", 0) != 0;
+    debug_log = num("debug_log", 0) != 0; render_timer = num("render_timer", 0) != 0; software_render = num("software_render", 0) != 0;
     auto_offline_metered = num("auto_offline_metered", 0) != 0;
     be_controlled = num("be_controlled", 1) != 0; control_others = num("control_others", 1) != 0;
     if (theme < 0 || theme > 11) theme = 0;
     if (theme_mode < 0 || theme_mode > 2) theme_mode = 0;
     if (icon_set < 0 || icon_set > 3) icon_set = 1;
+    if (app_icon < 0 || app_icon >= kAppIconCount) app_icon = 0;
     size_t ci, cn; yyjson_val* cc;
     conns.clear();
     yyjson_arr_foreach(yyjson_obj_get(r, "connections"), ci, cn, cc) {
@@ -65,12 +67,14 @@ bool Config::save(const std::string& path) const {
     yyjson_mut_obj_add_int(d, o, "car_pulse", car_pulse);
     yyjson_mut_obj_add_int(d, o, "debug_log", debug_log);
     yyjson_mut_obj_add_int(d, o, "render_timer", render_timer);
+    yyjson_mut_obj_add_int(d, o, "software_render", software_render);
     yyjson_mut_obj_add_int(d, o, "auto_offline_metered", auto_offline_metered);
     yyjson_mut_obj_add_int(d, o, "be_controlled", be_controlled);
     yyjson_mut_obj_add_int(d, o, "control_others", control_others);
     yyjson_mut_obj_add_int(d, o, "theme", theme);
     yyjson_mut_obj_add_int(d, o, "theme_mode", theme_mode);
     yyjson_mut_obj_add_int(d, o, "icon_set", icon_set);
+    yyjson_mut_obj_add_int(d, o, "app_icon", app_icon);
     yyjson_mut_val* ct = yyjson_mut_arr(d);
     for (const Custom& c : custom) {
         yyjson_mut_val* e = yyjson_mut_arr_add_obj(d, ct);

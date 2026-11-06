@@ -21,12 +21,14 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--autoplay")) o.autoplay = true;
         else if (!std::strcmp(argv[i], "--selftest")) o.selftest = true;
         else if (!std::strcmp(argv[i], "--offline")) o.offline = true;
+        else if (!std::strcmp(argv[i], "--software")) o.software = true;
         else if (arg("--search")) o.search = argv[++i];
         else if (arg("--panel")) o.panel = argv[++i];
         else if (arg("--dm")) o.dm = argv[++i];
         else if (arg("--modal")) o.modal = argv[++i];
         else if (arg("--scroll")) o.scroll = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--no-precache")) o.no_precache = true;
+        else if (arg("--bench")) o.bench = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--nowplaying")) o.nowplaying = true;
         else if (!std::strcmp(argv[i], "--carmode")) o.carmode = true;
         else if (!std::strcmp(argv[i], "--mini")) o.mini = true;

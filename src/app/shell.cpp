@@ -91,8 +91,8 @@ void App::draw_main(float W, float H) {
     const float hh = kb_up ? 0.0f : (mobile_ ? 56.0f : static_cast<float>(skin::kHeaderH)) * s;
     { float bh = 0; draw_missing_banner(W, hh, bh); }
     const float bnav = mobile_ && !kb_up ? 56 * s : 0;
-    float navw = mobile_ ? 0.0f : (nav_expanded_ ? 200.0f : skin::kNavW) * s, top = hh, bar = (mobile_ ? (kb_up ? 0.0f : 60.0f) : skin::kPlayerH) * s;
-    Rect content{navw, top + banner_h_, W - navw, H - top - banner_h_ - bar - bnav};
+    float navw = mobile_ ? 0.0f : (nav_expanded_ ? 200.0f : skin::kNavW) * s, top = hh, bar = (mobile_ ? (kb_up ? 0.0f : 60.0f) : skin::kPlayerH + skin::kPlayerFloat) * s;
+    Rect content{navw, top + banner_h_, W - navw, std::max(0.0f, H - top - banner_h_ - bar - bnav)};   // never negative: a negative clip rect switches clipping off
     View& v = views_.back();
     Rect body{content.x, content.y, content.w, content.h};
     // The player bar is drawn after the page, so shield the page from the same
@@ -105,7 +105,11 @@ void App::draw_main(float W, float H) {
         uin.in.down = false;
         uin.in.wheel = uin.in.hwheel = 0;
     }
-    gfx_->clip(&body);
+    {   // desktop: the page may run on under the floating player (clips that end at the body's bottom are stretched to the window's bottom)
+        Rect base{content.x, content.y, content.w, content.h + (mobile_ ? 0.0f : bar)};
+        gfx_->set_base_clip(&base, content.y + content.h, base.y + base.h);
+        gfx_->clip(&body);
+    }
     if (v.kind == ViewKind::Artist) draw_artist(body);
     else if (v.kind == ViewKind::Album) draw_album(body);
     else switch (nav_) {
@@ -116,10 +120,10 @@ void App::draw_main(float W, float H) {
         case Nav::Downloads: draw_downloads(body); break;
         case Nav::Settings: draw_settings(body); break;
     }
-    gfx_->clip(nullptr);
+    gfx_->set_base_clip(nullptr);
     if (!blocked) uin.in = saved;   // the player bar, the nav and the panel stay inert under a dialog
     if (mobile_) { if (!kb_up) { draw_player_bar_mobile({0, H - bar - bnav, W, bar}); if (!blocked) uin.in = saved; draw_bottom_nav(W, H); } }
-    else draw_player_bar({navw, H - bar, W - navw, bar});
+    else draw_player_bar({navw, H - bar, W - navw, bar});   // floating pill
     draw_right_panel(W, H);
     // A dialog that opened during this frame must not see the touch that opened it: on a phone its first row sits under the finger
     if (!blocked && (modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_ || pre_open_ || newcontent_open_ || prompt_ != Prompt::None)) { saved.pressed = saved.released = saved.rclick = false; }
@@ -328,21 +332,22 @@ void App::draw_nav(float H) {
         y += 43 * s;
     }
     float by = H - 16 * s - 41 * s;
-    if (item(by, skin::SignOut, false, "Logout")) logout();
-    if (item(by - 43 * s, skin::CircleQuestion, show_help_, "Help")) show_help_ = !show_help_;
-    if (item(by - 86 * s, skin::Gear, nav_ == Nav::Settings, "Settings")) set_nav(Nav::Settings);
+    // a short window has no room for the lower group: an item that would land on the ones above is left out (Logout stays last)
+    if (by >= y && item(by, skin::SignOut, false, "Logout")) logout();
+    if (by - 43 * s >= y && item(by - 43 * s, skin::CircleQuestion, show_help_, "Help")) show_help_ = !show_help_;
+    if (by - 86 * s >= y && item(by - 86 * s, skin::Gear, nav_ == Nav::Settings, "Settings")) set_nav(Nav::Settings);
 }
 
 // ---------------------------------------------------------------- player bar
 
-void App::draw_player_bar(Rect r) {
+// Desktop player: a floating pill like the phone's mini player (same card, cover, title/artist, 2 px progress line along the bottom edge),
+// centred over the page, with its width following the window and what is playing: compact while nothing is queued, wider as the
+// shuffle/repeat buttons, the time, speed, quality and volume fit.
+void App::draw_player_bar(Rect strip) {
     Ui& u = *ui_;
     const float s = S_;
     const Theme& th = u.th;
-    gfx_->fill(r, th.panel);
-    gfx_->fill({r.x, r.y - 4 * s, r.w, 4 * s}, {0, 0, 0, 22});  // shadow above (0 -4px 12px)
     const Song* cur = queue_.current();
-    float x0 = r.x + 16 * s, w = r.w - 32 * s;
     // remote mode: show the controlled device's state instead of the local player
     bool have_remote = false, rplaying = false;
     std::string rtitle, rartist, rcover;
@@ -357,64 +362,84 @@ void App::draw_player_bar(Rect r) {
                 }
             }
     bool playing_now = have_remote ? rplaying : player_.playing();
-    // progress
+    const bool active_song = cur || have_remote;
+    const float avail = strip.w / s - 2 * skin::kPlayerInset;
+    const bool panel_btns = (strip.x + strip.w) / s >= 1100.0f;
+    const float target = !active_song ? std::min(avail, std::max(300.0f, std::min(640.0f, avail * 0.4f))) : std::min(avail, std::max(440.0f, std::min(1240.0f, avail * 0.8f)));
+    if (pill_w_ <= 0) pill_w_ = target;
+    if (std::fabs(pill_w_ - target) > 0.4f) { pill_w_ += (target - pill_w_) * 0.28f; mark(); } else pill_w_ = target;
+    const float wl = std::min(avail, pill_w_);
+    Rect r{strip.x + strip.w / 2 - wl * s / 2, strip.y + 12 * s, wl * s, skin::kPlayerH * s};
+    // card: the phone's colour, a soft drop shadow instead of an outline
+    for (int i = 4; i >= 1; --i)   // faint and tight: on a dark page a heavy shadow reads as a black outline
+        gfx_->fill_round({r.x - i * 1.0f * s, r.y + i * 0.5f * s + 2 * s, r.w + i * 2.0f * s, r.h + i * 1.0f * s}, (20 + i) * s, {0, 0, 0, static_cast<uint8_t>(9 - i)});
+    gfx_->fill_round(r, 20 * s, th.panel2);
+    const bool show_sh = wl >= 470, show_time = wl >= 580, show_right = wl >= 800;
     float dur = have_remote ? rdur : static_cast<float>(player_.duration_seconds()), pos = have_remote ? std::min(rpos, rdur) : static_cast<float>(player_.position_seconds());
-    Rect pb{x0, r.y + 7 * s, w, 6 * s};
-    float v = dur > 0 ? std::min(1.0f, pos / dur) : 0;
-    bool was = u.active == kSeek;
-    if (was) v = seek_drag_v_;
-    Rect hit_r{x0, r.y + 2 * s, w, 16 * s};
-    if (u.in.pressed && hit_r.contains(u.in.mx, u.in.my)) u.active = kSeek;
-    if (u.active == kSeek && (u.in.down || u.in.released)) {
-        float nv = std::min(1.0f, std::max(0.0f, (u.in.mx - pb.x) / pb.w));
-        seek_drag_v_ = nv; v = nv;
-        if (u.in.released) { u.active = 0; if (dur > 0) { if (have_remote) remote_send("seek", "{\"time\":" + std::to_string(nv * dur) + "}"); else player_.seek_seconds(nv * dur); } }
-    }
-    gfx_->fill_round(pb, 3 * s, {255, 255, 255, 46});
-    if (v > 0) gfx_->fill_round({pb.x, pb.y, std::max(6 * s, pb.w * v), pb.h}, 3 * s, th.accent);
-    if (u.hover(hit_r) || u.active == kSeek) gfx_->circle(pb.x + pb.w * v, pb.y + 3 * s, 7 * s, th.text);
-    float shown = (u.active == kSeek && dur > 0) ? seek_drag_v_ * dur : pos;
-    T(400, 10, x0 + 4 * s, r.y + 15 * s, 15, mmss(static_cast<int>(shown)), th.sub);
-    std::string total = mmss(static_cast<int>(dur));
-    int f10 = F(400, 10);
-    T(400, 10, x0 + w - 4 * s - gfx_->measure(f10, total), r.y + 15 * s, 15, total, th.sub);
-
-    float cy = r.y + 34 * s;  // controls container top (716 - 682)
-    // left: cover + titles
-    Rect info{x0 + 10 * s, cy, 200 * s, 44 * s};
-    if (have_remote) {
-        Rect cv{info.x, info.y, 44 * s, 44 * s};
-        if (SDL_Texture* t = cover(rcover, 44)) gfx_->image_round(t, cv, 8 * s); else gfx_->fill_round(cv, 8 * s, th.panel2);
-        T(500, 14, info.x + 56 * s, info.y + 1 * s, 21, rtitle, th.text, 144 * s);
-        T(400, 11, info.x + 56 * s, info.y + 26 * s, 17, rartist, th.accent, 144 * s);
-    } else if (cur) {
-        Rect cv{info.x, info.y, 44 * s, 44 * s};
-        if (SDL_Texture* t = cover(cur->cover_art, 44)) gfx_->image_round(t, cv, 8 * s);
-        else gfx_->fill_round(cv, 8 * s, th.panel2);
-        if (u.clicked({info.x, info.y, 200 * s, 44 * s})) { np_open_ = true; mark(); }
-        T(500, 14, info.x + 56 * s, info.y + 1 * s, 21, cur->title, th.text, 144 * s);
-        T(400, 11, info.x + 56 * s, info.y + 26 * s, 17, track_loading_ ? "Loading..." : !play_err_.empty() ? play_err_ : cur->artist, play_err_.empty() ? th.sub : th.danger, 144 * s);
-    }
-    // right: speed, quality, volume
-    float right = x0 + w - 10 * s;
-    // Queue, History, Playlists panel toggles (same tabs as the Q/H/P keys), far right of the bar.
-    // Narrower windows keep the 1024x768 reference layout; the same panels are in the menu and on Q/H/P.
-    if ((r.x + r.w) / s >= 1100.0f) {
-        const struct { uint32_t icon; PanelTab tab; } tabs[3] = {{skin::ListUl, PanelTab::Queue}, {skin::History, PanelTab::History}, {skin::Music, PanelTab::Playlists}};
-        for (int i = 0; i < 3; ++i) {
-            Rect b{right - (3 - i) * 34 * s + 2 * s, cy + 7 * s, 30 * s, 30 * s};
-            const bool on = panel_open_ && panel_tab_ == tabs[i].tab;
-            if (on) gfx_->fill_round(b, 8 * s, alpha(th.accent, 0.16f));
-            else if (u.hover(b)) gfx_->fill_round(b, 8 * s, th.hover);
-            fa(tabs[i].icon, b.x + b.w / 2, b.y + b.h / 2, 14, on ? th.accent : th.sub);
-            u.tip(b, tabs[i].tab == PanelTab::Queue ? "Queue" : tabs[i].tab == PanelTab::History ? "History" : "Playlists");
-            if (u.clicked(b)) toggle_panel(tabs[i].tab);
+    const float cy = r.y + 10 * s;   // vertical reference of the controls: their centres sit at cy + 22
+    const float x0 = r.x + 14 * s, w = r.w - 28 * s;
+    // progress line along the bottom edge; the whole strip under the controls is the seek target
+    {
+        Rect pb{r.x + 22 * s, r.y + r.h - 5 * s, r.w - 44 * s, 2 * s};
+        Rect hit_r{r.x + 14 * s, r.y + r.h - 12 * s, r.w - 28 * s, 12 * s};
+        float v = dur > 0 ? std::min(1.0f, pos / dur) : 0;
+        const bool was = u.active == kSeek;
+        if (was) v = seek_drag_v_;
+        if (u.in.pressed && hit_r.contains(u.in.mx, u.in.my)) u.active = kSeek;
+        if (u.active == kSeek && (u.in.down || u.in.released)) {
+            float nv = std::min(1.0f, std::max(0.0f, (u.in.mx - pb.x) / pb.w));
+            seek_drag_v_ = nv; v = nv;
+            if (u.in.released) { u.active = 0; if (dur > 0) { if (have_remote) remote_send("seek", "{\"time\":" + std::to_string(nv * dur) + "}"); else player_.seek_seconds(nv * dur); } }
         }
-        right -= 108 * s;
+        gfx_->fill_round(pb, 1 * s, {255, 255, 255, 40});
+        if (v > 0) gfx_->fill_round({pb.x, pb.y, std::max(2 * s, pb.w * v), pb.h}, 1 * s, th.accent);
+        if (u.hover(hit_r) || u.active == kSeek) gfx_->circle(pb.x + pb.w * v, pb.y + pb.h / 2, 4.5f * s, th.text);
     }
-    Rect vol{right - 80 * s, cy + 10 * s, 80 * s, 24 * s};
-    Rect qual{vol.x - 16 * s - 120 * s, cy + 6 * s, 120 * s, 32 * s};
-    Rect spd{qual.x - 16 * s - 52 * s, cy + 9 * s, 52 * s, 26 * s};
+    // widths of the three groups: info (cover + titles), transport (+ like, time) and the right-hand controls
+    const float title_w = std::max(120.0f, std::min(260.0f, 120.0f + std::max(0.0f, wl - 580.0f) * 0.2f));   // the titles take the extra width
+    const float info_w = 44 + 12 + title_w;
+    const float trans_w = (show_sh ? 34 * 4 : 34 * 2) + 40 + 34 + (show_time ? 84 : 0);
+    float right_w = 0;
+    if (show_right) right_w = 52 + 12 + 120 + 12 + 84 + (panel_btns ? 108 + 8 : 0);
+    const float free_w = w / s - info_w - trans_w - right_w;
+    const float gapw = std::max(6.0f, free_w / 2);
+    Rect info{x0, cy + 1 * s, info_w * s, 44 * s};
+    const float tw = title_w * s;
+    {
+        Rect cv{info.x, info.y, 44 * s, 44 * s};
+        const std::string& cid = have_remote ? rcover : (cur ? cur->cover_art : std::string());
+        if (active_song) {
+            if (SDL_Texture* t = cover(cid, 44)) gfx_->image_round(t, cv, 8 * s); else gfx_->fill_round(cv, 8 * s, th.panel);
+            const std::string title = have_remote ? rtitle : cur->title;
+            const std::string sub = have_remote ? rartist : (track_loading_ ? "Loading..." : !play_err_.empty() ? play_err_ : cur->artist);
+            T(600, 13, info.x + 56 * s, info.y + 2 * s, 19.5f, title, th.text, tw);
+            T(400, 12, info.x + 56 * s, info.y + 22 * s, 17, sub, (!have_remote && !play_err_.empty()) ? th.danger : th.sub, tw);
+            if (!have_remote && u.clicked({info.x, info.y, info.w, info.h})) { np_open_ = true; mark(); }
+        } else {
+            gfx_->fill_round(cv, 8 * s, th.panel);
+            fa(skin::Music, cv.x + cv.w / 2, cv.y + cv.h / 2, 16, {255, 255, 255, 90});
+            T(600, 13, info.x + 56 * s, info.y + 2 * s, 19.5f, "Nothing playing", th.text, tw);
+            T(400, 12, info.x + 56 * s, info.y + 22 * s, 17, "Pick something to play", th.sub, tw);
+        }
+    }
+    float right = x0 + w;
+    if (show_right) {
+        if (panel_btns) {
+            const struct { uint32_t icon; PanelTab tab; } tabs[3] = {{skin::ListUl, PanelTab::Queue}, {skin::History, PanelTab::History}, {skin::Music, PanelTab::Playlists}};
+            for (int i = 0; i < 3; ++i) {
+                Rect b{right - (3 - i) * 34 * s + 2 * s, cy + 7 * s, 30 * s, 30 * s};
+                const bool on = panel_open_ && panel_tab_ == tabs[i].tab;
+                if (on) gfx_->fill_round(b, 8 * s, alpha(th.accent, 0.16f));
+                else if (u.hover(b)) gfx_->fill_round(b, 8 * s, th.hover);
+                fa(tabs[i].icon, b.x + b.w / 2, b.y + b.h / 2, 14, on ? th.accent : th.sub);
+                u.tip(b, tabs[i].tab == PanelTab::Queue ? "Queue" : tabs[i].tab == PanelTab::History ? "History" : "Playlists");
+                if (u.clicked(b)) toggle_panel(tabs[i].tab);
+            }
+            right -= 116 * s;
+        }
+        Rect vol{right - 80 * s, cy + 10 * s, 80 * s, 24 * s};
+        Rect qual{vol.x - 12 * s - 120 * s, cy + 6 * s, 120 * s, 32 * s};
+        Rect spd{qual.x - 12 * s - 52 * s, cy + 9 * s, 52 * s, 26 * s};
     Color edge = alpha(th.primary_light, 0.464f);
     gfx_->fill_round(spd, 8 * s, th.panel);
     gfx_->stroke_round(spd, 8 * s, 1 * s, edge, th.panel);
@@ -490,31 +515,49 @@ void App::draw_player_bar(Rect r) {
     gfx_->fill_round(vs, 2 * s, {255, 255, 255, 46});
     gfx_->fill_round({vs.x, vs.y, std::max(4 * s, vs.w * vol_), vs.h}, 2 * s, th.accent);
 
-    // centre: transport, centred between the info block and the right controls
-    float gap_l = info.x + 200 * s, gap_r = right - 366 * s;  // right already excludes the panel toggles
-    float mid = (gap_l + gap_r) / 2 + 3 * s;  // group centre: measured 464 at 1024 wide
+    } else { speed_popup_ = quality_popup_ = false; }
+
+    // transport, centred in the space between the titles and the right-hand controls
+    const float tx = info.x + (info_w + gapw) * s;
+    const float mid_y = cy + 22 * s;
+    const bool live = active_song;
     auto cbtn = [&](float cx, uint32_t ic, bool on, const char* tip) {
-        Rect b{cx - 16.5f * s, cy + 12 * s, 33 * s, 27 * s};
+        Rect b{cx - 16.5f * s, mid_y - 13.5f * s, 33 * s, 27 * s};
+        if (!live) { fa(ic, cx, mid_y, 13.3f, alpha(th.text, 0.30f)); return false; }
         u.tip(b, tip);
         if (u.hover(b)) gfx_->fill_round(b, 13 * s, th.hover);
-        fa(ic, b.x + b.w / 2, b.y + b.h / 2, 13.3f, on ? th.accent : th.sub);
+        fa(ic, cx, mid_y, 13.3f, on ? th.accent : th.sub);
         return u.clicked(b);
     };
-    if (cbtn(mid - 102.5f * s, skin::Shuffle, queue_.shuffle(), "Shuffle")) { if (have_remote) remote_send("toggleShuffle"); else queue_.set_shuffle(!queue_.shuffle()); }
-    if (cbtn(mid - 67.5f * s, skin::StepBack, false, "Previous")) prev_track();
-    Rect pp{mid - 41 * s, cy + 2 * s, 40 * s, 40 * s};
-    gfx_->circle(pp.x + 20 * s, pp.y + 20 * s, 20 * s, u.hover(pp) ? rgb(0xe8e8e8) : rgb(0xffffff));
-    fa(playing_now ? skin::Pause : skin::Play, pp.x + 20 * s + (playing_now ? 0 : 1 * s), pp.y + 20 * s, 16, rgb(0x121212));
-    u.tip(pp, track_loading_ ? "Loading\xE2\x80\xA6" : playing_now ? "Pause" : "Play");
-    if (u.clicked(pp)) toggle_play();
-    if (cbtn(mid + 25.5f * s, skin::StepFwd, false, "Next")) next_track();
-    if (cbtn(mid + 59.5f * s, skin::Repeat, queue_.repeat() != Repeat::Off, queue_.repeat() == Repeat::Off ? "Repeat: off" : queue_.repeat() == Repeat::All ? "Repeat: all" : "Repeat: one") && have_remote) remote_send("toggleRepeat");
-    else if (!have_remote && u.clicked({mid + 59.5f * s - 16.5f * s, cy + 12 * s, 33 * s, 27 * s}))
-        queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
-    if (queue_.repeat() == Repeat::One) T(700, 8, mid + 59.5f * s + 4 * s, cy + 12 * s, 10, "1", th.accent);
-    bool liked = cur && cur->starred;
-    if (cbtn(mid + 102.5f * s, skin::Heart, liked, liked ? "Unlike" : "Like") && cur && client_) {
-        set_current_liked(!cur->starred);
+    float cx = tx + 17 * s;
+    if (show_sh) {
+        if (cbtn(cx, skin::Shuffle, queue_.shuffle(), "Shuffle")) { if (have_remote) remote_send("toggleShuffle"); else queue_.set_shuffle(!queue_.shuffle()); }
+        cx += 34 * s;
+    }
+    if (cbtn(cx, skin::StepBack, false, "Previous")) prev_track();
+    cx += 37 * s;   // 17 + 20: the play disc is 40 wide
+    Rect pp{cx - 20 * s, mid_y - 20 * s, 40 * s, 40 * s};
+    gfx_->circle(cx, mid_y, 20 * s, !live ? alpha(th.text, 0.30f) : u.hover(pp) ? rgb(0xe8e8e8) : rgb(0xffffff));
+    fa(playing_now ? skin::Pause : skin::Play, cx + (playing_now ? 0 : 1 * s), mid_y, 16, rgb(0x121212));
+    if (live) {
+        u.tip(pp, track_loading_ ? "Loading\xE2\x80\xA6" : playing_now ? "Pause" : "Play");
+        if (u.clicked(pp)) toggle_play();
+    }
+    cx += 37 * s;
+    if (cbtn(cx, skin::StepFwd, false, "Next")) next_track();
+    if (show_sh) {
+        cx += 34 * s;
+        const bool hit = cbtn(cx, skin::Repeat, queue_.repeat() != Repeat::Off, queue_.repeat() == Repeat::Off ? "Repeat: off" : queue_.repeat() == Repeat::All ? "Repeat: all" : "Repeat: one");
+        if (hit) { if (have_remote) remote_send("toggleRepeat"); else queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off); }
+        if (live && queue_.repeat() == Repeat::One) T(700, 8, cx + 4 * s, mid_y - 13.5f * s, 10, "1", th.accent);
+    }
+    cx += 34 * s;
+    const bool liked = cur && cur->starred;
+    if (cbtn(cx, skin::Heart, liked, liked ? "Unlike" : "Like") && cur && client_) set_current_liked(!cur->starred);
+    if (show_time && live) {
+        const float shown = (u.active == kSeek && dur > 0) ? seek_drag_v_ * dur : pos;
+        const std::string tm = mmss(static_cast<int>(shown)) + " / " + mmss(static_cast<int>(dur));
+        T(400, 11, cx + 24 * s, mid_y - 8.5f * s, 17, tm, th.sub);
     }
 }
 

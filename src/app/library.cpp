@@ -139,7 +139,10 @@ void App::draw_library(Rect r) {
     int cols_a = std::max(1, static_cast<int>((w / s + 32) / (201 + 32)));
     int cols_b = std::max(1, static_cast<int>((w / s + 24) / (207 + 24)));
     // compact header: toggle 52, gap 12, then one 40 px row: the count on the left, round Shuffle and Download buttons on the right
-    float header_h = narrow ? (52 + 12 + 40) * s : (lib_mode_ == 0 ? 99 : 42) * s;
+    // Artists: the stats and actions wrap under the toggle, but share its row when the page is wide enough
+    const float art_dx = offline_ ? 47 * s : 0;
+    const bool stats_inline = !narrow && lib_mode_ == 0 && w >= 402 * s + 28 * s + 707 * s + art_dx;
+    float header_h = narrow ? (52 + 12 + 40) * s : (lib_mode_ == 0 && !stats_inline ? 99 : 42) * s;
     if (narrow) { cols_a = 3; cols_b = 3; }
     const float base_header_h = header_h;
     const float err_h = shuffle_error_.empty() ? 0.0f : 45.0f * s;   // .library-inline-error: 8 + 8 + line + 8
@@ -247,10 +250,10 @@ void App::draw_library(Rect r) {
             }
         }
     } else {
-        float ry = lib_mode_ == 0 ? y0 + 57 * s : y0 - 1 * s;
-        float rx = lib_mode_ == 0 ? x : x + w - (lib_mode_ == 3 ? 104 : 399) * s;
+        float ry = lib_mode_ == 0 && !stats_inline ? y0 + 57 * s : y0 - 1 * s;
+        float rx = lib_mode_ == 0 ? (stats_inline ? x + w - (707 * s + art_dx) : x) : x + w - (lib_mode_ == 3 ? 104 : 399) * s;
         if (lib_mode_ == 0) {
-            const float dx = offline_ ? 47 * s : 0;   // "cached artists" is wider
+            const float dx = art_dx;   // "cached artists" is wider
             pill(rx, ry, 113 * s + dx, 0xf0c0, std::to_string(n_art) + (offline_ ? " cached artists" : " artists"));
             pill(rx + 129 * s + dx, ry, 126 * s, 0xf8d9, std::to_string(n_alb) + " albums");
             pill(rx + 271 * s + dx, ry, 126 * s, skin::Music, std::to_string(std::max(0, total_songs_)) + " songs");
@@ -308,7 +311,7 @@ void App::draw_library(Rect r) {
                 continue;
             }
             int col = static_cast<int>(i) % cols_a, row = static_cast<int>(i) / cols_a;
-            float px = x + (narrow ? (w - (cols_a * cw + (cols_a - 1) * 32 * s)) / 2 : 0) + col * (cw + 32 * s), py = cy + row * (chh + 31 * s);
+            float px = x + std::max(0.0f, (w - (cols_a * cw + (cols_a - 1) * 32 * s)) / 2) + col * (cw + 32 * s), py = cy + row * (chh + 31 * s);
             if (py + chh < r.y || py > r.y + r.h) continue;
             Rect card{px, py, cw, chh};
             gfx_->fill_round(card, 16 * s, th.panel);
@@ -317,6 +320,7 @@ void App::draw_library(Rect r) {
             std::string cid = a.cover_art.empty() ? a.id : a.cover_art;
             if (SDL_Texture* t = cover(cid, 169, a.name, "")) gfx_->image_round(t, cov, 12 * s);
             else draw_art_fallback(cov, cid, 12 * s);
+            if (cached_artists_.count(norm_artist(a.name))) draw_cached_badge(cov);
             int fn = F(600, 16);
             float nw = std::min(gfx_->measure(fn, a.name), cov.w);
             T(600, 16, cov.x + (cov.w - nw) / 2, py + 197 * s, 24, a.name, th.text, cov.w);
@@ -345,7 +349,7 @@ void App::draw_library(Rect r) {
                 continue;
             }
             int col = static_cast<int>(i) % cols_b, row = static_cast<int>(i) / cols_b;
-            float px = x + (narrow ? (w - (cols_b * cw + (cols_b - 1) * 24 * s)) / 2 : 0) + col * (cw + 24 * s), py = cy + row * (chh + 24 * s);
+            float px = x + std::max(0.0f, (w - (cols_b * cw + (cols_b - 1) * 24 * s)) / 2) + col * (cw + 24 * s), py = cy + row * (chh + 24 * s);
             if (py + chh < r.y || py > r.y + r.h) continue;
             Rect card{px, py, cw, chh};
             gfx_->fill_round(card, 16 * s, th.panel);
@@ -353,6 +357,8 @@ void App::draw_library(Rect r) {
             Rect cov{px + 16 * s, py + 16 * s, 175 * s, 175 * s};
             if (SDL_Texture* t = cover(a.cover_art, 175, a.artist, a.name)) gfx_->image_round(t, cov, 4 * s);
             else draw_art_fallback(cov, a.cover_art, 4 * s);
+            if (album_cached(a)) draw_cached_badge(cov);
+            draw_cover_cached_badge(cov, a.cover_art);
             float nw = std::min(gfx_->measure(F(600, 15.2f), a.name), cov.w);
             T(600, 15.2f, cov.x + (cov.w - nw) / 2, py + 203 * s, 23, a.name, th.text, cov.w);
             float aw = std::min(gfx_->measure(F(600, 13), a.artist), cov.w);

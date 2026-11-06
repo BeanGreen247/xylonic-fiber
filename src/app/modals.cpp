@@ -235,6 +235,58 @@ void App::draw_theme_modal(float W, float H) {
     if (u.clicked(cl) || u.in.escape || (u.in.pressed && !b.contains(u.in.mx, u.in.my))) modal_ = Modal::None;
 }
 
+void App::draw_app_icon_modal(float W, float H) {
+    Ui& u = *ui_;
+    const float s = S_;
+    const Theme& th = u.th;
+    gfx_->fill({0, 0, W, H}, {0, 0, 0, 170});
+    const float mw = std::min(680.0f, W / s * 0.92f), mhmax = H / s * 0.8f;
+    const float inner = mw - 36;
+    const int cols = std::max(2, static_cast<int>((inner + 14) / (92 + 14)));
+    const float cell = (inner - 14 * (cols - 1)) / cols, cardh = cell + 34;
+    const int rows = (kAppIconCount + cols - 1) / cols;
+    const float content = 18 + rows * cardh + (rows - 1) * 14 + 18;
+    const float mh = std::min(mhmax, 65 + content);
+    Rect b{(W - mw * s) / 2, (H - mh * s) / 2, mw * s, mh * s};
+    gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 13 * s, th.border);
+    gfx_->fill_round(b, 12 * s, th.bg_light);
+    fa(0xf302, b.x + 25 * s, b.y + 33 * s, 14, th.accent);
+    T(700, 16, b.x + 40 * s, b.y + 20 * s, 26, "App Icon", th.text);
+    Rect cl{b.x + b.w - 50 * s, b.y + 17 * s, 32 * s, 32 * s};
+    fa(skin::Xmark, cl.x + 16 * s, cl.y + 16 * s, 14, u.hover(cl) ? th.text : th.sub);
+    gfx_->fill({b.x, b.y + 64 * s, b.w, 1 * s}, th.border_subtle);
+    Rect area{b.x, b.y + 65 * s, b.w, b.h - 65 * s};
+    if (icon_tex_.empty()) {
+        icon_tex_.assign(kAppIconCount, nullptr);
+        for (int i = 0; i < kAppIconCount; ++i) icon_tex_[i] = load_png_texture(ren_, icons_dir_ + "styles/" + kAppIcons[i].name + "-128.png");
+    }
+    if (u.hover(area)) icon_scroll_.y -= u.in.wheel * 60 * s;
+    icon_scroll_.clamp(content * s, area.h);
+    gfx_->clip(&area);
+    const float x0 = b.x + 18 * s;
+    const float y0 = area.y + 18 * s - icon_scroll_.y;
+    for (int i = 0; i < kAppIconCount; ++i) {
+        const int col = i % cols, row = i / cols;
+        Rect c{x0 + col * (cell + 14) * s, y0 + row * (cardh + 14) * s, cell * s, cardh * s};
+        const bool active = cfg_.app_icon == i, hov = u.hover(c) && area.contains(u.in.mx, u.in.my);
+        gfx_->fill_round(c, 12 * s, active ? alpha(th.accent, 0.16f) : hov ? th.bg_medium : th.bg_light);
+        gfx_->stroke_round(c, 12 * s, 2 * s, active || hov ? th.accent : alpha(th.text, 0.10f));
+        const float isz = cell - 20;
+        Rect pv{c.x + 10 * s, c.y + 10 * s, isz * s, isz * s};
+        if (icon_tex_[i]) gfx_->image(icon_tex_[i], pv, {255, 255, 255, 255});   // the PNGs carry their own rounded corners; image_round dropped some tiles
+        const std::string lab = kAppIcons[i].label;
+        const float nw = gfx_->measure(F(500, 12), lab);
+        T(500, 12, c.x + std::max(4 * s, (c.w - nw) / 2), c.y + (isz + 14) * s, 18, lab, th.text, c.w - 8 * s);
+        if (hov && u.clicked(c)) { cfg_.app_icon = i; cfg_.save(cfg_path_); apply_app_icon(true); mark(); }
+    }
+    gfx_->clip(nullptr);
+    if (u.clicked(cl) || u.in.escape || (u.in.pressed && !b.contains(u.in.mx, u.in.my))) {
+        modal_ = Modal::None;
+        for (SDL_Texture* t : icon_tex_) if (t) SDL_DestroyTexture(t);
+        icon_tex_.clear();
+    }
+}
+
 void App::draw_theme_editor(float W, float H) {
     Ui& u = *ui_;
     const float s = S_;
@@ -314,19 +366,19 @@ void App::draw_splash(float W, float H) {
     if (splash_gone_) return;
     const uint32_t now = SDL_GetTicks();
     if (!splash_start_) splash_start_ = now;
-    if (!connecting_ && !splash_end_ && now - splash_start_ >= 300) splash_end_ = now;
+    if (!connecting_ && !splash_end_ && now - splash_start_ >= 150) splash_end_ = now;
     float a = 1.0f;
-    if (splash_end_) { a = 1.0f - (now - splash_end_) / 450.0f; if (a <= 0) { splash_gone_ = true; if (splash_tex_) { SDL_DestroyTexture(splash_tex_); splash_tex_ = nullptr; } mark(); return; } }
+    if (splash_end_) { a = 1.0f - (now - splash_end_) / 200.0f; if (a <= 0) { splash_gone_ = true; if (splash_tex_) { SDL_DestroyTexture(splash_tex_); splash_tex_ = nullptr; } mark(); return; } }
     const float s = S_;
-    const float enter = std::min(1.0f, (now - splash_start_) / 300.0f);
+    const float enter = std::min(1.0f, (now - splash_start_) / 150.0f);
     const float sc = 0.92f + 0.08f * enter, ca = a * enter;
     const Color bg = ui_->th.bg;
     gfx_->fill({0, 0, W, H}, {bg.r, bg.g, bg.b, static_cast<uint8_t>(a * 255)});
-    if (!splash_tex_) splash_tex_ = load_png_texture(ren_, icons_dir_ + "app-icon-512.png");
+    if (!splash_tex_) splash_tex_ = load_png_texture(ren_, icons_dir_ + "styles/" + std::string(kAppIcons[cfg_.app_icon >= 0 && cfg_.app_icon < kAppIconCount ? cfg_.app_icon : 0].name) + "-512.png");
     const float logo = std::min(128 * s, std::min(W, H) * 0.42f) * sc, name_h = 40 * s * sc, gap = 22 * s * sc;
     const float top = (H - (logo + gap + name_h)) / 2;
     const uint8_t ia = static_cast<uint8_t>(ca * 255);
-    if (splash_tex_) gfx_->image_round(splash_tex_, {(W - logo) / 2, top, logo, logo}, logo * 0.225f, {255, 255, 255, ia});
+    if (splash_tex_) gfx_->image(splash_tex_, {(W - logo) / 2, top, logo, logo}, {255, 255, 255, ia});
     const float fpx = std::min(30.0f, (W / s - 48) / 9.5f) * sc;   // "XYLONIC FIBER" stays inside a 320 px screen
     const int f = F(700, fpx);
     gfx_->set_letter_spacing(2.5f * s);

@@ -7,6 +7,7 @@
 #include <mbedtls/md5.h>
 #include <psa/crypto.h>
 #include "app.h"
+#include "metered.h"
 #include "../../third_party/yyjson.h"
 
 namespace {
@@ -169,6 +170,12 @@ void App::draw_remote_picker(float W, float H) {
     float y = b.y + 64 * s;
     if (!remote_error_.empty()) { T(500, 12, b.x + 20 * s, y, 18, remote_error_, th.danger, b.w - 40 * s); y += 24 * s; }
     if (!cfg_.control_others) { T(400, 13, b.x + 20 * s, y, 20, "Control Others is turned off in Settings.", th.sub); y += 24 * s; }
+    // RemoteDevicePicker: Remote Mode needs Wi-Fi; a metered (mobile data) link shows the warning. Polled off the UI thread every 5 s.
+    if (!remote_net_busy_ && SDL_GetTicks() - remote_net_at_ > 5000) {
+        remote_net_busy_ = true; remote_net_at_ = SDL_GetTicks();
+        worker_->post([this] { const bool m = network_metered(); ui_post([this, m] { remote_net_busy_ = false; if (m != remote_metered_) { remote_metered_ = m; mark(); } }); });
+    }
+    if (remote_metered_) { fa(0xf1eb, b.x + 28 * s, y + 10 * s, 13, th.danger); T(500, 12, b.x + 44 * s, y, 20, "Remote Mode requires a WiFi connection (not mobile data).", th.danger, b.w - 64 * s); y += 24 * s; }
     if (remote_mode_) {
         for (auto& d : devs) if (d.id == remote_target_) {
             fa(skin::Satellite, b.x + 30 * s, y + 14 * s, 13, th.accent);

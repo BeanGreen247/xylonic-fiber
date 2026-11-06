@@ -30,6 +30,7 @@ public:
 
     void begin_frame(Color clear);
     void end_frame();
+    double present_ms() const { return present_ms_; }   // SDL_RenderPresent of the last frame
     void capture_next(const std::string& path) { capture_path_ = path; }   // saves the next finished frame as BMP  // flushes and presents
 
     void fill(Rect r, Color c);
@@ -53,7 +54,11 @@ public:
     void image(SDL_Texture* tex, Rect dst, Color tint = {255, 255, 255, 255});
     // Image with rounded corners (mesh with UVs; flushes the batch like image()).
     void image_round(SDL_Texture* tex, Rect dst, float radius, Color tint = {255, 255, 255, 255});
-    void clip(const Rect* r);  // nullptr clears
+    void clip(const Rect* r);  // nullptr clears (back to the base clip when one is set)
+    // A base clip every later clip() is intersected with, so a page that clips to its own row (a carousel scrolled half out of view) cannot
+    // paint over the header. A clip whose bottom edge sits at grow_from is stretched down to grow_to: the page may draw into the strip
+    // under the floating player. nullptr removes the base clip.
+    void set_base_clip(const Rect* r, float grow_from = 0, float grow_to = 0);
 
     // Single-line text, top-left origin. Returns drawn width. max_w > 0 truncates with an ellipsis.
     float text(int font, float x, float y, const std::string& s, Color c, float max_w = 0);
@@ -67,6 +72,9 @@ public:
     bool has_glyph(int font, uint32_t cp) const;
 
 private:
+    bool has_base_ = false;
+    SDL_Rect base_{0, 0, 0, 0};
+    int grow_from_ = 0, grow_to_ = 0;
     std::string capture_path_;
     friend class FontFace;
     struct Glyph { float u0, v0, u1, v1; float xoff, yoff, w, h, adv; };
@@ -90,5 +98,6 @@ private:
     std::unordered_map<std::string, std::shared_ptr<std::vector<uint8_t>>> font_data_;
     std::unordered_map<uint64_t, Shape> shapes_;
     uint64_t draw_calls_ = 0;
+    double present_ms_ = 0;
     float spacing_ = 0;
 };
