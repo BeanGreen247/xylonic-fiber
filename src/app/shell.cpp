@@ -9,7 +9,7 @@
 namespace {
 std::string mmss(int s) {
     if (s < 0) s = 0;
-    char b[16];
+    char b[16] = {};
     std::snprintf(b, sizeof b, "%d:%02d", s / 60, s % 60);
     return b;
 }
@@ -263,7 +263,7 @@ void App::draw_hamburger(float W, float H) {
     if (u.in.escape || (u.in.pressed && !menu.contains(u.in.mx, u.in.my))) { hamburger_open_ = false; return; }
     gfx_->fill_round({menu.x - 1, menu.y - 1, menu.w + 2, menu.h + 2}, 13 * s, th.border);
     gfx_->fill_round(menu, 12 * s, th.bg_light);
-    struct Item { uint32_t icon; const char* label; int action; };
+    struct Item { uint32_t icon; const char* label; int action = 0; };
     static const Item items[] = {
         {skin::Satellite, "Remote devices", 0}, {skin::Compress, "Mini player", 1},
         {skin::Download, "Downloads", 2}, {skin::Gear, "Settings", 3},
@@ -446,7 +446,7 @@ void App::draw_player_bar(Rect strip) {
     if (u.hover(spd)) gfx_->fill_round(spd, 8 * s, th.hover);
     fa(skin::Bolt, spd.x + 17 * s, spd.y + spd.h / 2, 11, th.accent);
     {
-        char sb[16];
+        char sb[16] = {};
         double sp = player_.speed();
         if (sp == static_cast<int>(sp)) std::snprintf(sb, sizeof sb, "%d\xC3\x97", static_cast<int>(sp)); else if (sp * 100 == static_cast<int>(sp * 100) && static_cast<int>(sp * 100) % 10 == 0) std::snprintf(sb, sizeof sb, "%.1f\xC3\x97", sp); else std::snprintf(sb, sizeof sb, "%.2f\xC3\x97", sp);
         T(600, 12, spd.x + 28 * s, spd.y, 26, sb, th.sub);
@@ -463,7 +463,7 @@ void App::draw_player_bar(Rect strip) {
             bool on = std::fabs(player_.speed() - opts[i]) < 1e-6;
             if (u.hover(ir)) gfx_->fill_round(ir, 8 * s, th.hover);
             if (on) fa(skin::Check, ir.x + 18 * s, ir.y + ih / 2, 11, th.accent);
-            char lb[16]; std::snprintf(lb, sizeof lb, opts[i] == 1.0 ? "Normal" : "%g\xC3\x97", opts[i]);
+            char lb[16] = {}; std::snprintf(lb, sizeof lb, opts[i] == 1.0 ? "Normal" : "%g\xC3\x97", opts[i]);
             T(on ? 600 : 400, 13, ir.x + 36 * s, ir.y, ih / s, lb, on ? th.accent : th.text);
             if (u.clicked(ir)) { player_.set_speed(opts[i]); speed_popup_ = false; mark(); }
         }

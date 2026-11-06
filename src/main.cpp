@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--help-dialog")) o.help = true;
         else if (arg("--download-album")) o.download_album = argv[++i];
     }
-    int rc;
+    int rc = 0;
     {
         App app(o);
         rc = !app.init() ? 1 : o.selftest ? 0 : app.run();

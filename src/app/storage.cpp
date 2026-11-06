@@ -1,5 +1,8 @@
 #include "storage.h"
 #include <SDL.h>
+#if defined(__ANDROID__)
+#include "android_bridge.h"
+#endif
 #include <cstdio>
 #include <filesystem>
 #include <system_error>
@@ -20,11 +23,21 @@ bool disk_space(const std::string& path, uint64_t& free_bytes, uint64_t& total_b
 std::vector<StorageVolume> storage_volumes() {
     std::vector<StorageVolume> v;
 #if defined(__ANDROID__)
-    const char* in = SDL_AndroidGetInternalStoragePath();
-    if (in) { StorageVolume s; s.label = "Internal storage"; s.path = std::string(in) + "/"; disk_space(s.path, s.free_bytes, s.total_bytes); v.push_back(s); }
-    if (SDL_AndroidGetExternalStorageState() & SDL_ANDROID_EXTERNAL_STORAGE_WRITE) {
-        const char* ex = SDL_AndroidGetExternalStoragePath();
-        if (ex && (!in || std::string(ex) != in)) { StorageVolume s; s.label = "SD card / external"; s.path = std::string(ex) + "/"; s.removable = true; disk_space(s.path, s.free_bytes, s.total_bytes); v.push_back(s); }
+    const auto flat = android_bridge::volumes();   // every mounted volume: internal, SD card, USB OTG
+    for (size_t i = 0; i + 2 < flat.size(); i += 3) {
+        StorageVolume sv; sv.label = flat[i]; sv.path = flat[i + 1]; if (sv.path.empty()) continue;
+        if (sv.path.back() != '/') sv.path += '/';
+        sv.removable = flat[i + 2] == "1";
+        disk_space(sv.path, sv.free_bytes, sv.total_bytes);
+        v.push_back(sv);
+    }
+    if (v.empty()) {   // bridge unavailable: SDL's two paths
+        const char* in = SDL_AndroidGetInternalStoragePath();
+        if (in) { StorageVolume sv; sv.label = "Internal storage"; sv.path = std::string(in) + "/"; disk_space(sv.path, sv.free_bytes, sv.total_bytes); v.push_back(sv); }
+        if (SDL_AndroidGetExternalStorageState() & SDL_ANDROID_EXTERNAL_STORAGE_WRITE) {
+            const char* ex = SDL_AndroidGetExternalStoragePath();
+            if (ex && (!in || std::string(ex) != in)) { StorageVolume sv; sv.label = "SD card / external"; sv.path = std::string(ex) + "/"; sv.removable = true; disk_space(sv.path, sv.free_bytes, sv.total_bytes); v.push_back(sv); }
+        }
     }
 #endif
     return v;
@@ -52,7 +65,7 @@ std::string pick_folder(const std::string& start) {
 #endif
     FILE* f = popen(cmd.c_str(), "r");
     if (!f) return {};
-    char buf[4096]; std::string out;
+    char buf[4096] = {}; std::string out;
     while (size_t n = fread(buf, 1, sizeof buf, f)) out.append(buf, n);
     pclose(f);
     while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
@@ -71,29 +84,72 @@ uint64_t tree_bytes(const std::string& dir) {
     return t;
 }
 
-bool move_tree(const std::string& src, const std::string& dst, std::atomic<uint64_t>& progress, std::string& error) {
+static bool same_device(const std::string& a, const std::string& b) {
+    struct stat x{}, y{};
+    return ::stat(a.c_str(), &x) == 0 && ::stat(b.c_str(), &y) == 0 && x.st_dev == y.st_dev;
+}
+
+bool move_tree(const std::string& src, const std::string& dst, std::atomic<uint64_t>& progress, std::string& error, const std::atomic<bool>* cancel) {
     std::error_code ec;
     if (!fs::exists(src, ec)) return true;
-    if (fs::equivalent(src, dst, ec)) return true;
     fs::create_directories(dst, ec);
     if (ec) { error = "Cannot create " + dst + ": " + ec.message(); return false; }
-    std::vector<fs::path> copied;
+    if (fs::equivalent(src, dst, ec)) return true;
+    const bool same_fs = same_device(src, dst);
+    std::vector<fs::path> files, dirs;
     for (fs::recursive_directory_iterator it(src, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code e2;
-        const fs::path rel = fs::relative(it->path(), src, e2);
-        const fs::path to = fs::path(dst) / rel;
-        if (it->is_directory(e2)) { fs::create_directories(to, e2); continue; }
-        if (!it->is_regular_file(e2)) continue;
-        const auto sz = it->file_size(e2);
-        fs::copy_file(it->path(), to, fs::copy_options::overwrite_existing, e2);
-        if (e2) { error = "Copy failed: " + e2.message(); return false; }
-        progress += sz;
-        copied.push_back(it->path());
+        if (it->is_directory(e2)) dirs.push_back(it->path());
+        else if (it->is_regular_file(e2)) files.push_back(it->path());
     }
     if (ec) { error = "Read failed: " + ec.message(); return false; }
-    for (auto& p : copied) fs::remove(p, ec);
-    fs::remove_all(src, ec);
+    for (auto& d : dirs) { std::error_code e2; fs::create_directories(fs::path(dst) / fs::relative(d, src, e2), e2); }
+    for (auto& f : files) {
+        if (cancel && cancel->load()) { error = "Cancelled. Files already moved stay in the new place."; return false; }
+        std::error_code e2;
+        const fs::path to = fs::path(dst) / fs::relative(f, src, e2);
+        const auto sz = fs::file_size(f, e2);
+        if (same_fs) {
+            fs::rename(f, to, e2);
+            if (!e2) { progress += sz; continue; }
+        }
+        const fs::path part = to.string() + ".part";
+        fs::copy_file(f, part, fs::copy_options::overwrite_existing, e2);
+        if (e2) { fs::remove(part, e2); error = "Copy failed: " + e2.message() + (e2 == std::errc::no_space_on_device ? " (not enough space)" : ""); return false; }
+        std::error_code e3;
+        if (fs::file_size(part, e3) != sz || e3) { fs::remove(part, e3); error = "Copy of " + f.filename().string() + " did not finish (storage removed?)"; return false; }
+        fs::rename(part, to, e2);
+        if (e2) { fs::remove(part, e2); error = "Could not place " + to.filename().string() + ": " + e2.message(); return false; }
+        fs::remove(f, e2);
+        progress += sz;
+    }
+    std::error_code e4;
+    fs::remove_all(src, e4);
     return true;
+}
+
+bool pick_folder_async_supported() {
+#if defined(__ANDROID__)
+    return true;
+#else
+    return false;
+#endif
+}
+void pick_folder_async_start() {
+#if defined(__ANDROID__)
+    android_bridge::pick_start();
+#endif
+}
+bool pick_folder_async_poll(std::string& out) {
+#if defined(__ANDROID__)
+    const std::string r = android_bridge::pick_poll();
+    if (r.empty()) return false;
+    out = r == "!" ? std::string() : r;
+    return true;
+#else
+    out.clear();
+    return true;
+#endif
 }
 
 std::string heal_path(const std::string& p, const std::string& marker, const std::string& dir) {

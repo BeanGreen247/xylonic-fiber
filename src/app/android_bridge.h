@@ -21,6 +21,11 @@ bool decode_image(const std::string& bytes, std::vector<uint8_t>& rgba, int& w, 
 void set_landscape(bool landscape);
 // Enables the launcher activity-alias for the app icon `name` (see app_icons.h) and disables the others.
 void set_app_icon(const char* name);
+// Mounted volumes' app-specific folders as (label, path, removable) triples.
+std::vector<std::string> volumes();
+// Opens the system folder chooser; pick_poll returns "" while open, "!" on cancel or failure, else the chosen path with a trailing slash.
+void pick_start();
+std::string pick_poll();
 bool battery_exempt();
 void request_battery_exemption();
 }  // namespace android_bridge

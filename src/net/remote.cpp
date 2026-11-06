@@ -51,7 +51,7 @@ std::string local_ip() {
     std::string best;
     for (ifaddrs* a = ifs; a && best.empty(); a = a->ifa_next) {
         if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET || (a->ifa_flags & IFF_LOOPBACK) || virtual_iface(a->ifa_name)) continue;
-        char b[INET_ADDRSTRLEN];
+        char b[INET_ADDRSTRLEN] = {};
         inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(a->ifa_addr)->sin_addr, b, sizeof b);
         if (lan_ip(b)) best = b; else if (any.empty()) any = b;
     }
@@ -67,7 +67,7 @@ std::vector<std::string> broadcast_addrs() {
         uint32_t ip = ntohl(reinterpret_cast<sockaddr_in*>(a->ifa_addr)->sin_addr.s_addr), mk = ntohl(reinterpret_cast<sockaddr_in*>(a->ifa_netmask)->sin_addr.s_addr);
         uint32_t bc = (ip & mk) | ~mk;
         in_addr x{htonl(bc)};
-        char b[INET_ADDRSTRLEN];
+        char b[INET_ADDRSTRLEN] = {};
         inet_ntop(AF_INET, &x, b, sizeof b);
         bool dup = false;
         for (auto& e : r) if (e == b) dup = true;
@@ -178,7 +178,7 @@ std::string RemoteService::presence_json() {
     if (state_) {
         RemotePlayerState ps = state_();
         if (ps.has_state) {
-            char b[96];
+            char b[96] = {};
             std::snprintf(b, sizeof b, "%s,\"currentTime\":%.3f,\"duration\":%.3f", ps.playing ? "true" : "false", ps.current_time, ps.duration);
             j += ",\"playerState\":{\"isPlaying\":" + std::string(b) + ",\"song\":" + (ps.song_json.empty() ? "null" : ps.song_json) + "}";
         }
@@ -191,7 +191,7 @@ void RemoteService::broadcast_loop() {
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &one, sizeof one);
     while (run_.load()) {
-        bool enabled;
+        bool enabled = false;
         { std::lock_guard<std::mutex> lk(m_); enabled = enabled_; }
         if (enabled) {
             std::string pkt = presence_json();
@@ -215,7 +215,7 @@ void RemoteService::listen_loop() {
     while (run_.load()) {
         pollfd pf{lfd_, POLLIN, 0};
         if (poll(&pf, 1, 250) > 0) {
-            char buf[8192];
+            char buf[8192] = {};
             ssize_t n = recv(lfd_, buf, sizeof buf - 1, 0);
             if (n > 0) {
                 yyjson_doc* d = yyjson_read(buf, static_cast<size_t>(n), 0);
@@ -234,7 +234,7 @@ void RemoteService::listen_loop() {
                         dv.duration = du && yyjson_is_num(du) ? yyjson_get_num(du) : 0;
                         if (yyjson_val* sv = yyjson_obj_get(ps, "song")) { char* js = yyjson_val_write(sv, 0, nullptr); if (js) { if (std::strcmp(js, "null") != 0) dv.song_json = js; free(js); } }
                     }
-                    bool is_new;
+                    bool is_new = false;
                     { std::lock_guard<std::mutex> lk(m_); is_new = !devices_.count(dv.id); devices_[dv.id] = dv; }
                     if (is_new && on_event_) on_event_("device-found", dv.id);
                 }
@@ -275,7 +275,7 @@ void RemoteService::handle_client(int fd) {
     timeval tv{5, 0};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     std::string req;
-    char buf[4096];
+    char buf[4096] = {};
     size_t body_at = std::string::npos;
     size_t want = 0;
     for (;;) {
@@ -345,8 +345,8 @@ bool RemoteService::send_command(const std::string& host, int port, const std::s
     std::string req = "POST /cmd HTTP/1.1\r\nHost: " + host + ":" + std::to_string(port) + "\r\nContent-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
     if (!st->write_all(req.data(), req.size())) { reason = "network_error"; return false; }
     std::string resp;
-    char buf[2048];
-    long n;
+    char buf[2048] = {};
+    long n = 0;
     while ((n = st->read(buf, sizeof buf)) > 0) resp.append(buf, static_cast<size_t>(n));
     size_t b = resp.find("\r\n\r\n");
     if (b == std::string::npos) { reason = "network_error"; return false; }

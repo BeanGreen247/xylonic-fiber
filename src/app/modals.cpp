@@ -304,7 +304,7 @@ void App::draw_theme_editor(float W, float H) {
     gfx_->fill({b.x, b.y + 64 * s, b.w, 1 * s}, th.border_subtle);
     if (!edit_loaded_) {
         edit_name_ = cfg_.custom[edit_slot_].name;
-        char hx[16]; std::snprintf(hx, sizeof hx, "#%06x", cfg_.custom[edit_slot_].primary);
+        char hx[16] = {}; std::snprintf(hx, sizeof hx, "#%06x", cfg_.custom[edit_slot_].primary);
         edit_hex_ = hx; edit_loaded_ = true;
     }
     const float x = b.x + 24 * s, cw = b.w - 48 * s;

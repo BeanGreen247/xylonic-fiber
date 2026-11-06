@@ -8,7 +8,7 @@ void put32(std::string& b, uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back
 void put64(std::string& b, uint64_t v) { for (int i = 0; i < 8; ++i) b.push_back(static_cast<char>(v >> (i * 8))); }
 void put_str(std::string& b, const std::string& s) { put32(b, static_cast<uint32_t>(s.size())); b += s; }
 struct Reader {
-    const std::string& b; size_t p;
+    const std::string& b; size_t p = 0;
     bool u32(uint32_t& v) { if (b.size() - p < 4) return false; v = 0; for (int i = 0; i < 4; ++i) v |= static_cast<uint32_t>(static_cast<unsigned char>(b[p++])) << (i * 8); return true; }
     bool u64(uint64_t& v) { if (b.size() - p < 8) return false; v = 0; for (int i = 0; i < 8; ++i) v |= static_cast<uint64_t>(static_cast<unsigned char>(b[p++])) << (i * 8); return true; }
     bool str(std::string& s) { uint32_t n; if (!u32(n) || n > b.size() - p) return false; s.assign(b, p, n); p += n; return true; }

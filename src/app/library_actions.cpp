@@ -12,7 +12,7 @@
 
 namespace {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
-struct QOpt { int kbps; const char* label; const char* desc; int bars; };
+struct QOpt { int kbps = 0; const char* label; const char* desc; int bars = 0; };
 const QOpt kQualityOptions[] = {   // DOWNLOAD_QUALITY_OPTIONS
     {0, "Original (Raw)", "No transcoding \xC2\xB7 Best quality", 6}, {320, "320 kbps", "Excellent \xC2\xB7 Recommended", 6}, {256, "256 kbps", "High quality \xC2\xB7 Good balance", 5},
     {128, "128 kbps", "Good quality \xC2\xB7 Smaller files", 3}, {64, "64 kbps", "Low \xC2\xB7 Minimum storage", 2}};
@@ -148,21 +148,26 @@ void App::draw_missing_banner(float W, float y, float& height) {
     gfx_->fill({0, r.y + r.h - 1 * s, W, 1 * s}, {255, 255, 255, 102});
     const float cy = r.y + (r.h - 1 * s) / 2;
     fa(0xf0ed, pad_x * s + 9 * s, cy, 18, {255, 255, 255, 242});
-    const std::string title = std::to_string(missing_songs_) + " song" + (missing_songs_ != 1 ? "s" : "") + " not downloaded";
-    if (compact) T(700, 14, (pad_x + 30) * s, cy - 10.5f * s, 21, title, rgb(0xffffff), W - (pad_x + 30) * s - 170 * s);
-    else {
-        T(700, 14, (pad_x + 30) * s, r.y + pad_y * s, 21, title, rgb(0xffffff));
-        T(400, 12, (pad_x + 30) * s, r.y + (pad_y + 21) * s, 18, "Your library has songs not yet saved for offline use", {255, 255, 255, 217});
-    }
     // dismiss (30 round) and Download Missing (pill with chevron)
     Rect x{W - pad_x * s - 30 * s, cy - 15 * s, 30 * s, 30 * s};
-    gfx_->circle(x.x + 15 * s, x.y + 15 * s, 15 * s, {255, 255, 255, static_cast<uint8_t>(u.hover(x) ? 77 : 102)});
-    fa(skin::Xmark, x.x + 15 * s, x.y + 15 * s, 13, rgb(0xffffff));
-    const std::string label = bulk_downloading_ ? "Queuing\xE2\x80\xA6" : "Download Missing";
+    const std::string label = bulk_downloading_ ? "Queuing\xE2\x80\xA6" : compact ? "Download" : "Download Missing";   // a phone banner needs the room for the count
     const float fpx = compact ? 12.0f : 13.0f;
     const float lw = gfx_->measure(F(600, fpx), label);
     const float bw = lw + (compact ? 20 : 28) * s + 14 * s + 18 * s + 8 * s;
     Rect b{x.x - 8 * s - bw, cy - 16 * s, bw, 32 * s};   // even height: the stroke corners meet exactly
+    const std::string title = std::to_string(missing_songs_) + " song" + (missing_songs_ != 1 ? "s" : "") + " not downloaded";
+    if (compact) {   // the text gets what the button leaves; a short form when even that is too tight
+        const float avail = b.x - 8 * s - (pad_x + 30) * s;
+        const std::string shortt = std::to_string(missing_songs_) + " missing";
+        const std::string shown = gfx_->measure(F(700, 14), title) <= avail ? title : gfx_->measure(F(700, 14), shortt) <= avail ? shortt : std::to_string(missing_songs_);
+        T(700, 14, (pad_x + 30) * s, cy - 10.5f * s, 21, shown, rgb(0xffffff), avail);
+    }
+    else {
+        T(700, 14, (pad_x + 30) * s, r.y + pad_y * s, 21, title, rgb(0xffffff));
+        T(400, 12, (pad_x + 30) * s, r.y + (pad_y + 21) * s, 18, "Your library has songs not yet saved for offline use", {255, 255, 255, 217});
+    }
+    gfx_->circle(x.x + 15 * s, x.y + 15 * s, 15 * s, {255, 255, 255, static_cast<uint8_t>(u.hover(x) ? 77 : 102)});
+    fa(skin::Xmark, x.x + 15 * s, x.y + 15 * s, 13, rgb(0xffffff));
     gfx_->fill_round(b, 16 * s, {255, 255, 255, static_cast<uint8_t>(u.hover(b) ? 82 : 102)});
     gfx_->stroke_round(b, 16 * s, 1 * s, {255, 255, 255, 89});
     fa(skin::Download, b.x + (compact ? 10 : 14) * s + 6 * s, cy, 12, rgb(0xffffff));

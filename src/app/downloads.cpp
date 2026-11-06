@@ -1,3 +1,8 @@
+#include <thread>
+#include <atomic>
+#include <algorithm>
+#include <unordered_set>
+#include <unordered_map>
 #include "downloads.h"
 #include <chrono>
 #include <cstdio>
@@ -13,6 +18,17 @@ namespace {
 uint32_t now_ms() {
     return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
+// Runs fn(i) for i in [0, n) on up to 8 threads (inline for small n). fn must be thread-safe.
+template <class F> void parallel_for(size_t n, F&& fn) {
+    size_t t = std::min<size_t>(8, std::max<size_t>(2, std::thread::hardware_concurrency()));
+    if (n < 256 || t < 2) { for (size_t i = 0; i < n; ++i) fn(i); return; }
+    std::atomic<size_t> next{0};
+    auto work = [&] { for (size_t b = 0; (b = next.fetch_add(64)) < n;) for (size_t i = b; i < std::min(n, b + 64); ++i) fn(i); };
+    std::vector<std::thread> th;
+    for (size_t k = 1; k < t; ++k) th.emplace_back(work);
+    work();
+    for (auto& x : th) x.join();
+}
 }  // namespace
 
 Downloads::Downloads(Store& store, std::string dir, std::function<std::string(const std::string&)> url_fn, ConnectOptions opt, int threads)
@@ -22,8 +38,8 @@ Downloads::Downloads(Store& store, std::string dir, std::function<std::string(co
     for (auto& r : store_.dl_all())  // an interrupted run leaves rows Active: requeue them
         if (r.state == Active) store_.dl_set(r.id, Queued, 0, r.total, r.path);
     reconcile();
-    verify();
     for (int i = 0; i < threads; ++i) th_.emplace_back([this] { loop(); });
+    // verify() is not run here: stat-ing every finished file blocked the first frame after sign-in. The owner calls start_verify() once its callbacks are set.
 }
 
 Downloads::~Downloads() {
@@ -34,6 +50,7 @@ Downloads::~Downloads() {
     }
     cv_.notify_all();
     for (auto& t : th_) t.join();
+    if (bg_.joinable()) bg_.join();
     if (media_) media_->save();
 }
 
@@ -89,7 +106,7 @@ void Downloads::retry_failed() {
     changed();
 }
 
-bool Downloads::remove_one(const std::string& id, std::vector<std::string>* defer) {
+bool Downloads::remove_one(const std::string& id) {
     bool media_dirty = false;
     {
         std::lock_guard<std::mutex> lk(m_);
@@ -106,7 +123,7 @@ bool Downloads::remove_one(const std::string& id, std::vector<std::string>* defe
             if (!shared) ::unlink(r.path.c_str());
         }
         ::unlink((r.path + ".part").c_str());
-        if (defer) defer->push_back(id); else store_.dl_erase(id);
+        store_.dl_erase(id);
     }
     return media_dirty;
 }
@@ -118,11 +135,30 @@ void Downloads::remove(const std::string& id) {
 }
 
 void Downloads::remove_many(const std::vector<std::string>& ids) {
-    bool dirty = false;
-    std::vector<std::string> erase;
-    for (const std::string& id : ids) dirty |= remove_one(id, &erase);
+    if (ids.empty()) return;
+    std::unordered_set<std::string> want(ids.begin(), ids.end());
+    {   // stop the active ones
+        std::lock_guard<std::mutex> lk(m_);
+        for (const std::string& id : ids) { auto it = cancel_.find(id); if (it != cancel_.end()) it->second->store(true); }
+    }
+    // One pass over the rows (no song JSON copies): how many rows share each file, and the path of each id to remove.
+    std::unordered_map<std::string, int> refs;
+    std::vector<std::pair<std::string, std::string>> victims;   // id, path
+    store_.dl_each([&](const Store::Row& r) { ++refs[r.path]; if (want.count(r.id)) victims.emplace_back(r.id, r.path); });
+    std::unordered_set<std::string> media_ids;
+    std::vector<std::string> unlinks, erase;
+    const std::string root = media_ ? media_->root() : std::string();
+    for (auto& v : victims) {
+        const bool managed = media_ && v.second.compare(0, root.size(), root) == 0;
+        if (managed) media_ids.insert(v.first);
+        else if (--refs[v.second] <= 0) unlinks.push_back(v.second);   // a file other rows still use stays
+        unlinks.push_back(v.second + ".part");
+        erase.push_back(v.first);
+    }
+    if (media_ && !media_ids.empty()) media_->release_songs(media_ids);
+    parallel_for(unlinks.size(), [&](size_t i) { ::unlink(unlinks[i].c_str()); });   // thousands of unlinks: I/O bound, so spread them
     store_.dl_erase_many(erase);
-    if (dirty && media_) media_->save();
+    if (!media_ids.empty() && media_) media_->save();
     last_notify_ = 0;
     changed();
 }
@@ -162,14 +198,33 @@ void Downloads::clear_all() {
 }
 
 int Downloads::verify() {
-    int dropped = 0;
-    for (auto& r : store_.dl_all()) {
-        if (r.state != Done) continue;
+    struct Item { std::string id, path; int64_t total; };
+    std::vector<Item> items;
+    store_.dl_each([&](const Store::Row& r) { if (r.state == Done) items.push_back({r.id, r.path, r.total}); });   // no song JSON copies
+    std::vector<char> bad(items.size(), 0);
+    parallel_for(items.size(), [&](size_t i) {
         struct stat st{};
-        if (::stat(r.path.c_str(), &st) != 0 || (r.total > 0 && st.st_size != r.total)) { store_.dl_erase(r.id); ++dropped; }
-    }
-    if (dropped) { last_notify_ = 0; changed(); }
-    return dropped;
+        if (::stat(items[i].path.c_str(), &st) != 0 || (items[i].total > 0 && st.st_size != items[i].total)) bad[i] = 1;
+    });
+    std::vector<std::string> drop;
+    for (size_t i = 0; i < items.size(); ++i) if (bad[i]) drop.push_back(items[i].id);
+    if (!drop.empty()) { store_.dl_erase_many(drop); last_notify_ = 0; changed(); }   // one journal transaction, not one per row
+    return static_cast<int>(drop.size());
+}
+
+void Downloads::start_verify() {
+    std::lock_guard<std::mutex> lk(bg_m_);
+    if (verifying_.exchange(true)) return;
+    if (bg_.joinable()) bg_.join();
+    verify_dropped_ = 0;
+    bg_ = std::thread([this] { verify_dropped_ = verify(); verifying_ = false; if (on_change_) on_change_(); });
+}
+
+void Downloads::clear_queue_async() {
+    std::lock_guard<std::mutex> lk(bg_m_);
+    if (verifying_.load()) return;
+    if (bg_.joinable()) bg_.join();
+    bg_ = std::thread([this] { clear_queue(); });
 }
 
 int Downloads::reconcile() {
@@ -303,11 +358,11 @@ bool Downloads::fetch(const Store::Row& row) {
             unsigned char digest[32]{};
             mbedtls_sha256_context sha; mbedtls_sha256_init(&sha); mbedtls_sha256_starts(&sha, 0);
             FILE* in = std::fopen(row.path.c_str(), "rb");
-            char buf[16384]; size_t n = 0;
+            char buf[16384] = {}; size_t n = 0;
             while (in && (n = std::fread(buf, 1, sizeof buf, in)) > 0) mbedtls_sha256_update(&sha, reinterpret_cast<const unsigned char*>(buf), n);
             if (in) std::fclose(in);
             mbedtls_sha256_finish(&sha, digest); mbedtls_sha256_free(&sha);
-            char hex[65]; for (int i = 0; i < 32; ++i) std::snprintf(hex + i * 2, 3, "%02x", digest[i]); hex[64] = 0;
+            char hex[65] = {}; for (int i = 0; i < 32; ++i) std::snprintf(hex + i * 2, 3, "%02x", digest[i]); hex[64] = 0;
             hash = hex;
             // Serialize the hash lookup and publication so two workers finishing
             // identical content cannot both become canonical files.

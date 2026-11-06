@@ -151,6 +151,19 @@ int main() {
         d.clear_queue();
         CHECK(d.pending() == 0 && d.snapshot()->empty() && ms() < 5000);
     }
+    { // async clear and async verify of a big queue finish off-thread
+        Store st; CHECK(st.open(dir + "/as.json"));
+        Downloads d(st, dir + "/asfiles", urlf, ConnectOptions{}); d.pause_all();
+        std::vector<Song> big; for (int i = 0; i < 5000; ++i) big.push_back(mk("as" + std::to_string(i), "alAs"));
+        d.enqueue(big);
+        d.start_verify(); for (int i = 0; i < 500 && d.verify_running(); ++i) sleep_ms(10);
+        CHECK(!d.verify_running() && d.verify_dropped() == 0);
+        auto t1 = std::chrono::steady_clock::now();
+        d.clear_queue_async();
+        for (int i = 0; i < 500 && d.pending() > 0; ++i) sleep_ms(10);
+        CHECK(d.pending() == 0 && st.dl_all().empty());
+        std::printf("async clear of 5000: %lld ms\n", static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t1).count()));
+    }
     { // batch writes survive a restart (journal replay of multi-row transactions)
         std::vector<Song> few; for (int i = 0; i < 50; ++i) few.push_back(mk("rs" + std::to_string(i), "alRs"));
         { Store st; CHECK(st.open(dir + "/rs.json")); Downloads d(st, dir + "/rsfiles", urlf, ConnectOptions{}); d.pause_all(); d.enqueue(few); }

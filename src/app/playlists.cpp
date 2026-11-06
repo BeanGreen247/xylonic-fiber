@@ -17,14 +17,14 @@ void App::pl_load() {
     if (!store_ || !store_->get("playlists", j)) return;
     yyjson_doc* d = yyjson_read(j.data(), j.size(), 0);
     if (!d) return;
-    size_t i, n; yyjson_val* o;
+    size_t i = 0, n = 0; yyjson_val* o = nullptr;
     yyjson_arr_foreach(yyjson_doc_get_root(d), i, n, o) {
         Playlist p;
         auto str = [&](const char* k) { yyjson_val* v = yyjson_obj_get(o, k); return v && yyjson_is_str(v) ? std::string(yyjson_get_str(v)) : std::string(); };
         p.id = str("id"); p.name = str("name"); p.server_id = str("serverId"); p.owner = str("owner");
         yyjson_val* c = yyjson_obj_get(o, "created"); yyjson_val* u = yyjson_obj_get(o, "updated");
         p.created = c ? static_cast<int64_t>(yyjson_get_sint(c)) : 0; p.updated = u ? static_cast<int64_t>(yyjson_get_sint(u)) : 0;
-        size_t j2, n2; yyjson_val* sv;
+        size_t j2 = 0, n2 = 0; yyjson_val* sv = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(o, "songs"), j2, n2, sv) {
             char* js = yyjson_val_write(sv, 0, nullptr);
             Song s;

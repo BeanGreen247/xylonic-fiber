@@ -17,7 +17,7 @@
 class Downloads {
 public:
     enum State { Queued = 0, Active = 1, Done = 2, Failed = 3, Paused = 4 };
-    struct Item { Song song; State state; int64_t bytes, total; int quality = -1; };
+    struct Item { Song song; State state; int64_t bytes = 0, total = 0; int quality = -1; };
     // url_fn builds a fresh authenticated URL for a song id (called on download threads).
     Downloads(Store& store, std::string dir, std::function<std::string(const std::string&)> url_fn, ConnectOptions opt, int threads = 2);
     ~Downloads();
@@ -42,7 +42,11 @@ public:
     void remove(const std::string& id);          // cancels and deletes file + row
     void remove_many(const std::vector<std::string>& ids);   // same for a batch: one manifest save and one notification (clearing a 5000-song queue)
     void clear_all();
-    int verify();                                // drops rows whose file is gone or short; returns how many
+    int verify();                                // drops rows whose file is gone or short; returns how many (stats on several threads)
+    void start_verify();                         // same on a background thread; poll verify_running / verify_dropped
+    bool verify_running() const { return verifying_.load(); }
+    int verify_dropped() const { return verify_dropped_.load(); }
+    void clear_queue_async();                    // clear_queue off the calling thread; the change notification fires when done
     int reconcile();                             // removes unowned files and stale partials
     std::string path_if_done(const std::string& id) const;
     using Snapshot = std::shared_ptr<const std::vector<Item>>;
@@ -57,7 +61,7 @@ public:
     std::vector<Album> done_albums() const;      // albums that have at least one finished track (songs = finished ones)
 
 private:
-    bool remove_one(const std::string& id, std::vector<std::string>* defer = nullptr);   // returns true when the media manifest changed
+    bool remove_one(const std::string& id);   // returns true when the media manifest changed
     void loop();
     bool fetch(const Store::Row& row);
     enum class Change { Progress, Background, User };
@@ -86,4 +90,8 @@ private:
     std::map<std::string, std::atomic<bool>*> cancel_;  // active id -> cancel flag
     std::map<std::string, int64_t> live_bytes_;          // active id -> bytes so far
     std::atomic<uint32_t> last_notify_{0};
+    std::atomic<bool> verifying_{false};
+    std::atomic<int> verify_dropped_{0};
+    std::thread bg_;   // verify / clear-queue worker, joined by the destructor
+    std::mutex bg_m_;
 };

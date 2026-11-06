@@ -14,11 +14,11 @@ const ThemeDef kPresets[kPresetCount] = {
     {"Tropical Teal", 0x009688, 0x4db6ac, 0x00796b, 0x26a69a, 0x80cbc4, 0x00695c, 0x64ffda, 0xa7ffeb},
 };
 
-struct Surfaces { uint32_t surface, variant, bg, ink; };
+struct Surfaces { uint32_t surface = 0, variant = 0, bg = 0, ink = 0; };
 const Surfaces kDark = {0x1e1e1e, 0x2a2a2a, 0x121212, 0xffffff};
 const Surfaces kLight = {0xffffff, 0xf0f0f2, 0xf7f7f8, 0x1b1b1f};
 
-struct Rgb { float r, g, b; };
+struct Rgb { float r = 0, g = 0, b = 0; };
 Rgb unpack(uint32_t c) { return {float((c >> 16) & 255), float((c >> 8) & 255), float(c & 255)}; }
 uint32_t pack(float r, float g, float b) {
     auto q = [](float v) { return static_cast<uint32_t>(std::lround(std::max(0.0f, std::min(255.0f, v)))); };
@@ -29,7 +29,7 @@ float lum(uint32_t c) {
     auto lin = [](float x) { float s = x / 255.0f; return s <= 0.03928f ? s / 12.92f : std::pow((s + 0.055f) / 1.055f, 2.4f); };
     return 0.2126f * lin(v.r) + 0.7152f * lin(v.g) + 0.0722f * lin(v.b);
 }
-struct Hsl { float h, s, l; };
+struct Hsl { float h = 0, s = 0, l = 0; };
 Hsl to_hsl(uint32_t c) {
     Rgb v = unpack(c);
     float rn = v.r / 255, gn = v.g / 255, bn = v.b / 255;

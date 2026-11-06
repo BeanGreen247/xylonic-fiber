@@ -19,9 +19,16 @@ bool disk_space(const std::string& path, uint64_t& free_bytes, uint64_t& total_b
 std::string pick_folder(const std::string& start);
 // Total size of regular files below dir.
 uint64_t tree_bytes(const std::string& dir);
-// Copies src's tree into dst (merging), then removes the copied source files. progress gets bytes copied so far.
-// Returns false and leaves the source intact when a copy fails; error describes the failure.
-bool move_tree(const std::string& src, const std::string& dst, std::atomic<uint64_t>& progress, std::string& error);
+// Moves src's tree into dst (merging). Same filesystem: renames (instant). Otherwise copies each file, verifies its size, then
+// removes that source file, so an interrupted move can simply be run again. progress gets bytes moved so far.
+// Returns false when a file fails or cancel is set (finished files stay moved); error describes the failure.
+bool move_tree(const std::string& src, const std::string& dst, std::atomic<uint64_t>& progress, std::string& error,
+               const std::atomic<bool>* cancel = nullptr);
+// Android: begin the system folder chooser, then poll each frame. poll returns false while open; true when done with the
+// path in out (empty on cancel). pick_folder_async_supported is false where pick_folder (blocking) is used instead.
+bool pick_folder_async_supported();
+void pick_folder_async_start();
+bool pick_folder_async_poll(std::string& out);
 // Re-roots a stored file path after the cache moved: if p contains marker (e.g. "/downloads/<acct>/") and does not
 // already start with dir (which ends in that marker), returns dir plus the part after the marker; otherwise p.
 std::string heal_path(const std::string& p, const std::string& marker, const std::string& dir);

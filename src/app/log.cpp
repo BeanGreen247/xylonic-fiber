@@ -27,7 +27,7 @@ void xf_log(const char* fmt, ...) {
     if (::stat(path.c_str(), &sb) == 0 && sb.st_size > (2 << 20)) std::rename(path.c_str(), (path + ".1").c_str());   // keep one rotated file
     std::FILE* f = std::fopen(path.c_str(), "a");
     if (!f) return;
-    const std::time_t t = std::time(nullptr); char ts[32]; std::strftime(ts, sizeof ts, "%Y-%m-%d %H:%M:%S", std::localtime(&t));
+    const std::time_t t = std::time(nullptr); char ts[32] = {}; std::strftime(ts, sizeof ts, "%Y-%m-%d %H:%M:%S", std::localtime(&t));
     std::fprintf(f, "%s ", ts);
     va_list ap; va_start(ap, fmt); std::vfprintf(f, fmt, ap); va_end(ap);
     std::fputc('\n', f); std::fclose(f);

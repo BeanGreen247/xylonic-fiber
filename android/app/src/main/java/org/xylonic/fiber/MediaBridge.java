@@ -120,7 +120,7 @@ public final class MediaBridge {
         });
     }
 
-    private static boolean wasPortrait = true;
+    private static boolean wasPortrait = true, inCar = false;
 
     /**
      * Car Mode is a landscape display: force it whatever the auto-rotate setting says. On exit the screen goes back to the orientation it
@@ -130,14 +130,21 @@ public final class MediaBridge {
         a.runOnUiThread(new Runnable() {
             @Override public void run() {
                 if (landscape) {
-                    wasPortrait = a.getResources().getConfiguration().orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+                    // Car Mode re-asserts landscape (e.g. the keep-awake toggle): only the first call may record the original orientation,
+                    // or leaving would think the phone started in landscape and never return to portrait.
+                    if (!inCar) wasPortrait = a.getResources().getConfiguration().orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+                    inCar = true;
                     a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                } else if (!inCar) {
+                    return;
                 } else if (wasPortrait) {
+                    inCar = false;
                     a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
                         @Override public void run() { a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER); }
                     }, 1200);
                 } else {
+                    inCar = false;
                     a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER);
                 }
             }
@@ -165,4 +172,92 @@ public final class MediaBridge {
 
     /** Implemented in libmain.so (src/app/android_bridge.cpp). Runs on an Android thread, not the SDL thread. */
     public static native void nativeCommand(int cmd, double arg);
+
+    // ---- storage ----
+
+    /** Every mounted volume's app-specific folder, as flat triples (label, path, removable "1"/"0"). Writable without any permission. */
+    public static String[] volumes(Context c) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        try {
+            java.io.File[] dirs = c.getExternalFilesDirs(null);
+            android.os.storage.StorageManager sm = (android.os.storage.StorageManager) c.getSystemService(Context.STORAGE_SERVICE);
+            if (dirs != null) for (java.io.File d : dirs) {
+                if (d == null || !d.isDirectory() || !d.canWrite()) continue;
+                String label = "Storage";
+                boolean removable = false;
+                if (Build.VERSION.SDK_INT >= 24 && sm != null) {
+                    android.os.storage.StorageVolume v = sm.getStorageVolume(d);
+                    if (v != null) {
+                        String desc = v.getDescription(c);
+                        if (desc != null && !desc.isEmpty()) label = desc;
+                        removable = v.isRemovable();
+                        if (v.isPrimary() && !removable) label = "Internal storage";
+                        else if (removable && (desc == null || desc.isEmpty())) label = "SD card / USB";
+                    }
+                }
+                out.add(label); out.add(d.getAbsolutePath()); out.add(removable ? "1" : "0");
+            }
+        } catch (RuntimeException e) {
+            // fall through with what was found
+        }
+        return out.toArray(new String[0]);
+    }
+
+    static final int REQ_TREE = 7411, REQ_ALL_FILES = 7412;
+    /** "" nothing yet, "!" cancelled/unusable, else the chosen directory path. Polled by native code. */
+    static volatile String pickResult = "";
+    static volatile boolean picking = false;
+
+    /** Opens the system folder chooser (Storage Access Framework). */
+    public static void pickFolder(Activity a) {
+        pickResult = ""; picking = true;
+        a.runOnUiThread(() -> {
+            try {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                a.startActivityForResult(i, REQ_TREE);
+            } catch (RuntimeException e) { pickResult = "!"; picking = false; }
+        });
+    }
+
+    /** Polled by native code: "" while the chooser is open, "!" on cancel/failure, else the chosen path. */
+    public static String pickPoll() { return pickResult; }
+
+    /** True when plain file I/O may use arbitrary shared-storage paths. */
+    public static boolean allFilesAccess() {
+        return Build.VERSION.SDK_INT < 30 || android.os.Environment.isExternalStorageManager();
+    }
+
+    static String treeToPath(Uri tree) {
+        try {
+            String id = android.provider.DocumentsContract.getTreeDocumentId(tree);   // "primary:Music/x" or "1A2B-3C4D:Music"
+            int k = id.indexOf(':');
+            String vol = k < 0 ? id : id.substring(0, k), rel = k < 0 ? "" : id.substring(k + 1);
+            String base = vol.equals("primary") ? android.os.Environment.getExternalStorageDirectory().getAbsolutePath() : "/storage/" + vol;
+            return rel.isEmpty() ? base : base + "/" + rel;
+        } catch (RuntimeException e) { return null; }
+    }
+
+    static void handleResult(Activity a, int req, int res, Intent data) {
+        if (req == REQ_TREE) {
+            String path = (res == Activity.RESULT_OK && data != null && data.getData() != null) ? treeToPath(data.getData()) : null;
+            if (path == null) { pickResult = "!"; picking = false; return; }
+            java.io.File d = new java.io.File(path);
+            if (!allFilesAccess()) {   // native file I/O into a shared folder needs "All files access" on Android 11+
+                pendingPath = path;
+                try {
+                    Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + a.getPackageName()));
+                    a.startActivityForResult(i, REQ_ALL_FILES);
+                    return;
+                } catch (RuntimeException e) { pickResult = "!"; picking = false; return; }
+            }
+            d.mkdirs();
+            pickResult = d.isDirectory() && d.canWrite() ? path + "/" : "!"; picking = false;
+        } else if (req == REQ_ALL_FILES) {
+            java.io.File d = new java.io.File(pendingPath == null ? "/nonexistent" : pendingPath);
+            if (allFilesAccess()) d.mkdirs();
+            pickResult = allFilesAccess() && d.isDirectory() && d.canWrite() ? pendingPath + "/" : "!"; picking = false;
+        }
+    }
+    static String pendingPath;
 }

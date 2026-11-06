@@ -1,5 +1,6 @@
 // Application shell: owns the window, the UI, the player and the session. Single UI thread; network on workers.
 #pragma once
+#include <chrono>
 #include <SDL.h>
 #include <functional>
 #include <memory>
@@ -206,8 +207,10 @@ private:
     void on_connected();
     void enter_offline();
     void open_account_data();
+    void resolve_account(std::function<void()> done);   // maps the connected address to an account (shared data across addresses)
     void refresh_dl_state();
-    void logout();
+    void logout(bool forget_password = true);   // false keeps the saved password so the account can be switched back to
+    void add_server();                          // sign-in screen with empty fields; the current account stays saved
     void load_home();
     void load_artists();
     void load_artist(const std::string& id);
@@ -271,6 +274,7 @@ private:
 
     Screen screen_ = Screen::Login;
     Nav nav_ = Nav::Home;
+    Nav dl_prev_nav_ = Nav::Home; bool dl_has_prev_ = false;   // where the Downloads page was opened from (its close button returns there)
     std::vector<View> views_;  // top = current; bottom = nav root
     std::shared_ptr<SubsonicClient> client_;
     ConnectOptions copt_;
@@ -283,7 +287,7 @@ private:
     std::string acct_;
     std::unique_ptr<Store> store_;
     std::unique_ptr<Downloads> downloads_;
-    struct DlInfo { int state; int64_t bytes, total; };
+    struct DlInfo { int state = 0; int64_t bytes = 0, total = 0; };
     std::unordered_map<std::string, DlInfo> dl_state_;
     float W_last_ = 0, H_last_ = 0;
     double bench_present_ = 0;
@@ -305,10 +309,11 @@ private:
     bool show_help_ = false, playing_random_ = false, hamburger_open_ = false, nav_expanded_ = false;
     SDL_Texture* svg_tex_[3] = {nullptr, nullptr, nullptr};  // logo, github, lastfm
     void load_section(int i);
-    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, Firewall, TechStack, Licenses, DownloadQuality, Reauth, ConfirmRebuild, ConfirmClearCaches, ConfirmCarMode, SwitchServer, SwitchPass, ConfirmDeletePlaylist, MoveCache, StoragePick, ThemeEdit, AppIcon };
+    enum class Modal { None, Sleep, Theme, ConfirmWipe, Remote, Firewall, TechStack, Licenses, DownloadQuality, Reauth, ConfirmRebuild, ConfirmClearCaches, ConfirmCarMode, SwitchServer, SwitchPass, ConfirmDeletePlaylist, MoveCache, StoragePick, ConfirmSignOut, ThemeEdit, AppIcon };
     std::string cache_base() const { return resolve_cache_root(cfg_.cache_root, pref_); }
-    void start_cache_move(const std::string& to);
-    void choose_cache_folder();
+    std::string downloads_base() const { return cfg_.downloads_root.empty() ? cache_base() : resolve_cache_root(cfg_.downloads_root, cache_base()); }
+    void start_cache_move(int kind, const std::string& to);   // kind 0 downloads, 1 streaming cache
+    void choose_cache_folder(int kind);
     void draw_storage_modal(float W, float H);
     void draw_tooltip(float W, float H);
     void draw_splash(float W, float H);
@@ -337,6 +342,9 @@ private:
     std::atomic<uint64_t> move_done_{0};
     uint64_t move_total_ = 0;
     int move_state_ = 0;   // 0 idle, 1 running, 2 failed
+    int move_kind_ = 0;    // which location the open dialog/move concerns: 0 downloads, 1 streaming cache
+    std::atomic<bool> move_cancel_{false};
+    bool picking_ = false;   // the system folder chooser is open (Android)
     std::string move_error_, move_target_;
     std::vector<StorageVolume> vols_;
     int vol_choice_ = -1;
@@ -414,6 +422,7 @@ private:
     bool switch_lookup_done_ = false;
     float settings_total_ = 0;   // measured content height of Settings (0 until the first frame)
     bool dm_show_queue_ = false, dm_manage_ = false, dm_confirm_clear_ = false, dm_verifying_ = false, dm_verified_done_ = false;
+    int dm_verify_before_ = 0; std::chrono::steady_clock::time_point dm_verify_t0_;
     std::string dm_pending_album_;
     int dm_verified_ = 0, dm_removed_ = 0; double dm_verify_s_ = 0;
     std::set<std::string> dm_cleared_;    // finished songs hidden from the queue list ("Clear Completed")

@@ -77,9 +77,9 @@ private:
     int grow_from_ = 0, grow_to_ = 0;
     std::string capture_path_;
     friend class FontFace;
-    struct Glyph { float u0, v0, u1, v1; float xoff, yoff, w, h, adv; };
+    struct Glyph { float u0 = 0, v0 = 0, u1 = 0, v1 = 0; float xoff = 0, yoff = 0, w = 0, h = 0, adv = 0; };
     const Glyph* glyph(int font, uint32_t cp);
-    struct Shape { float u0, v0, u1, v1; };
+    struct Shape { float u0 = 0, v0 = 0, u1 = 0, v1 = 0; };
     // Anti-aliased quarter-circle masks (fill or ring) packed into the atlas; every rounded shape is built from them.
     const Shape* shape(int radius, int thickness);
     void corner(float x, float y, int r, bool flip_x, bool flip_y, const Shape& sh, Color c);

@@ -22,14 +22,6 @@ namespace {
 const char* kOrg = "xylonic-fiber";
 const char* kApp = "xylonic-fiber";
 
-std::string hash8(const std::string& k) {
-    uint64_t h = 1469598103934665603ULL;
-    for (unsigned char c : k) { h ^= c; h *= 1099511628211ULL; }
-    char b[16];
-    std::snprintf(b, sizeof b, "%08x", static_cast<unsigned>(h ^ (h >> 32)));
-    return b;
-}
-
 void mkdirs(const std::string& p) {
     for (size_t i = 1; i < p.size(); ++i)
         if (p[i] == '/') { std::string d = p.substr(0, i); ::mkdir(d.c_str(), 0700); }
@@ -104,7 +96,7 @@ bool App::init() {
         if (SDL_GetRendererInfo(ren_, &ri) == 0) { software_ = (ri.flags & SDL_RENDERER_SOFTWARE) != 0; renderer_name_ = ri.name ? ri.name : ""; xf_log("renderer: %s", ri.name); }
     }
     SDL_SetRenderDrawBlendMode(ren_, SDL_BLENDMODE_BLEND);
-    int ww, wh, dw, dh;
+    int ww = 0, wh = 0, dw = 0, dh = 0;
     SDL_GetWindowSize(win_, &ww, &wh);
     SDL_GetRendererOutputSize(ren_, &dw, &dh);
     S_ = ww > 0 ? static_cast<float>(dw) / ww : 1.0f;
@@ -122,7 +114,7 @@ bool App::init() {
 
     img_dir_ = pref_ + "covers/";
     mkdirs(img_dir_);
-    perm_dir_ = cache_base() + "downloads/"; stream_dir_ = cache_base() + "stream/";
+    perm_dir_ = downloads_base() + "downloads/"; stream_dir_ = cache_base() + "stream/";
     mkdirs(perm_dir_); mkdirs(stream_dir_);
     xf_log_configure(cfg_.debug_log, pref_ + "logs");
     vol_ = static_cast<float>(cfg_.volume_pct) / 100.0f;
@@ -179,12 +171,16 @@ bool App::init() {
     f_url_ = cfg_.server_url;
     f_user_ = cfg_.username;
     if (!opt_.server.empty()) { f_url_ = opt_.server; f_user_ = opt_.user; f_pass_ = opt_.pass; }
-    if (opt_.server.empty()) start_scan();
+    // The LAN sweep (hundreds of connect attempts on 48 threads) only helps someone who has to pick a server. With a saved login it
+    // would burn CPU through startup, so it waits until sign-in turns out to need it (no saved password, or the connect fails).
+    const bool saved_login = !cfg_.server_url.empty() && !cfg_.username.empty();
+    if (opt_.server.empty() && !saved_login) start_scan();
     if (opt_.server.empty() && !cfg_.server_url.empty() && !cfg_.username.empty()) {
         if (cfg_.offline_mode) enter_offline();   // like the original: offline mode survives a restart and nothing connects until it is switched off
         else {
             // The sign-in screen draws at once; the stored password arrives later and signs in by itself.
             lookup_secret_async(cfg_.server_url + "|" + cfg_.username, [this](bool ok, std::string saved) {
+                if (!ok && scan_gen_ == 0) start_scan();
                 if (ok && screen_ == Screen::Login && !connecting_ && !client_ && f_pass_.empty()) { f_pass_ = std::move(saved); connect(false); }
             });
         }
@@ -247,6 +243,7 @@ void App::connect(bool trust_pin) {
             if (sess != session_) return;
             connecting_ = false;
             xf_log("connect %s: %s", url.c_str(), ok ? "ok" : (err.empty() ? "failed" : err.c_str()));
+            if (!ok && scan_gen_ == 0 && opt_.server.empty()) start_scan();   // sign-in failed: the server list may be needed after all
             if (ok) {
                 client_ = client;
                 cfg_.server_url = url;
@@ -255,7 +252,7 @@ void App::connect(bool trust_pin) {
                 cfg_.remember_connection(url, f_user_);
                 cfg_.save(cfg_path_);
                 if (opt_.server.empty()) store_secret_async(url + "|" + f_user_, f_pass_);  // not for scripted test logins
-                on_connected();
+                resolve_account([this] { on_connected(); });
             } else if (!fp.empty()) {
                 cert_fp_ = fp;
                 cert_prompt_ = true;
@@ -269,11 +266,59 @@ void App::connect(bool trust_pin) {
     mark();
 }
 
+// Works out which account this address belongs to. An address never seen before is compared (by a sample of the library's artist ids)
+// with the accounts already known for the same user: a match means the same server reached another way (another house, a VPN, a
+// hostname), so its downloads, index, queue and playlists are reused instead of starting empty. Known addresses skip the network.
+void App::resolve_account(std::function<void()> done) {
+    const std::string url = cfg_.server_url, user = cfg_.username;
+    Config::Account* known = cfg_.find_account(url, user);
+    if (known && !known->fp.empty()) { done(); return; }
+    connecting_ = true;
+    auto c = client_;
+    const uint32_t sess = session_;
+    worker_->post([this, c, sess, url, user, done = std::move(done)]() mutable {
+        std::vector<Artist> artists;
+        std::string err;
+        std::vector<std::string> fp;
+        if (c && c->artists(artists, err)) {
+            std::vector<std::string> ids;
+            ids.reserve(artists.size());
+            for (const Artist& ar : artists) ids.push_back(ar.id);
+            fp = library_fingerprint(ids);
+        }
+        ui_post([this, sess, url, user, fp = std::move(fp), done = std::move(done)] {
+            if (sess != session_) return;
+            connecting_ = false;
+            if (Config::Account* ex = cfg_.find_account(url, user)) {
+                if (!fp.empty()) ex->fp = fp;
+            } else if (Config::Account* m = fp.empty() ? nullptr : cfg_.match_account(user, fp)) {
+                m->urls.push_back(url);
+                m->fp = fp;
+                toast_ = "Recognised this server from an earlier connection: your downloads and library are shared"; toast_until_ = SDL_GetTicks() + 6000;
+                xf_log("account: %s is the same server as %s (shared data)", url.c_str(), m->urls.front().c_str());
+            } else {
+                Config::Account n;
+                n.id = cfg_.account_id(url, user);   // the legacy id, so data written before accounts existed stays reachable
+                n.user = user; n.urls.push_back(url); n.fp = fp;
+                cfg_.accounts.push_back(std::move(n));
+            }
+            cfg_.save(cfg_path_);
+            done();
+        });
+    });
+    mark();
+}
+
 void App::open_account_data() {
-    acct_ = hash8(cfg_.server_url + "|" + cfg_.username);
+    acct_ = cfg_.account_id(cfg_.server_url, cfg_.username);   // follows the account, not the address
     const std::string base = cache_base();
-    perm_dir_ = base + "downloads/" + acct_ + "/";
+    perm_dir_ = downloads_base() + "downloads/" + acct_ + "/";
     stream_dir_ = base + "stream/" + acct_ + "/";
+    {
+        auto slash = [](std::string r) { if (!r.empty() && r.back() != '/') r += '/'; return r; };
+        const bool lost = (!cfg_.cache_root.empty() && base != slash(cfg_.cache_root)) || (!cfg_.downloads_root.empty() && downloads_base() != slash(cfg_.downloads_root));
+        if (lost) { toast_ = "Chosen storage is unavailable (removed?). Using internal storage for now"; toast_until_ = SDL_GetTicks() + 5000; }   // the setting is kept: it applies again when the volume returns
+    }
     mkdirs(perm_dir_); mkdirs(stream_dir_);
     store_ = std::make_unique<Store>();
     if (!store_->open(pref_ + "data_" + acct_ + ".json")) store_.reset();
@@ -295,6 +340,7 @@ void App::open_account_data() {
         downloads_->set_on_done([this, c](const Song& sg) {   // cover art of every downloaded song, fetched once per cover (offline browsing shows it)
             if (c && images_ && !sg.cover_art.empty()) images_->fetch_to_disk(sg.cover_art, [c, id = sg.cover_art](int size) { return c->cover_url(id, size); });
         });
+        downloads_->start_verify();   // drops rows whose file vanished, on worker threads (it used to block the first frame)
     }
     dl_dirty_ = true;
 }
@@ -448,9 +494,9 @@ void App::on_connected() {
     }
 }
 
-void App::logout() {
+void App::logout(bool forget_password) {
     cancel_cache_preload(); pre_open_ = false; newcontent_open_ = false;
-    secret_clear(cfg_.server_url + "|" + cfg_.username);
+    if (forget_password) secret_clear(cfg_.server_url + "|" + cfg_.username);
     player_.stop();
     ++session_;
     ++play_gen_;
@@ -468,6 +514,14 @@ void App::logout() {
     queue_.clear();
     screen_ = Screen::Login;
     login_msg_.clear();
+    start_scan();   // the sign-in screen is where the server list is needed
+    mark();
+}
+
+void App::add_server() {
+    logout(false);
+    f_url_.clear(); f_user_.clear(); f_pass_.clear();   // a blank form: the previous account and its saved password stay for Switch Server
+    test_ok_ = false;
     mark();
 }
 
@@ -618,6 +672,7 @@ void App::handle_back() {
 void App::pop_view() { if (views_.size() > 1) { views_.pop_back(); mark(); } }
 
 void App::set_nav(Nav n) {
+    if (n == Nav::Downloads && nav_ != Nav::Downloads) { dl_prev_nav_ = nav_; dl_has_prev_ = true; }
     nav_ = n;
     perf_stats_.loaded = false;   // Settings re-reads the cache stats when opened
     views_.clear();
@@ -928,8 +983,8 @@ int App::run() {
     while (running_) {
         bool pulse_live = car_open_ && cfg_.car_pulse && !pulse_off_ && player_.playing();
         bool animating = pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_ || tip_pending_ || (press_touch_ && !long_fired_ && ui_->in.down);
-        SDL_Event e;
-        bool got;
+        SDL_Event e {};
+        bool got = false;
         if (dirty_ || opt_.bench > 0) got = SDL_PollEvent(&e) != 0;
         else if (shot_deadline_) got = SDL_WaitEventTimeout(&e, 50) != 0;
         else if (animating) got = SDL_WaitEventTimeout(&e, pulse_live ? 33 : (tip_pending_ || press_touch_) ? 80 : 250) != 0;
@@ -977,12 +1032,14 @@ int App::run() {
             ui_theme_cache_ = ui_->th;
             if (mini_win_) draw_mini();
             last_draw = SDL_GetTicks();
+            const bool had_click = ui_->in.released;
             ui_->in.new_frame();
+            if (had_click) mark();   // a click changes state while the frame is already drawn (a dialog closes, a page opens): draw once more so a touch screen shows it without a further event
         }
         if (shot_deadline_ && SDL_GetTicks() >= shot_deadline_ && !track_loading_ && !loading_home_) {
             // The back buffer is undefined after a present; draw the settled scene twice so the read-back is the current one.
             if (!mini_ren_) { frame(); gfx_->capture_next(opt_.shot_path); frame(); }
-            int w, h;
+            int w = 0, h = 0;
             SDL_Renderer* shot_ren = mini_ren_ ? mini_ren_ : ren_;
             SDL_GetRendererOutputSize(shot_ren, &w, &h);
             SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
@@ -996,7 +1053,7 @@ int App::run() {
 
 void App::frame() {
     const uint64_t frame_start = SDL_GetPerformanceCounter();
-    int dw, dh;
+    int dw = 0, dh = 0;
     SDL_GetRendererOutputSize(ren_, &dw, &dh);
     float W = static_cast<float>(dw), H = static_cast<float>(dh);
     ui_->in.screen_h = dh;
@@ -1036,7 +1093,7 @@ void App::draw_render_hud(float W, float H) {
     const Theme& th = ui_->th;
     if (mobile_) {   // one small pill inside the header (hidden with the header while the keyboard is up)
         if (ui_->focus != 0 && H / s < 420) return;
-        char t[48];
+        char t[48] = {};
         std::snprintf(t, sizeof t, "%s \xC2\xB7 %.1f ms \xC2\xB7 %.0f FPS", software_ ? "CPU" : "GPU", render_ms_, render_fps_);
         const int f = F(500, 10);
         const float pw = gfx_->measure(f, t) + 16 * s;
@@ -1049,7 +1106,7 @@ void App::draw_render_hud(float W, float H) {
     Rect b{W - w - 12 * s, 68 * s, w, h};   // RenderTimerHUD.css: top 68, right 12 (below the header)
     gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 8 * s, th.border);
     gfx_->fill_round(b, 7 * s, {0, 0, 0, 205});
-    char line[96];
+    char line[96] = {};
     std::snprintf(line, sizeof line, "Render  %5.2f ms   %4.1f FPS", render_ms_, render_fps_);
     T(500, 11, b.x + 10 * s, b.y + 5 * s, 18, line, th.text);
     const char* mode = cfg_.perf_mode == 1 ? "Gaming" : cfg_.perf_mode == 2 ? "Eco" : "Balanced";

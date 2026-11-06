@@ -76,12 +76,12 @@ void read_song(yyjson_val* o, Song& s) {
 void read_album(yyjson_val* o, Album& a) {
     a.id = str(o, "id"); a.name = str(o, "name"); a.artist = str(o, "artist"); a.artist_id = str(o, "artistId"); a.cover_art = str(o, "coverArt");
     a.song_count = num(o, "songCount"); a.duration = num(o, "duration"); a.year = num(o, "year");
-    size_t i, n; yyjson_val* s;
+    size_t i = 0, n = 0; yyjson_val* s = nullptr;
     yyjson_arr_foreach(yyjson_obj_get(o, "songs"), i, n, s) { a.songs.emplace_back(); read_song(s, a.songs.back()); }
 }
 void read_artist(yyjson_val* o, Artist& a) {
     a.id = str(o, "id"); a.name = str(o, "name"); a.cover_art = str(o, "coverArt"); a.album_count = num(o, "albumCount");
-    size_t i, n; yyjson_val* s;
+    size_t i = 0, n = 0; yyjson_val* s = nullptr;
     yyjson_arr_foreach(yyjson_obj_get(o, "albums"), i, n, s) { a.albums.emplace_back(); read_album(s, a.albums.back()); }
 }
 template <class F>
@@ -107,8 +107,8 @@ bool from_json(const std::string& j, Song& out) { return parse(j, [&](yyjson_val
 bool from_json(const std::string& j, Album& out) { return parse(j, [&](yyjson_val* r) { if (!yyjson_is_obj(r)) return false; out = Album{}; read_album(r, out); return true; }); }
 bool from_json(const std::string& j, Artist& out) { return parse(j, [&](yyjson_val* r) { if (!yyjson_is_obj(r)) return false; out = Artist{}; read_artist(r, out); return true; }); }
 bool from_json(const std::string& j, std::vector<Album>& out) {
-    return parse(j, [&](yyjson_val* r) { if (!yyjson_is_arr(r)) return false; out.clear(); size_t i, n; yyjson_val* v; yyjson_arr_foreach(r, i, n, v) { out.emplace_back(); read_album(v, out.back()); } return true; });
+    return parse(j, [&](yyjson_val* r) { if (!yyjson_is_arr(r)) return false; out.clear(); size_t i = 0, n = 0; yyjson_val* v = nullptr; yyjson_arr_foreach(r, i, n, v) { out.emplace_back(); read_album(v, out.back()); } return true; });
 }
 bool from_json(const std::string& j, std::vector<Artist>& out) {
-    return parse(j, [&](yyjson_val* r) { if (!yyjson_is_arr(r)) return false; out.clear(); size_t i, n; yyjson_val* v; yyjson_arr_foreach(r, i, n, v) { out.emplace_back(); read_artist(v, out.back()); } return true; });
+    return parse(j, [&](yyjson_val* r) { if (!yyjson_is_arr(r)) return false; out.clear(); size_t i = 0, n = 0; yyjson_val* v = nullptr; yyjson_arr_foreach(r, i, n, v) { out.emplace_back(); read_artist(v, out.back()); } return true; });
 }

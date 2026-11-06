@@ -21,6 +21,15 @@ int main() {
     CHECK(fs::exists(root / "b/downloads/acct/s1.mp3") && fs::exists(root / "b/downloads/acct/media/m.bin"));
     CHECK(!fs::exists(root / "a/downloads"));
     CHECK(move_tree((root / "missing").string(), (root / "c").string(), prog, err));   // nothing to move is fine
+    {   // cancel leaves the source resumable
+        fs::create_directories(root / "k/src");
+        { std::ofstream(root / "k/src/f1") << "1234"; }
+        std::atomic<bool> cancel{true}; std::atomic<uint64_t> p2{0}; std::string e2;
+        CHECK(!move_tree((root / "k/src").string(), (root / "k/dst").string(), p2, e2, &cancel));
+        CHECK(fs::exists(root / "k/src/f1"));
+        cancel = false;
+        CHECK(move_tree((root / "k/src").string(), (root / "k/dst").string(), p2, e2, &cancel) && fs::exists(root / "k/dst/f1") && !fs::exists(root / "k/src"));
+    }
     const std::string m = "/downloads/acct/", d = (root / "b/downloads/acct/").string();
     CHECK(heal_path("/old/place/downloads/acct/s1.mp3", m, d) == d + "s1.mp3");
     CHECK(heal_path(d + "s1.mp3", m, d) == d + "s1.mp3");

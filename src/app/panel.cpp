@@ -9,7 +9,7 @@ namespace {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
 std::string mmss(int s) {
     if (s < 0) s = 0;
-    char b[16];
+    char b[16] = {};
     std::snprintf(b, sizeof b, "%d:%02d", s / 60, s % 60);
     return b;
 }
@@ -32,7 +32,7 @@ void App::history_load() {
     if (!store_ || !store_->get("history", j)) return;
     yyjson_doc* d = yyjson_read(j.data(), j.size(), 0);
     if (!d) return;
-    size_t i, n; yyjson_val* o;
+    size_t i = 0, n = 0; yyjson_val* o = nullptr;
     yyjson_arr_foreach(yyjson_doc_get_root(d), i, n, o) {
         HistoryEntry e;
         yyjson_val* sv = yyjson_obj_get(o, "song");

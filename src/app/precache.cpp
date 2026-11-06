@@ -304,7 +304,7 @@ void App::draw_precache(float W, float H) {
     y += (subtitle_h * sub_lines + (short_win ? 16 : 28)) * s;
 
     // gauges
-    struct G { const char* label; float pct; int state; const std::string* elapsed; bool loading; };   // state 0 waiting, 1 active, 2 done
+    struct G { const char* label; float pct = 0; int state = 0; const std::string* elapsed; bool loading = false; };   // state 0 waiting, 1 active, 2 done
     const float ap = pre_art_total_ > 0 ? std::round(100.0f * pre_art_done_ / pre_art_total_) : 0, bp = pre_alb_total_ > 0 ? std::round(100.0f * pre_alb_done_ / pre_alb_total_) : 0;
     const float overall = complete ? 100 : pre_phase_ == PrePhase::Artists ? std::floor(ap * 0.33f) : pre_phase_ == PrePhase::Albums ? std::floor(33 + bp * 0.33f) : std::floor(66 + pre_search_pct_ * 0.34f);
     const bool a_done = pre_phase_ != PrePhase::Artists, b_done = pre_phase_ == PrePhase::Search || complete;

@@ -40,16 +40,16 @@ bool is_artist_id(const std::string& id) { return id.compare(0, 3, "ar-") == 0; 
 
 bool is_placeholder_bytes(const std::string& id, const std::string& bytes) {
     if (!is_artist_id(id) || bytes.size() != kPlaceholderSize) return false;
-    unsigned char digest[32];
+    unsigned char digest[32] = {};
     mbedtls_sha256(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), digest, 0);
-    char hex[65]; for (int i = 0; i < 32; ++i) std::snprintf(hex + i * 2, 3, "%02x", digest[i]);
+    char hex[65] = {}; for (int i = 0; i < 32; ++i) std::snprintf(hex + i * 2, 3, "%02x", digest[i]);
     return std::strcmp(hex, kPlaceholderSha256) == 0;
 }
 
 std::string hash_name(const std::string& k) {  // FNV-1a 64, for legacy .img names
     uint64_t h = 1469598103934665603ULL;
     for (unsigned char c : k) { h ^= c; h *= 1099511628211ULL; }
-    char b[24];
+    char b[24] = {};
     std::snprintf(b, sizeof b, "%016llx", static_cast<unsigned long long>(h));
     return b;
 }
@@ -57,8 +57,8 @@ std::string hash_name(const std::string& k) {  // FNV-1a 64, for legacy .img nam
 bool read_file(const std::string& p, std::string& out) {
     FILE* f = std::fopen(p.c_str(), "rb");
     if (!f) return false;
-    char buf[16384];
-    size_t n;
+    char buf[16384] = {};
+    size_t n = 0;
     out.clear();
     while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
     std::fclose(f);

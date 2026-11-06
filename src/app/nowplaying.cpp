@@ -7,7 +7,7 @@
 namespace {
 std::string mmss(int s) {
     if (s < 0) s = 0;
-    char b[16];
+    char b[16] = {};
     std::snprintf(b, sizeof b, "%d:%02d", s / 60, s % 60);
     return b;
 }
@@ -291,7 +291,7 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
         for (int i = 0; i < 6; ++i) { const float bh = (4 + 2.4f * i) * s; gfx_->fill_round({bx + i * 5.5f * s, qb.y + qb.h / 2 + 7 * s - bh, 3 * s, bh}, 1.5f * s, i < bars ? th.accent : Color{255, 255, 255, 64}); }
         fa(skin::Cloud, bx + 38 * s + 7 * s, qb.y + qb.h / 2, 13, th.accent);
         T(600, 12, bx + 38 * s + 19 * s, qb.y, sh / s, ql, {255, 255, 255, 191});
-        char sb[16]; const double spd = player_.speed();
+        char sb[16] = {}; const double spd = player_.speed();
         if (spd == static_cast<int>(spd)) std::snprintf(sb, sizeof sb, "%d\xC3\x97", static_cast<int>(spd)); else std::snprintf(sb, sizeof sb, "%g\xC3\x97", spd);
         const float stw = gfx_->measure(fq, sb);
         fa(skin::Bolt, sp.x + (sp.w - stw - 16 * s) / 2 + 5 * s, sp.y + sp.h / 2, 11, th.accent);
@@ -312,7 +312,7 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
     const int br = pick(m.bit_rate, np_meta_.bit_rate), sr = pick(m.sampling_rate, np_meta_.sampling_rate), bd = pick(m.bit_depth, np_meta_.bit_depth);
     const uint64_t size = m.size ? m.size : np_meta_.size;
     std::string f_fmt = suffix.empty() ? "\xE2\x80\x94" : suffix; for (auto& ch : f_fmt) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
-    char tmp[48];
+    char tmp[48] = {};
     const std::string f_br = br ? std::to_string(br) + " kbps" : "\xE2\x80\x94";
     std::string f_sr = "\xE2\x80\x94"; if (sr) { if (sr >= 1000) std::snprintf(tmp, sizeof tmp, "%.1f kHz", sr / 1000.0); else std::snprintf(tmp, sizeof tmp, "%d Hz", sr); f_sr = tmp; }
     const std::string f_bd = bd ? std::to_string(bd) + "-bit" : "\xE2\x80\x94";

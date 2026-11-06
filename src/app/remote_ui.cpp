@@ -13,7 +13,7 @@
 namespace {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
 std::string md5hex(const std::string& s) {
-    unsigned char d[16];
+    unsigned char d[16] = {};
     mbedtls_md5(reinterpret_cast<const unsigned char*>(s.data()), s.size(), d);
     static const char* h = "0123456789abcdef";
     std::string o;
@@ -24,7 +24,7 @@ std::string device_id(const std::string& path) {
     std::ifstream f(path);
     std::string id;
     if (f && std::getline(f, id) && id.size() >= 8) return id;
-    unsigned char r[16];
+    unsigned char r[16] = {};
     psa_crypto_init();
     psa_generate_random(r, sizeof r);
     static const char* h = "0123456789abcdef";
@@ -97,7 +97,7 @@ void App::remote_apply(const std::string& action, const std::string& data_json) 
         free(js);
     } else if (action == "playPlaylist" && data) {
         std::vector<Song> songs;
-        size_t i, n; yyjson_val* o;
+        size_t i = 0, n = 0; yyjson_val* o = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(data, "songs"), i, n, o) {
             char* js = yyjson_val_write(o, 0, nullptr);
             Song s;

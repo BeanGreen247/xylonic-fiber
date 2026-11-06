@@ -22,9 +22,9 @@ const char* kHostnames[] = {"localhost", "navidrome", "navidrome.local", "gonic"
                             "subsonic", "subsonic.local", "music", "music.local"};
 const int kMaxSweepHosts = 1024, kConcurrency = 48, kConnectTimeoutMs = 700, kPingTimeoutMs = 2500;
 
-struct Task { std::string host; int port; std::string name, via, scheme; };
+struct Task { std::string host; int port = 0; std::string name, via, scheme; };
 
-std::string int_to_ip(uint32_t n) { in_addr a{htonl(n)}; char b[INET_ADDRSTRLEN]; inet_ntop(AF_INET, &a, b, sizeof b); return b; }
+std::string int_to_ip(uint32_t n) { in_addr a{htonl(n)}; char b[INET_ADDRSTRLEN] = {}; inet_ntop(AF_INET, &a, b, sizeof b); return b; }
 bool in_cgnat(uint32_t n) { return (n & 0xffc00000u) == 0x64400000u; }
 bool is_private(uint32_t n) {
     return in_cgnat(n) || (n & 0xff000000u) == 0x0a000000u || (n & 0xfff00000u) == 0xac100000u || (n & 0xffff0000u) == 0xc0a80000u ||
@@ -68,8 +68,8 @@ std::vector<Peer> tailscale_peers() {
         FILE* f = popen(cmd.c_str(), "r");
         if (!f) continue;
         std::string out;
-        char buf[4096];
-        size_t n;
+        char buf[4096] = {};
+        size_t n = 0;
         while ((n = fread(buf, 1, sizeof buf, f)) > 0 && out.size() < (4u << 20)) out.append(buf, n);
         int rc = pclose(f);
         if (rc != 0 || out.empty()) continue;
@@ -77,12 +77,12 @@ std::vector<Peer> tailscale_peers() {
         if (!d) continue;
         std::vector<Peer> peers;
         yyjson_val* pr = yyjson_obj_get(yyjson_doc_get_root(d), "Peer");
-        size_t i, m; yyjson_val *k, *p;
+        size_t i = 0, m = 0; yyjson_val *k = nullptr, *p = nullptr;
         yyjson_obj_foreach(pr, i, m, k, p) {
             yyjson_val* on = yyjson_obj_get(p, "Online");
             if (!on || !yyjson_get_bool(on)) continue;
             Peer pe;
-            size_t j, jm; yyjson_val* a;
+            size_t j = 0, jm = 0; yyjson_val* a = nullptr;
             yyjson_arr_foreach(yyjson_obj_get(p, "TailscaleIPs"), j, jm, a) { const char* s = yyjson_get_str(a); if (s && std::strchr(s, '.')) { pe.ip = s; break; } }
             yyjson_val* hn = yyjson_obj_get(p, "HostName"); yyjson_val* dn = yyjson_obj_get(p, "DNSName");
             pe.dns = dn && yyjson_is_str(dn) ? yyjson_get_str(dn) : "";

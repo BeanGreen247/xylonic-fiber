@@ -12,7 +12,7 @@
 namespace {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
 std::string fmt_bytes(uint64_t b) {   // formatBytes of the Download Manager
-    char t[40];
+    char t[40] = {};
     if (b == 0) return "0 Bytes";
     if (b < 1024) std::snprintf(t, sizeof t, "%llu Bytes", static_cast<unsigned long long>(b));
     else if (b < 1048576ull) std::snprintf(t, sizeof t, "%.2f KB", b / 1024.0);
@@ -20,14 +20,22 @@ std::string fmt_bytes(uint64_t b) {   // formatBytes of the Download Manager
     else std::snprintf(t, sizeof t, "%.2f GB", b / 1073741824.0);
     return t;
 }
-std::string mmss(int s) { if (s <= 0) return "--:--"; char b[16]; std::snprintf(b, sizeof b, "%d:%02d", s / 60, s % 60); return b; }
+std::string mmss(int s) { if (s <= 0) return "--:--"; char b[16] = {}; std::snprintf(b, sizeof b, "%d:%02d", s / 60, s % 60); return b; }
 }  // namespace
 
 void App::draw_downloads(Rect r) {
     Ui& u = *ui_;
     const float s = S_;
     const Theme& th = u.th;
-    if (!downloads_) { T(400, 15, r.x + 24 * s, r.y + 24 * s, 24, "Downloads are unavailable.", th.sub); return; }
+    // Phone: the page has no bottom-nav tab, so it needs its own way out. Back to where it was opened from, else Home.
+    auto close_btn = [&](float cy) {
+        if (!mobile_) return;
+        Rect cl{r.x + r.w - 12 * s - 40 * s, cy - 20 * s, 40 * s, 40 * s};
+        if (u.hover(cl)) gfx_->fill_round(cl, 20 * s, th.hover);
+        fa(skin::Xmark, cl.x + 20 * s, cl.y + 20 * s, 18, th.text);
+        if (u.clicked(cl) && r.contains(u.in.mx, u.in.my)) set_nav(dl_has_prev_ && dl_prev_nav_ != Nav::Downloads ? dl_prev_nav_ : Nav::Home);
+    };
+    if (!downloads_) { T(400, 15, r.x + 24 * s, r.y + 24 * s, 24, "Downloads are unavailable.", th.sub); close_btn(r.y + 30 * s); return; }
     const bool cp = mobile_;
     const float pad = (cp ? 12.0f : 24.0f) * s;
     const float x = r.x + pad, w = r.w - 2 * pad - (cp ? 0.0f : 12.0f * s);
@@ -56,10 +64,27 @@ void App::draw_downloads(Rect r) {
     const bool has_activity = total > 0;
     const bool paused = downloads_->paused_all();
     // ---- layout height first (for the scroll clamp)
-    auto card_h_progress = 106.0f, card_h_controls = cp ? 112.0f : 73.0f;
+    // Stat chips under the progress bar wrap onto further lines when the card is too narrow (a phone fits about three).
+    struct Stat { std::string text; Color col {}; };
+    std::vector<Stat> stats;
+    stats.push_back({"Total: " + std::to_string(total), rgb(0xdbdbdb)});
+    stats.push_back({"Done: " + std::to_string(done), rgb(0xdbdbdb)});
+    if (failed) stats.push_back({"Failed: " + std::to_string(failed), rgb(0xdc3545)});
+    stats.push_back({"Pending: " + std::to_string(pending), rgb(0xdbdbdb)});
+    int stat_lines = 1;
+    {
+        const float avail = w - 40 * s;
+        float lx = 0;
+        for (const Stat& st : stats) {
+            const float sw = gfx_->measure(F(400, 14.4f), st.text);
+            if (lx > 0 && lx + sw > avail) { ++stat_lines; lx = 0; }
+            lx += sw + 20 * s;
+        }
+    }
+    auto card_h_progress = 106.0f + (stat_lines - 1) * 28.0f, card_h_controls = cp ? 112.0f : 73.0f;
     float content = 48 + 32;
     if (has_activity) content += card_h_progress + 28 + card_h_controls + 28;
-    for (size_t i = 0; i < active.size(); ++i) content += (active.size() > 1 ? 74.0f : 118.0f) + 12;
+    for (size_t i = 0; i < active.size(); ++i) content += (active.size() > 1 ? 88.0f : 128.0f) + 12;
     content += has_activity ? 0 : 53.6f + 20;
     if (has_activity) content += 40 + 12 + (dm_show_queue_ ? std::min(300.0f, queue.size() * 78.0f + 24) + 12 : 0) + 28;
     struct statvfs sv{};
@@ -78,6 +103,7 @@ void App::draw_downloads(Rect r) {
     if (cp) {   // compact: 24 px title in a 36 px row, 16 px gap
         fa(skin::Download, x + 13 * s, y + 18 * s, 22, th.accent);
         T(600, 24, x + 40 * s, y, 36, "Downloads", th.text);
+        close_btn(y + 18 * s);
         y += (36 + 16) * s;
     } else {
         fa(skin::Download, x + 17 * s, y + 24 * s, 30, th.accent);
@@ -99,6 +125,7 @@ void App::draw_downloads(Rect r) {
         card(pc, 12, th.panel2);
         Rect bar{pc.x + 20 * s, pc.y + 20 * s, pc.w - 40 * s, 32 * s};
         gfx_->fill_round(bar, 16 * s, th.bg_light);
+        gfx_->fill_round(bar, 16 * s, {255, 255, 255, 36});   // the track must show on every theme (bg_light can equal the card colour)
         const int pct = total > 0 ? static_cast<int>(std::lround(100.0 * done / total)) : 0;
         const float fw = bar.w * pct / 100.0f;
         if (fw > 0) {
@@ -109,15 +136,20 @@ void App::draw_downloads(Rect r) {
         }
         const std::string pt = std::to_string(pct) + "%";
         T(600, 14.4f, bar.x + (bar.w - gfx_->measure(F(600, 14.4f), pt)) / 2, bar.y, 32, pt, rgb(0xffffff));
-        float sx = pc.x + 20 * s; const float sy = bar.y + 44 * s;
-        auto stat = [&](const std::string& t, Color c) { sx += T(400, 14.4f, sx, sy, 22, t, c) + 20 * s; };
-        stat("Total: " + std::to_string(total), rgb(0xdbdbdb)); stat("Done: " + std::to_string(done), rgb(0xdbdbdb));
-        if (failed) stat("Failed: " + std::to_string(failed), rgb(0xdc3545));
-        stat("Pending: " + std::to_string(pending), rgb(0xdbdbdb));
+        {
+            float sx = pc.x + 20 * s, sy = bar.y + 44 * s;
+            const float right = pc.x + pc.w - 20 * s;
+            for (const Stat& st : stats) {
+                const float sw = gfx_->measure(F(400, 14.4f), st.text);
+                if (sx > pc.x + 20 * s && sx + sw > right) { sx = pc.x + 20 * s; sy += 28 * s; }
+                T(400, 14.4f, sx, sy, 22, st.text, st.col);
+                sx += sw + 20 * s;
+            }
+        }
         y += (card_h_progress + 28) * s;
         // controls card: padding 16, buttons wrap onto further rows (flex-wrap, gap 12; compact buttons are 34 high)
         const float bh = (cp ? 34.0f : 41.0f) * s, bpx = (cp ? 14.0f : 15.2f), bpad = (cp ? 32.0f : 40.0f) * s;
-        struct Ctl { std::string label; Color col; bool enabled; int act; };
+        struct Ctl { std::string label; Color col {}; bool enabled = false; int act = 0; };
         std::vector<Ctl> ctl;
         ctl.push_back({paused ? "Resume" : "Pause", rgb(0xffffff), total > 0, 0});
         if (failed) ctl.push_back({"Retry Failed (" + std::to_string(failed) + ")", rgb(0xffffff), true, 1});
@@ -139,12 +171,12 @@ void App::draw_downloads(Rect r) {
         if (hit == 0) { if (paused) downloads_->resume_all(); else downloads_->pause_all(); }
         else if (hit == 1) downloads_->retry_failed();
         else if (hit == 2) { for (auto* it : queue) if (it->state == Downloads::Done) dm_cleared_.insert(it->song.id); mark(); }
-        else if (hit == 3) { downloads_->clear_queue(); dm_cleared_.clear(); mark(); }
+        else if (hit == 3) { downloads_->clear_queue_async(); dm_cleared_.clear(); mark(); }
         y += (ch + 28) * s;
         // active downloads: one card each ("Now downloading" label only when there is one)
         const bool multi = active.size() > 1;
         for (auto* it : active) {
-            const float ch = multi ? 74.0f : 118.0f;
+            const float ch = multi ? 88.0f : 128.0f;   // room for the percentage under the bar
             Rect ac{x, y, w, ch * s};
             card(ac, 12, th.accent); card({ac.x + (multi ? 1 : 2) * s, ac.y + (multi ? 1 : 2) * s, ac.w - (multi ? 2 : 4) * s, ac.h - (multi ? 2 : 4) * s}, 11, th.bg_light);
             float ty = ac.y + (multi ? 10 : 16) * s;
@@ -248,7 +280,7 @@ void App::draw_downloads(Rect r) {
         if (u.hover(cb)) gfx_->fill_round(cb, 10 * s, {255, 255, 255, 18}); else gfx_->fill_round(cb, 10 * s, {0, 0, 0, 36});
         fa(0xf07c, cb.x + 20 * s + 7 * s, cb.y + 22 * s, 14, rgb(0xffffff));
         T(600, 15.2f, cb.x + 44 * s, cb.y, 44, chg, rgb(0xffffff));
-        if (u.clicked(cb) && r.contains(u.in.mx, u.in.my)) choose_cache_folder();
+        if (u.clicked(cb) && r.contains(u.in.mx, u.in.my)) choose_cache_folder(0);
         if (have_disk) {
             const uint64_t avail = static_cast<uint64_t>(sv.f_bavail) * sv.f_frsize, totald = static_cast<uint64_t>(sv.f_blocks) * sv.f_frsize;
             const float ly = ls.y + 52 * s + 44 * s + 10 * s;
@@ -306,16 +338,23 @@ void App::draw_downloads(Rect r) {
         Rect vb{vc.x + 16 * s, vc.y + 52 * s, vw, 41 * s};
         const bool can_verify = !dm_verifying_ && cached_songs > 0;
         if (btn(vb, vl, rgb(0xffffff), can_verify, 15.2f, 44 * s)) {
-            dm_verifying_ = true; const auto t0 = std::chrono::steady_clock::now();
-            const int before = cached_songs; const int dropped = downloads_->verify();
-            dm_verified_ = std::max(0, before - dropped); dm_removed_ = dropped; dm_verified_done_ = true; dm_verifying_ = false;
-            dm_verify_s_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); mark();
+            dm_verifying_ = true; dm_verify_before_ = cached_songs; dm_verify_t0_ = std::chrono::steady_clock::now();
+            downloads_->start_verify();   // stats the files on worker threads; the page keeps drawing
+            mark();
+        }
+        if (dm_verifying_) {
+            if (downloads_->verify_running()) mark();
+            else {
+                const int dropped = downloads_->verify_dropped();
+                dm_verified_ = std::max(0, dm_verify_before_ - dropped); dm_removed_ = dropped; dm_verified_done_ = true; dm_verifying_ = false;
+                dm_verify_s_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - dm_verify_t0_).count(); mark();
+            }
         }
         fa(0xf3ed, vb.x + 20 * s + 6 * s, vb.y + 20.5f * s, 14, can_verify ? rgb(0xffffff) : alpha(rgb(0xffffff), 0.4f));
         if (dm_verified_done_) {
             std::string vr = std::to_string(dm_verified_) + " songs verified";
             if (dm_removed_ > 0) vr += ", " + std::to_string(dm_removed_) + " orphaned " + (dm_removed_ == 1 ? "entry" : "entries") + " removed";
-            char dur[32]; std::snprintf(dur, sizeof dur, " (%.1fs)", dm_verify_s_);
+            char dur[32] = {}; std::snprintf(dur, sizeof dur, " (%.1fs)", dm_verify_s_);
             fa(0xf058, vc.x + 16 * s + 7 * s, vc.y + 109 * s, 14, th.accent);
             T(400, 14, vc.x + 16 * s + 22 * s, vc.y + 99 * s, 20, vr + dur, th.accent, vc.w - 60 * s);
         }

@@ -9,7 +9,7 @@ namespace {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
 std::string mmss(int s) {
     if (s < 0) s = 0;
-    char b[16];
+    char b[16] = {};
     std::snprintf(b, sizeof b, "%d:%02d", s / 60, s % 60);
     return b;
 }
@@ -261,7 +261,7 @@ void App::draw_pulse_deck(Rect r) {
     pulse_last_ms_ = now;
     player_.enable_spectrum(true);
     const int nb = std::min(48, std::max(16, static_cast<int>((r.w / s - 48) / 22)));
-    float raw[48];
+    float raw[48] = {};
     player_.spectrum(raw, nb);
     const bool playing = player_.playing();
     const float t = static_cast<float>(now) / 1000.0f;
@@ -301,7 +301,7 @@ void App::draw_pulse_deck(Rect r) {
     const bool eq_on = eq_bass_db_ != 0 || eq_treble_db_ != 0;
     if (!eq_on && !pulse_drag_) T(400, 12, r.x + pad + 62 * s, r.y + pad + 26 * s, 18, "Drag across the bars to shape bass and treble", th.muted, r.w - 2 * pad - 62 * s);
     else {
-        char eb[64]; std::snprintf(eb, sizeof eb, "Bass %+.0f dB  \xC2\xB7  Treble %+.0f dB", eq_bass_db_, eq_treble_db_);
+        char eb[64] = {}; std::snprintf(eb, sizeof eb, "Bass %+.0f dB  \xC2\xB7  Treble %+.0f dB", eq_bass_db_, eq_treble_db_);
         T(500, 12, r.x + pad + 62 * s, r.y + pad + 26 * s, 18, eb, th.sub);
     }
 
@@ -330,7 +330,7 @@ void App::draw_pulse_deck(Rect r) {
     const int step = std::max(1, nb / 8);
     for (int i = 0; i < nb; i += step) {
         const double f = 40.0 * std::pow(16000.0 / 40.0, static_cast<double>(i) / nb);
-        char lb[16];
+        char lb[16] = {};
         if (f >= 1000) std::snprintf(lb, sizeof lb, "%.1fk", f / 1000.0); else std::snprintf(lb, sizeof lb, "%d", static_cast<int>(f));
         T(400, 11, px + i * bw, r.y + r.h - pad - 16 * s, 16, lb, th.muted);
     }

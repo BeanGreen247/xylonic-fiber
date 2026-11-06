@@ -4,12 +4,12 @@
 #include <cstring>
 
 namespace {
-struct SecretSchemaAttr { const char* name; int type; };
+struct SecretSchemaAttr { const char* name; int type = 0; };
 struct SecretSchema {  // mirrors libsecret's SecretSchema layout (stable ABI)
     const char* name;
-    int flags;
+    int flags = 0;
     SecretSchemaAttr attributes[32];
-    int reserved;
+    int reserved = 0;
     void* reserved1; void* reserved2; void* reserved3; void* reserved4; void* reserved5; void* reserved6; void* reserved7;
 };
 using StoreFn = int (*)(const SecretSchema*, const char*, const char*, const char*, void*, void**, ...);

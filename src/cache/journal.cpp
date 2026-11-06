@@ -40,7 +40,7 @@ struct CrcTables {
 };
 bool read_file(const std::string& path, std::string& out, bool& exists) {
     std::FILE* f = std::fopen(path.c_str(), "rb"); exists = f != nullptr; if (!f) return false;
-    out.clear(); char buf[1 << 16]; size_t n;
+    out.clear(); char buf[1 << 16] = {}; size_t n = 0;
     if (std::fseek(f, 0, SEEK_END) == 0) { long size = std::ftell(f); if (size > 0) out.reserve(static_cast<size_t>(size)); std::fseek(f, 0, SEEK_SET); }
     while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
     std::fclose(f); return true;

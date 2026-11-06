@@ -41,7 +41,7 @@ using xf_sock_t = int;
 constexpr xf_sock_t kBadSock = -1;
 inline void xf_net_init() {}
 inline void xf_close(xf_sock_t s) { ::close(s); }
-inline int xf_poll(xf_sock_t s, short ev, int timeout_ms) { pollfd p{s, ev, 0}; int r; do { r = ::poll(&p, 1, timeout_ms); } while (r < 0 && errno == EINTR); return r; }
+inline int xf_poll(xf_sock_t s, short ev, int timeout_ms) { pollfd p{s, ev, 0}; int r = 0; do { r = ::poll(&p, 1, timeout_ms); } while (r < 0 && errno == EINTR); return r; }
 inline void xf_set_nonblock(xf_sock_t s, bool on) { int fl = fcntl(s, F_GETFL, 0); fcntl(s, F_SETFL, on ? (fl | O_NONBLOCK) : (fl & ~O_NONBLOCK)); }
 inline bool xf_in_progress() { return errno == EINPROGRESS; }
 inline bool xf_interrupted() { return errno == EINTR; }

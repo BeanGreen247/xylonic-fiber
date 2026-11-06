@@ -261,7 +261,7 @@ double Player::duration_seconds() const {
 void Player::spectrum(float* bands, int n) {
     if (!playing_.load()) { for (int i = 0; i < n; ++i) bands[i] = 0; return; }
     const size_t N = 2048;
-    float buf[N];
+    float buf[N] = {};
     size_t tp = tap_pos_.load(std::memory_order_acquire);
     for (size_t i = 0; i < N; ++i) buf[i] = tap_[(tp - N + i) % kTap];
     spectrum_bands(buf, N, dev_rate_, bands, n);

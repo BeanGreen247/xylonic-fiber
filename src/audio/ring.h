@@ -35,7 +35,7 @@ public:
 
 private:
     std::vector<int16_t> buf_;
-    size_t mask_;
+    size_t mask_ = 0;
     std::atomic<size_t> head_{0};
     std::atomic<size_t> tail_{0};
 };

@@ -165,7 +165,7 @@ bool Queue::load_songs(const std::string& path) {
     auto str = [](yyjson_val* o, const char* k) { yyjson_val* v = yyjson_obj_get(o, k); return v && yyjson_is_str(v) ? std::string(yyjson_get_str(v)) : std::string(); };
     auto num = [](yyjson_val* o, const char* k) { yyjson_val* v = yyjson_obj_get(o, k); return v && yyjson_is_num(v) ? static_cast<int>(yyjson_get_sint(v)) : 0; };
     std::vector<Song> v;
-    size_t i, n; yyjson_val* o;
+    size_t i = 0, n = 0; yyjson_val* o = nullptr;
     yyjson_arr_foreach(root, i, n, o) {
         Song s;
         s.id = str(o, "id"); s.title = str(o, "title"); s.album = str(o, "album"); s.album_id = str(o, "albumId");

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <unordered_map>
 #include <vector>
 
@@ -28,6 +29,7 @@ public:
     bool best(const std::string& base, const std::vector<std::string>& preference, std::string& path, std::string* quality = nullptr);
     bool release(const std::string& key);                  // refcount--, file removed at zero
     size_t release_prefix(const std::string& prefix);
+    size_t release_songs(const std::unordered_set<std::string>& ids);   // release_prefix("song:<id>@") for every id in one pass over the keys
     size_t prune_prefix(const std::string& prefix, size_t keep);   // keep only the `keep` most recently used keys with this prefix     // every key starting with prefix (all qualities of one song)
     bool pin(const std::string& key, bool pinned);
     size_t evict_to(uint64_t budget_bytes);                // returns bytes freed; pinned content never evicted

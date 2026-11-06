@@ -1,3 +1,5 @@
+#include <atomic>
+#include <thread>
 #include "media.h"
 #include <algorithm>
 #include <cstdio>
@@ -12,12 +14,12 @@ const char* kind_dir(MediaKind k) { return k == MediaKind::Audio ? "audio" : "ar
 std::string content_hash(const std::string& data) {
     uint64_t h = 1469598103934665603ull;
     for (unsigned char c : data) { h ^= c; h *= 1099511628211ull; }
-    char buf[40]; std::snprintf(buf, sizeof buf, "%016llx%08x", static_cast<unsigned long long>(h), cache_crc32(data.data(), data.size()));
+    char buf[40] = {}; std::snprintf(buf, sizeof buf, "%016llx%08x", static_cast<unsigned long long>(h), cache_crc32(data.data(), data.size()));
     return buf;
 }
 bool read_all(const std::string& path, std::string& out) {
     std::FILE* f = std::fopen(path.c_str(), "rb"); if (!f) return false;
-    char buf[1 << 16]; size_t n; out.clear(); while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
+    char buf[1 << 16] = {}; size_t n = 0; out.clear(); while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
     std::fclose(f); return true;
 }
 void put32(std::string& b, uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(static_cast<char>(v >> (i * 8))); }
@@ -101,13 +103,13 @@ void MediaCache::bind_locked(const std::string& key, MediaKind kind, const std::
 bool MediaCache::put_file(const std::string& key, MediaKind kind, const std::string& src, bool pinned, std::string* out_path, std::string* out_hash) {
     if (key.empty()) return false;
     std::FILE* f = std::fopen(src.c_str(), "rb"); if (!f) return false;
-    uint64_t h = 1469598103934665603ull, size = 0; uint32_t crc = 0xffffffffu; char buf[1 << 16]; size_t n;
+    uint64_t h = 1469598103934665603ull, size = 0; uint32_t crc = 0xffffffffu; char buf[1 << 16] = {}; size_t n = 0;
     while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) {
         for (size_t i = 0; i < n; ++i) { h ^= static_cast<unsigned char>(buf[i]); h *= 1099511628211ull; }
         crc = cache_crc32_update(crc, buf, n); size += n;
     }
     std::fclose(f); if (size == 0) return false;
-    char hx[40]; std::snprintf(hx, sizeof hx, "%016llx%08x", static_cast<unsigned long long>(h), ~crc);
+    char hx[40] = {}; std::snprintf(hx, sizeof hx, "%016llx%08x", static_cast<unsigned long long>(h), ~crc);
     const std::string hash = hx, path = path_for(kind, hash);
     std::lock_guard<std::mutex> lk(m_);
     auto existing = keys_.find(key);
@@ -161,6 +163,18 @@ size_t MediaCache::release_prefix(const std::string& prefix) {
     return hit.size();
 }
 
+size_t MediaCache::release_songs(const std::unordered_set<std::string>& ids) {
+    std::lock_guard<std::mutex> lk(m_);
+    std::vector<std::string> hit;
+    for (const auto& k : keys_) {
+        if (k.first.compare(0, 5, "song:") != 0) continue;
+        const size_t at = k.first.find('@', 5);
+        if (at != std::string::npos && ids.count(k.first.substr(5, at - 5))) hit.push_back(k.first);
+    }
+    for (const auto& k : hit) unlink_key_locked(k);
+    return hit.size();
+}
+
 size_t MediaCache::prune_prefix(const std::string& prefix, size_t keep) {
     std::lock_guard<std::mutex> lk(m_);
     std::vector<std::pair<uint64_t, std::string>> hit;
@@ -198,7 +212,21 @@ size_t MediaCache::evict_to(uint64_t budget) {
 MediaCache::Report MediaCache::reconcile() {
     Report report; std::lock_guard<std::mutex> lk(m_); std::error_code ec;
     std::vector<std::string> missing;
-    for (const auto& b : blobs_) { const auto size = fs::file_size(path_for(b.second.kind, b.first), ec); if (ec || size != b.second.size) missing.push_back(b.first); ec.clear(); }
+    {   // one stat per blob: thousands of them on a slow card, so spread across threads (the blob table is only read here, under the lock)
+        std::vector<const std::pair<const std::string, Blob>*> all; all.reserve(blobs_.size());
+        for (const auto& b : blobs_) all.push_back(&b);
+        std::vector<char> bad(all.size(), 0);
+        auto check = [&](size_t i) { std::error_code e; const auto size = fs::file_size(path_for(all[i]->second.kind, all[i]->first), e); if (e || size != all[i]->second.size) bad[i] = 1; };
+        const size_t nt = all.size() < 256 ? 1 : std::min<size_t>(8, std::max<size_t>(2, std::thread::hardware_concurrency()));
+        if (nt == 1) for (size_t i = 0; i < all.size(); ++i) check(i);
+        else {
+            std::atomic<size_t> next{0};
+            auto work = [&] { for (size_t b = 0; (b = next.fetch_add(64)) < all.size();) for (size_t i = b; i < std::min(all.size(), b + 64); ++i) check(i); };
+            std::vector<std::thread> th; for (size_t k = 1; k < nt; ++k) th.emplace_back(work);
+            work(); for (auto& t : th) t.join();
+        }
+        for (size_t i = 0; i < all.size(); ++i) if (bad[i]) missing.push_back(all[i]->first);
+    }
     for (const auto& hash : missing) {
         for (auto k = keys_.begin(); k != keys_.end();) { if (k->second.hash == hash) { k = keys_.erase(k); ++report.dropped_keys; } else ++k; }
         drop_blob_locked(hash); ++report.missing_files;

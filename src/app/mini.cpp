@@ -44,7 +44,7 @@ void App::draw_mini() {
     u.tip_text.clear();
     u.th = ui_theme_cache_;
     const float s = S_;
-    int dw, dh;
+    int dw = 0, dh = 0;
     SDL_GetRendererOutputSize(mini_ren_, &dw, &dh);
     float W = static_cast<float>(dw), H = static_cast<float>(dh);
     const Song* cur = queue_.current();

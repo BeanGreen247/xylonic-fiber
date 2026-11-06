@@ -26,7 +26,7 @@ std::string App::sleep_remaining() const {
     if (!sleep_end_ms_) return "";
     uint64_t now = SDL_GetTicks64();
     int rem = sleep_end_ms_ > now ? static_cast<int>((sleep_end_ms_ - now + 999) / 1000) : 0;
-    char b[24];
+    char b[24] = {};
     if (rem >= 3600) std::snprintf(b, sizeof b, "%d:%02d:%02d", rem / 3600, (rem % 3600) / 60, rem % 60);
     else std::snprintf(b, sizeof b, "%d:%02d", rem / 60, rem % 60);
     return b;
@@ -126,10 +126,21 @@ void App::draw_modal(float W, float H) {
         gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.danger, 0.9f) : th.danger);
         T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Delete")) / 2, go.y, 36, "Delete", rgb(0xffffff));
         if (u.clicked(go)) { const std::string id = pl_delete_pending_; modal_ = Modal::None; pl_delete_pending_.clear(); pl_delete(id); }
+    } else if (modal_ == Modal::ConfirmSignOut) {
+        const std::vector<std::string> lines = {
+            "You will be signed out and the saved password forgotten.",
+            "Your downloaded songs and library stay on this device.",
+            "Sign in to the same server again, even from another address (another house, a VPN), and they are reused."};
+        Rect b = frame(460, 62 + para_h(460, lines) + 70, 0xf2f5, "Sign out?");
+        para_draw(b, 62, lines);
+        auto [cancel_r, go] = buttons(b, 150);
+        if (u.button(cancel_r, "Cancel")) modal_ = Modal::None;
+        gfx_->fill_round(go, 8 * s, u.hover(go) ? alpha(th.danger, 0.9f) : th.danger);
+        T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), "Sign out")) / 2, go.y, 36, "Sign out", rgb(0xffffff));
+        if (u.clicked(go)) { modal_ = Modal::None; logout(); }
     } else if (modal_ == Modal::SwitchServer) {
         const float ih = 62.0f;
-        Rect lst = qp_frame(W, H, std::max(1.0f, static_cast<float>(cfg_.conns.size())) * ih + 8, "Switch Server", 0xf362, "Select a saved connection to switch to.");
-        if (cfg_.conns.empty()) T(400, 13, lst.x + 20 * s, lst.y + 14 * s, 20, "No saved connections yet.", {255, 255, 255, 153});
+        Rect lst = qp_frame(W, H, (static_cast<float>(cfg_.conns.size()) + 1) * ih + 8, "Switch Server", 0xf362, "Select a saved connection to switch to.");
         for (size_t i = 0; i < cfg_.conns.size() && modal_ == Modal::SwitchServer; ++i) {
             const Config::Conn& cn = cfg_.conns[i];
             Rect ir{lst.x, lst.y + i * ih * s, lst.w, ih * s};
@@ -142,6 +153,18 @@ void App::draw_modal(float W, float H) {
             T(600, 15, ico.x + 50 * s, ir.y + 11 * s, 22, host, th.text, ir.w - 100 * s);
             T(400, 12, ico.x + 50 * s, ir.y + 35 * s, 17, cn.user + " \xC2\xB7 " + cn.url, th.sub, ir.w - 100 * s);
             if (u.clicked(ir)) { modal_ = Modal::None; switch_to(static_cast<int>(i), ""); }
+        }
+        if (modal_ == Modal::SwitchServer) {   // last entry: sign in to a server that is not in the list yet
+            const size_t n = cfg_.conns.size();
+            Rect ir{lst.x, lst.y + n * ih * s, lst.w, ih * s};
+            if (n) gfx_->fill({ir.x, ir.y, ir.w, 1 * s}, {255, 255, 255, 15});
+            if (u.hover(ir)) gfx_->fill(ir, {255, 255, 255, 31});
+            Rect ico{ir.x + 18 * s, ir.y + (ir.h - 36 * s) / 2, 36 * s, 36 * s};
+            gfx_->fill_round(ico, 10 * s, alpha(th.accent, 0.16f));
+            fa(skin::CirclePlus, ico.x + 18 * s, ico.y + 18 * s, 15, th.accent);
+            T(600, 15, ico.x + 50 * s, ir.y + 11 * s, 22, "Add server", th.text, ir.w - 100 * s);
+            T(400, 12, ico.x + 50 * s, ir.y + 35 * s, 17, "Sign in to another server or address", th.sub, ir.w - 100 * s);
+            if (u.clicked(ir)) { modal_ = Modal::None; add_server(); }
         }
     } else if (modal_ == Modal::SwitchPass) {
         const bool have = switch_idx_ >= 0 && switch_idx_ < static_cast<int>(cfg_.conns.size());
@@ -443,9 +466,11 @@ void App::draw_settings(Rect r) {
     y += (1 + 32) * s; row_i = 0;
     // ---- ACCOUNT
     section("ACCOUNT");
-    card_fill(y, 126 * s);
+    card_fill(y, 258 * s);
     row(0xf0c1, "Last.fm", "Scrobbling is handled by your server \xE2\x80\x94 enable Last.fm in your server's admin panel", 0, false, "Server", false, 71);
+    if (row(skin::CirclePlus, "Add server", "", 1, true, "", false, 52)) add_server();
     if (row(0xf362, switching_ ? "Switching\xE2\x80\xA6" : "Switch Server", "", 1, true, "", false, 52) && !switching_) modal_ = Modal::SwitchServer;
+    if (row(0xf2f5, "Sign out", "Forget the saved password and return to sign-in. Downloads stay; the same server reached another way shares them.", 2, false, "", false, 78)) modal_ = Modal::ConfirmSignOut;
     y += (1 + 32) * s; row_i = 0;
     // ---- PERFORMANCE CACHE (components/common/settings/PerformanceCacheSection.tsx)
     if (!perf_stats_.loaded) refresh_perf_stats();
@@ -462,7 +487,7 @@ void App::draw_settings(Rect r) {
     {
         const PerfStats& ps = perf_stats_;
         auto grouped = [](uint64_t v) { std::string t = std::to_string(v), o; int n = 0; for (int i = static_cast<int>(t.size()) - 1; i >= 0; --i) { o.insert(o.begin(), t[static_cast<size_t>(i)]); if (++n % 3 == 0 && i > 0) o.insert(o.begin(), ','); } return o; };
-        auto bytes_str = [](uint64_t b) { char t[32]; if (b < 1024) std::snprintf(t, sizeof t, "%llu B", static_cast<unsigned long long>(b)); else if (b < 1024 * 1024) std::snprintf(t, sizeof t, "%.1f KB", b / 1024.0); else if (b < 1024ull * 1024 * 1024) std::snprintf(t, sizeof t, "%.1f MB", b / 1048576.0); else std::snprintf(t, sizeof t, "%.2f GB", b / 1073741824.0); return std::string(t); };
+        auto bytes_str = [](uint64_t b) { char t[32] = {}; if (b < 1024) std::snprintf(t, sizeof t, "%llu B", static_cast<unsigned long long>(b)); else if (b < 1024 * 1024) std::snprintf(t, sizeof t, "%.1f KB", b / 1024.0); else if (b < 1024ull * 1024 * 1024) std::snprintf(t, sizeof t, "%.1f MB", b / 1048576.0); else std::snprintf(t, sizeof t, "%.2f GB", b / 1073741824.0); return std::string(t); };
         const uint64_t cached = ps.mem_hits + ps.disk_hits, internet = ps.server_fetches + ps.internet_fetches + ps.api_calls, total = cached + internet;
         const int cpct = total == 0 ? 50 : static_cast<int>(std::lround(100.0 * cached / total)), ipct = 100 - cpct;
         const float card_top = y, card_h = 451 * s;
@@ -655,15 +680,17 @@ void App::draw_settings(Rect r) {
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
     // ---- STORAGE (mobile: the original shows this on Android only)
     section("STORAGE");
-    card_fill(y, 124 * s);
+    card_fill(y, 185 * s);
     {
         const auto vols = storage_volumes();
-        std::string sub = "Loading\xE2\x80\xA6";
-        for (auto& v : vols) if (v.path == cache_base()) {
-            char t[96]; std::snprintf(t, sizeof t, "%s \xC2\xB7 %.1f GB free", v.label.c_str(), v.free_bytes / 1073741824.0); sub = t;
-        }
-        if (vols.empty()) sub = cache_base();
-        if (row(0xf0a0, "Permanent cache location", sub, 1, true, "", false, 61)) choose_cache_folder();
+        auto where = [&](const std::string& base) {
+            for (auto& v : vols) if (base.compare(0, v.path.size(), v.path) == 0) {
+                char t[160] = {}; std::snprintf(t, sizeof t, "%s \xC2\xB7 %.1f GB free", v.label.c_str(), v.free_bytes / 1073741824.0); return std::string(t);
+            }
+            return base;
+        };
+        if (row(0xf019, "Downloads location", where(downloads_base()), 1, true, "", false, 61)) choose_cache_folder(0);
+        if (row(0xf0a0, "Streaming cache location", where(cache_base()), 1, true, "", false, 61)) choose_cache_folder(1);
 #if defined(__ANDROID__)
         if (row(0xf013, "App install location", "Android can move the app itself to an SD card or adopted storage: Storage \xE2\x80\xBA Change", 1, false, "Open", true, 61)) SDL_OpenURL("package:settings");
 #else

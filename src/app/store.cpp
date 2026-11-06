@@ -247,14 +247,14 @@ bool Store::load_locked() {
     yyjson_val* kv = yyjson_obj_get(root, "kv");
     if (kv && yyjson_is_obj(kv)) {
         yyjson_obj_iter it = yyjson_obj_iter_with(kv);
-        yyjson_val* key;
+        yyjson_val* key = nullptr;
         while ((key = yyjson_obj_iter_next(&it))) {
             yyjson_val* value = yyjson_obj_iter_get_val(key);
             if (yyjson_is_obj(value)) kv_[yyjson_get_str(key)] = {str(value, "value"), integer(value, "ts")};
         }
     }
     yyjson_val* dl = yyjson_obj_get(root, "downloads");
-    size_t i, n; yyjson_val* o;
+    size_t i = 0, n = 0; yyjson_val* o = nullptr;
     yyjson_arr_foreach(dl, i, n, o) {
         Row r;
         r.id = str(o, "id"); r.album_id = str(o, "album_id"); r.path = str(o, "path"); r.song_json = str(o, "song");

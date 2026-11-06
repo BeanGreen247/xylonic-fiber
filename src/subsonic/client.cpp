@@ -128,7 +128,7 @@ bool SubsonicClient::parse_album(const std::string& body, Album& out, std::strin
         out = Album{};
         if (!a) return;
         to_album(a, out);
-        size_t i, n; yyjson_val* s;
+        size_t i = 0, n = 0; yyjson_val* s = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(a, "song"), i, n, s) { out.songs.emplace_back(); to_song(s, out.songs.back()); }
     });
 }
@@ -136,7 +136,7 @@ bool SubsonicClient::parse_album(const std::string& body, Album& out, std::strin
 bool SubsonicClient::parse_artists(const std::string& body, std::vector<Artist>& out, std::string& err) {
     return with_doc(body, err, [&](yyjson_val* r) {
         out.clear();
-        size_t i, n, j, m; yyjson_val *idx, *ar;
+        size_t i = 0, n = 0, j = 0, m = 0; yyjson_val *idx = nullptr, *ar = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(yyjson_obj_get(r, "artists"), "index"), i, n, idx)
             yyjson_arr_foreach(yyjson_obj_get(idx, "artist"), j, m, ar) {
                 Artist a;
@@ -164,7 +164,7 @@ bool SubsonicClient::artist(const std::string& id, Artist& out, std::string& err
         yyjson_val* a = yyjson_obj_get(r, "artist");
         if (!a) return;
         out.id = str(a, "id"); out.name = str(a, "name"); out.cover_art = str(a, "coverArt"); out.album_count = num(a, "albumCount");
-        size_t i, n; yyjson_val* al;
+        size_t i = 0, n = 0; yyjson_val* al = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(a, "album"), i, n, al) { out.albums.emplace_back(); to_album(al, out.albums.back()); }
     });
 }
@@ -188,7 +188,7 @@ bool SubsonicClient::album_list(const std::string& type, int size, int offset, s
     if (!call("getAlbumList2", "type=" + url_encode(type) + "&size=" + std::to_string(size) + "&offset=" + std::to_string(offset), b, err)) return false;
     return with_doc(b, err, [&](yyjson_val* r) {
         out.clear();
-        size_t i, n; yyjson_val* al;
+        size_t i = 0, n = 0; yyjson_val* al = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(yyjson_obj_get(r, "albumList2"), "album"), i, n, al) { out.emplace_back(); to_album(al, out.back()); }
     });
 }
@@ -198,7 +198,7 @@ bool SubsonicClient::search_songs(const std::string& q, int count, int offset, s
     if (!call("search3", "query=" + url_encode(q) + "&artistCount=0&albumCount=0&songCount=" + std::to_string(count) + "&songOffset=" + std::to_string(offset), b, err)) return false;
     return with_doc(b, err, [&](yyjson_val* r) {
         out.clear();
-        size_t i, n; yyjson_val* s;
+        size_t i = 0, n = 0; yyjson_val* s = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(yyjson_obj_get(r, "searchResult3"), "song"), i, n, s) { out.emplace_back(); to_song(s, out.back()); }
     });
 }
@@ -209,7 +209,7 @@ bool SubsonicClient::search_all(const std::string& q, SearchAll& out, std::strin
     return with_doc(b, err, [&](yyjson_val* r) {
         out = SearchAll{};
         yyjson_val* sr = yyjson_obj_get(r, "searchResult3");
-        size_t i, n; yyjson_val* v;
+        size_t i = 0, n = 0; yyjson_val* v = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(sr, "artist"), i, n, v) {
             Artist a;
             a.id = str(v, "id"); a.name = str(v, "name"); a.cover_art = str(v, "coverArt"); a.album_count = num(v, "albumCount");
@@ -223,7 +223,7 @@ bool SubsonicClient::search_all(const std::string& q, SearchAll& out, std::strin
 bool SubsonicClient::parse_playlists(const std::string& body, std::vector<PlaylistInfo>& out, std::string& err) {
     return with_doc(body, err, [&](yyjson_val* r) {
         out.clear();
-        size_t i, n; yyjson_val* v;
+        size_t i = 0, n = 0; yyjson_val* v = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(yyjson_obj_get(r, "playlists"), "playlist"), i, n, v) {
             PlaylistInfo p;
             p.id = str(v, "id"); p.name = str(v, "name"); p.owner = str(v, "owner"); p.song_count = num(v, "songCount");
@@ -239,7 +239,7 @@ bool SubsonicClient::parse_playlist(const std::string& body, PlaylistInfo& info,
         yyjson_val* p = yyjson_obj_get(r, "playlist");
         if (!p) return;
         info.id = str(p, "id"); info.name = str(p, "name"); info.owner = str(p, "owner"); info.song_count = num(p, "songCount");
-        size_t i, n; yyjson_val* v;
+        size_t i = 0, n = 0; yyjson_val* v = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(p, "entry"), i, n, v) { songs.emplace_back(); to_song(v, songs.back()); }
     });
 }
@@ -289,7 +289,7 @@ bool SubsonicClient::starred(std::vector<Song>& out, std::string& err) {
     if (!call("getStarred2", "", b, err)) return false;
     return with_doc(b, err, [&](yyjson_val* r) {
         out.clear();
-        size_t i, n; yyjson_val* s;
+        size_t i = 0, n = 0; yyjson_val* s = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(yyjson_obj_get(r, "starred2"), "song"), i, n, s) { out.emplace_back(); to_song(s, out.back()); }
     });
 }

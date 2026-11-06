@@ -59,7 +59,7 @@ int get_metadata(sd_bus*, const char*, const char*, const char*, sd_bus_message*
 }
 
 int set_loop(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void* u, sd_bus_error*) { const char* s = nullptr; if (sd_bus_message_read(v, "s", &s) < 0 || !s) return -EINVAL; I(u)->cb(MprisCmd::SetLoop, 0, s); return 0; }
-int set_rate(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void*, sd_bus_error*) { double d; return sd_bus_message_read(v, "d", &d) < 0 ? -EINVAL : 0; }
+int set_rate(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void*, sd_bus_error*) { double d = 0; return sd_bus_message_read(v, "d", &d) < 0 ? -EINVAL : 0; }
 int set_shuffle(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void* u, sd_bus_error*) { int b = 0; if (sd_bus_message_read(v, "b", &b) < 0) return -EINVAL; I(u)->cb(MprisCmd::SetShuffle, b ? 1 : 0, ""); return 0; }
 int set_volume(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void* u, sd_bus_error*) { double d = 0; if (sd_bus_message_read(v, "d", &d) < 0) return -EINVAL; I(u)->cb(MprisCmd::SetVolume, std::fmax(0.0, std::fmin(1.0, d)), ""); return 0; }
 

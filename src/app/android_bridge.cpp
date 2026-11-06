@@ -8,7 +8,7 @@
 namespace {
 struct Bridge {
     jclass cls = nullptr;   // global ref
-    jmethodID update = nullptr, appicon = nullptr, landscape = nullptr, back = nullptr, exempt = nullptr, request = nullptr, density = nullptr, decode = nullptr, rate = nullptr;
+    jmethodID update = nullptr, appicon = nullptr, landscape = nullptr, back = nullptr, exempt = nullptr, request = nullptr, density = nullptr, decode = nullptr, rate = nullptr, volumes = nullptr, pick = nullptr, poll = nullptr;
     bool tried = false;
 };
 Bridge g;
@@ -41,6 +41,9 @@ bool bind(JNIEnv* env, jobject act) {
         g.density = env->GetStaticMethodID(gcls, "density", "(Landroid/content/Context;)F");
         g.decode = env->GetStaticMethodID(gcls, "decode", "([BI)[I");
         g.rate = env->GetStaticMethodID(gcls, "outputRate", "(Landroid/content/Context;)I");
+        g.volumes = env->GetStaticMethodID(gcls, "volumes", "(Landroid/content/Context;)[Ljava/lang/String;");
+        g.pick = env->GetStaticMethodID(gcls, "pickFolder", "(Landroid/app/Activity;)V");
+        g.poll = env->GetStaticMethodID(gcls, "pickPoll", "()Ljava/lang/String;");
         if (env->ExceptionCheck()) env->ExceptionClear();
         g.cls = gcls;   // publish last
         env->DeleteLocalRef(cls);
@@ -140,6 +143,42 @@ void set_app_icon(const char* name) {
     j.env->CallStaticVoidMethod(g.cls, g.appicon, j.act, n);
     j.env->DeleteLocalRef(n);
     if (j.env->ExceptionCheck()) j.env->ExceptionClear();
+}
+
+std::vector<std::string> volumes() {
+    std::vector<std::string> out;
+    Scope j;
+    if (!j.ok() || !g.volumes) return out;
+    jobjectArray a = static_cast<jobjectArray>(j.env->CallStaticObjectMethod(g.cls, g.volumes, j.act));
+    if (j.env->ExceptionCheck()) { j.env->ExceptionClear(); return out; }
+    if (!a) return out;
+    const jsize n = j.env->GetArrayLength(a);
+    for (jsize i = 0; i < n; ++i) {
+        jstring js = static_cast<jstring>(j.env->GetObjectArrayElement(a, i));
+        const char* c = js ? j.env->GetStringUTFChars(js, nullptr) : nullptr;
+        out.emplace_back(c ? c : "");
+        if (c) j.env->ReleaseStringUTFChars(js, c);
+        if (js) j.env->DeleteLocalRef(js);
+    }
+    j.env->DeleteLocalRef(a);
+    return out;
+}
+
+void pick_start() {
+    Scope j;
+    if (!j.ok() || !g.pick) return;
+    j.env->CallStaticVoidMethod(g.cls, g.pick, j.act);
+    if (j.env->ExceptionCheck()) j.env->ExceptionClear();
+}
+
+std::string pick_poll() {
+    Scope j;
+    if (!j.ok() || !g.poll) return "!";
+    jstring js = static_cast<jstring>(j.env->CallStaticObjectMethod(g.cls, g.poll));
+    if (j.env->ExceptionCheck()) { j.env->ExceptionClear(); return "!"; }
+    std::string r;
+    if (js) { const char* c = j.env->GetStringUTFChars(js, nullptr); if (c) r = c; if (c) j.env->ReleaseStringUTFChars(js, c); j.env->DeleteLocalRef(js); }
+    return r;
 }
 
 bool battery_exempt() {

@@ -21,7 +21,7 @@ void App::draw_ctx_menu(float W, float H) {
     Ui& u = *ui_;
     const float s = S_;
     const Theme& th = u.th;
-    struct Item { uint32_t icon; const char* label; int id; };
+    struct Item { uint32_t icon; const char* label; int id = 0; };
     std::vector<Item> items = {{skin::Play, "Play Now", 0}, {skin::StepFwd, "Play Next", 1}, {skin::ListUl, "Add to Queue", 2}, {0, "", -1},
                                {skin::CirclePlus, "Add to Playlist\xE2\x80\xA6", 3}};
     if (downloads_ && !offline_) { items.push_back({0, "", -1}); items.push_back({skin::Download, "Download", 4}); }

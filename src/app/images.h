@@ -73,7 +73,7 @@ public:
     void save() { media_->save(); }
 
 private:
-    struct Entry { SDL_Texture* t; uint64_t tick; uint32_t stat_ms; };
+    struct Entry { SDL_Texture* t = nullptr; uint64_t tick; uint32_t stat_ms; };
     struct Key { std::string id, term_artist, term_album; int dev = 0; bool hi = false, net = false; };
     static Key parse(const std::string& key);
     std::string disk_id(const Key& k) const;
@@ -84,10 +84,10 @@ private:
     void store(const std::string& disk_id, const std::string& bytes);
     void worker_loop();
 
-    SDL_Renderer* r_;
+    SDL_Renderer* r_ = nullptr;
     Worker& w_;
     std::string dir_;
-    size_t max_;
+    size_t max_ = 0;
     std::shared_ptr<xf::cache::MediaCache> media_;
     uint64_t budget_ = 64ull << 20;
     std::atomic<int> puts_{0};

@@ -32,6 +32,12 @@ public class XylonicActivity extends SDLActivity {
     }
 
     @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        MediaBridge.handleResult(this, requestCode, resultCode, data);
+    }
+
+    @Override
     protected void onDestroy() {
         if (multicast != null && multicast.isHeld()) multicast.release();
         super.onDestroy();

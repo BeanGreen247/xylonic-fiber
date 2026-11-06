@@ -83,7 +83,7 @@ const Gfx::Glyph* Gfx::glyph(int fi, uint32_t cp) {
     if (it != f.glyphs.end()) return &it->second;
     int gi = stbtt_FindGlyphIndex(&f.info, static_cast<int>(cp));
     if (gi == 0 && cp != 0xFFFD && cp != '?') return glyph(fi, '?');
-    int adv, lsb, x0, y0, x1, y1;
+    int adv = 0, lsb = 0, x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     stbtt_GetGlyphHMetrics(&f.info, gi, &adv, &lsb);
     stbtt_GetGlyphBitmapBox(&f.info, gi, f.scale, f.scale, &x0, &y0, &x1, &y1);
     Glyph g{};
@@ -92,7 +92,7 @@ const Gfx::Glyph* Gfx::glyph(int fi, uint32_t cp) {
     g.yoff = static_cast<float>(y0);
     int w = x1 - x0, h = y1 - y0;
     if (w > 0 && h > 0) {
-        int ax, ay;
+        int ax = 0, ay = 0;
         if (!pack(w, h, ax, ay)) { flush(); reset_atlas(); if (!pack(w, h, ax, ay)) return nullptr; }
         std::vector<uint8_t> a(static_cast<size_t>(w) * h);
         stbtt_MakeGlyphBitmap(&f.info, a.data(), w, h, w, f.scale, f.scale, gi);
@@ -122,7 +122,7 @@ void Gfx::flush() {
 void Gfx::end_frame() {
     flush();
     if (!capture_path_.empty()) {   // read the finished frame before the present leaves the back buffer undefined
-        int w, h;
+        int w = 0, h = 0;
         SDL_GetRendererOutputSize(ren_, &w, &h);
         if (SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888)) {
             SDL_RenderReadPixels(ren_, nullptr, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
@@ -156,7 +156,7 @@ const Gfx::Shape* Gfx::shape(int R, int t) {
     uint64_t key = (static_cast<uint64_t>(R) << 16) | static_cast<uint64_t>(t);
     auto it = shapes_.find(key);
     if (it != shapes_.end()) return &it->second;
-    int ax, ay;
+    int ax = 0, ay = 0;
     if (!pack(R + 2, R + 2, ax, ay)) { flush(); reset_atlas(); if (!pack(R + 2, R + 2, ax, ay)) return nullptr; }
     ax += 1; ay += 1;  // 1px gutter against bleeding
     std::vector<uint32_t> px(static_cast<size_t>(R) * R);

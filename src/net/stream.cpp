@@ -1,6 +1,7 @@
 #include "stream.h"
 #include "portable.h"
 #include <cerrno>
+#include <mutex>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/entropy.h>
@@ -38,8 +39,8 @@ public:
         return xf_poll(fd_, ev, timeout_) > 0;
     }
 private:
-    xf_sock_t fd_;
-    int timeout_;
+    xf_sock_t fd_ = kBadSock;
+    int timeout_ = 0;
 };
 
 class TlsStream : public Stream {
@@ -66,7 +67,7 @@ public:
         if (mbedtls_ssl_config_defaults(&conf_, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT)) { err = "ssl config"; return false; }
         if (mode == Verify::Chain) {
             if (!load_roots(ca_file)) { err = "no CA certificates found"; return false; }
-            mbedtls_ssl_conf_ca_chain(&conf_, &ca_, nullptr);
+            mbedtls_ssl_conf_ca_chain(&conf_, shared_ ? const_cast<mbedtls_x509_crt*>(shared_) : &ca_, nullptr);
             mbedtls_ssl_conf_authmode(&conf_, MBEDTLS_SSL_VERIFY_REQUIRED);
         } else {
             mbedtls_ssl_conf_authmode(&conf_, MBEDTLS_SSL_VERIFY_NONE);
@@ -75,10 +76,10 @@ public:
         if (mbedtls_ssl_setup(&ssl_, &conf_)) { err = "ssl setup"; return false; }
         if (mbedtls_ssl_set_hostname(&ssl_, host.c_str())) { err = "set hostname"; return false; }
         mbedtls_ssl_set_bio(&ssl_, this, &TlsStream::bio_send, &TlsStream::bio_recv, nullptr);
-        int r;
+        int r = 0;
         while ((r = mbedtls_ssl_handshake(&ssl_)) != 0) {
             if (r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) {
-                char b[160];
+                char b[160] = {};
                 mbedtls_strerror(r, b, sizeof b);
                 err = std::string("TLS handshake: ") + b;
                 return false;
@@ -87,7 +88,7 @@ public:
         ready_ = true;
         if (mode != Verify::Chain) {
             const mbedtls_x509_crt* c = mbedtls_ssl_get_peer_cert(&ssl_);
-            unsigned char h[32];
+            unsigned char h[32] = {};
             if (!c || mbedtls_sha256(c->raw.p, c->raw.len, h, 0)) { err = "no peer certificate"; return false; }
             static const char* d = "0123456789abcdef";
             fingerprint.clear();
@@ -117,8 +118,26 @@ public:
         return true;
     }
 private:
+    // The system roots are parsed once per process (~140 PEM files on Android: base64 + X.509 parsing on every connection was
+    // a measurable share of CPU and of connect latency) and shared read-only by every stream.
+    static const mbedtls_x509_crt* shared_roots() {
+        static std::mutex mu;
+        static mbedtls_x509_crt crt;
+        static bool loaded = false;
+        std::lock_guard<std::mutex> lk(mu);
+        if (!loaded) {
+            mbedtls_x509_crt_init(&crt);
+            if (parse_system_roots(&crt)) loaded = true; else mbedtls_x509_crt_free(&crt);   // retried on the next connection
+        }
+        return loaded ? &crt : nullptr;
+    }
     bool load_roots(const std::string& ca_file) {
         if (!ca_file.empty()) return mbedtls_x509_crt_parse_file(&ca_, ca_file.c_str()) >= 0 && ca_.version;
+        shared_ = shared_roots();
+        return shared_ != nullptr;
+    }
+    static bool parse_system_roots(mbedtls_x509_crt* ca_p) {
+        mbedtls_x509_crt& ca_ = *ca_p;
 #if defined(_WIN32)
         // Windows keeps its trusted roots in the system "ROOT" store; each certificate is handed to mbedTLS as DER.
         if (HCERTSTORE st = CertOpenSystemStoreA(0, "ROOT")) {
@@ -152,6 +171,7 @@ private:
     mbedtls_ssl_context ssl_;
     mbedtls_ssl_config conf_;
     mbedtls_x509_crt ca_;
+    const mbedtls_x509_crt* shared_ = nullptr;   // process-wide system roots (when no explicit CA file)
     mbedtls_ctr_drbg_context drbg_;
     mbedtls_entropy_context entropy_;
     bool ready_ = false;
