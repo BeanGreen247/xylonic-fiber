@@ -70,6 +70,11 @@ bool Gfx::pack(int w, int h, int& x, int& y) {
     return true;
 }
 
+bool Gfx::has_glyph(int fi, uint32_t cp) const {
+    if (fi < 0 || fi >= static_cast<int>(fonts_.size())) return false;
+    return stbtt_FindGlyphIndex(&fonts_[fi]->info, static_cast<int>(cp)) != 0;
+}
+
 const Gfx::Glyph* Gfx::glyph(int fi, uint32_t cp) {
     if (fi < 0 || fi >= static_cast<int>(fonts_.size())) return nullptr;
     FontFace& f = *fonts_[fi];

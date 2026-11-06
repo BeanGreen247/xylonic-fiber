@@ -94,7 +94,7 @@ void App::draw_login(float W, float H) {
         disc_h = 23 + 8 + (n ? n * 50 + (n - 1) * 8 : (scanning_ ? 0 : 0)) + 16;
     }
     float cols_h = two ? 259 : 520;
-    float bh = (28 + 123 + 20 + disc_h + cols_h + 16 + 41 + 8 + 41 + 28) * s;
+    float bh = (28 + 48 + 20 + disc_h + cols_h + 16 + 41 + 8 + 41 + 28) * s;
     if (u.in.wheel != 0) login_scroll_.y -= u.in.wheel * 60 * s;
     login_scroll_.clamp(bh + 40 * s, H);
     Rect box{(W - bw) / 2, std::max(20 * s, (H - bh) / 2) - login_scroll_.y, bw, bh};
@@ -102,11 +102,10 @@ void App::draw_login(float W, float H) {
     gfx_->fill_round(box, 24 * s, th.panel);
     float x = box.x + pad, w = box.w - 2 * pad, y = box.y + 28 * s;
     // logo + title
-    svg(0, {box.x + box.w / 2 - 36 * s, y, 72 * s, 72 * s}, {255, 255, 255, 255});
-    int ft = F(700, 26);
-    std::string title = "Xylonic";
-    T(700, 26, box.x + (box.w - gfx_->measure(ft, title)) / 2, y + 84 * s, 39, title, th.accent);
-    y += 143 * s;
+    int ft = F(700, 28);
+    std::string title = "Xylonic Fiber";
+    T(700, 28, box.x + (box.w - gfx_->measure(ft, title)) / 2, y + 8 * s, 42, title, th.accent);
+    y += 68 * s;
     // discovered servers
     {
         fa(skin::Search, x + 8 * s, y + 11.5f * s, 13, th.accent);

@@ -932,6 +932,17 @@ void App::draw_render_hud(float W, float H) {
     if (!cfg_.render_timer) return;
     const float s = S_;
     const Theme& th = ui_->th;
+    if (mobile_) {   // one small pill inside the header (hidden with the header while the keyboard is up)
+        if (ui_->focus != 0 && H / s < 420) return;
+        char t[48];
+        std::snprintf(t, sizeof t, "%.1f ms \xC2\xB7 %.0f FPS", render_ms_, render_fps_);
+        const int f = F(500, 10);
+        const float pw = gfx_->measure(f, t) + 16 * s;
+        Rect p{W - 56 * s - pw, 17 * s, pw, 22 * s};
+        gfx_->fill_round(p, 11 * s, {0, 0, 0, 150});
+        T(500, 10, p.x + 8 * s, p.y, 22, t, th.sub);
+        return;
+    }
     const float w = 178 * s, h = 48 * s;
     Rect b{W - w - 12 * s, 68 * s, w, h};   // RenderTimerHUD.css: top 68, right 12 (below the header)
     gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 8 * s, th.border);

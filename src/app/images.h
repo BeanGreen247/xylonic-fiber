@@ -7,6 +7,10 @@
 //  - iTunes lookup only for items that have no cover id at all (term "artist album").
 #pragma once
 #include <SDL.h>
+#include <string>
+
+// Loads a bundled PNG (app icon, splash art) as a texture; null when missing or undecodable.
+SDL_Texture* load_png_texture(SDL_Renderer* r, const std::string& path);
 #include <atomic>
 #include <condition_variable>
 #include <deque>

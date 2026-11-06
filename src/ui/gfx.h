@@ -64,6 +64,7 @@ public:
     // Text with a tracking offset (CSS letter-spacing) in pixels.
     void set_letter_spacing(float px) { spacing_ = px; }
     uint64_t draw_calls() const { return draw_calls_; }
+    bool has_glyph(int font, uint32_t cp) const;
 
 private:
     std::string capture_path_;

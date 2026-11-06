@@ -22,6 +22,7 @@ struct Config {
     void remember_connection(const std::string& url, const std::string& user);
     void forget_connection(const std::string& url, const std::string& user);
     int theme = 0;           // 0..7 presets, 8..11 custom slots
+    int icon_set = 1;        // 0 classic (solid), 1 GitHub (Octicons), 2 Phosphor, 3 Material
     int theme_mode = 0;      // 0 system, 1 light, 2 dark
     struct Custom { std::string name; uint32_t primary = 0x00bcd4; };
     Custom custom[4] = {{"My Theme 1", 0x00bcd4}, {"My Theme 2", 0x00bcd4}, {"My Theme 3", 0x00bcd4}, {"My Theme 4", 0x00bcd4}};

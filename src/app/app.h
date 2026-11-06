@@ -107,7 +107,7 @@ private:
     void mark() { dirty_ = true; }
     // Fonts (Roboto 400/500/700 + Font Awesome), created lazily per size. weight 600 maps to Bold.
     int F(int weight, float px, bool italic = false);
-    int FA(float px);
+    int FA(float px, int set = -1);   // icon font for the chosen set (-1 = the current one)
     // CSS-like text: y_top/line_height in logical px, glyphs centred in the line box. Returns drawn width.
     // Word-wrapped text; returns the height used (device px).
     int wrap_count(int weight, float px, const std::string& s, float max_w);
@@ -289,6 +289,7 @@ private:
     void draw_storage_modal(float W, float H);
     void draw_tooltip(float W, float H);
     void draw_splash(float W, float H);
+    SDL_Texture* splash_tex_ = nullptr;
     bool splash_gone_ = false; uint32_t splash_start_ = 0, splash_end_ = 0;
     void draw_firewall_modal(float W, float H);
     void draw_theme_modal(float W, float H);
@@ -336,6 +337,8 @@ private:
     uint32_t toast_until_ = 0; std::string toast_;     // quality-notification pill under the header
     Modal modal_ = Modal::None;
     uint64_t sleep_end_ms_ = 0;
+    Rect dd_block_{0, 0, 0, 0};   // the open dropdown's popup: clicks inside it must not reach the rows underneath
+    float dd_top_ = 0, dd_bottom_ = 1e9f;   // visible band of the page the open dropdown must fit in
     int dropdown_open_ = 0;
     std::function<void()> dropdown_draw_;
     std::pair<int, int> dropdown_choice_{0, -1};

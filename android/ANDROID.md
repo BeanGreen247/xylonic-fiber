@@ -52,3 +52,9 @@ Not tested on a physical phone, so the numbers that matter there (touch feel, DP
 - Dialogs and sheets fit 320 px wide screens; the download quality list scrolls; the bottom nav is inert under a dialog; a dialog no longer receives the tap that opened it; long press opens the song context menu (the original relies on Chromium's `contextmenu`).
 - Offline mode persists across restarts, lists cached albums and songs, and going online signs in again with the stored password.
 - Car Mode forces landscape and restores the previous orientation; a tight layout for 320 px tall screens.
+
+## Look and feel (2026-11-06)
+- Icon sets: Settings > Appearance > Icon Style (GitHub/Octicons default, Classic solid, Phosphor, Material). Fonts `assets/fonts/icons-*.ttf` are built by `tools/make-iconsets.py` and use the Font Awesome codepoints, so `App::fa()` only swaps the font file; a glyph a set lacks falls back to the classic one.
+- The app icon appears on the splash screen only; the header and the sign-in box show the name.
+- Compact layout follows Spotify / Apple Music / YT Music: flat album cards, round artist photos, floating mini player card with a progress line, round Shuffle/Download buttons in Library, album page with art, title and play row; the header, player and tab bar give way to the on-screen keyboard; the Performance Overlay is one small pill in the header.
+- Roboto has no arrow or black-circle glyphs: use `›` and `•` in strings.

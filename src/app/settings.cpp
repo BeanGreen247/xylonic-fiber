@@ -212,7 +212,10 @@ void App::draw_modal(float W, float H) {
 
     } else if (modal_ == Modal::Sleep) {
         Rect b = frame(420, 336, 0xf186, "Sleep Timer");
-        T(400, 12, b.x + 18 * s, b.y + 52 * s, 18, "Playback stops automatically after the selected time.", th.sub);
+        {
+            const std::string full = "Playback stops automatically after the selected time.";
+            T(400, 12, b.x + 18 * s, b.y + 52 * s, 18, gfx_->measure(F(400, 12), full) > b.w - 36 * s ? "Playback stops after the selected time." : full, th.sub, b.w - 36 * s);
+        }
         static const int mins[4] = {15, 30, 45, 60};
         static const char* labels[4] = {"15 minutes", "30 minutes", "45 minutes", "1 hour"};
         static const char* descs[4] = {"Quick listen", "Half hour", "Wind down session", "Full hour"};
@@ -251,6 +254,9 @@ int App::dropdown(int id, Rect anchor, const std::vector<std::string>& opts, int
     if (!open) return -1;
     float ih = 32 * s;
     Rect pop{anchor.x, anchor.y + anchor.h + 4 * s, std::max(anchor.w, 120 * s), ih * opts.size() + 8 * s};
+    if (pop.y + pop.h > dd_bottom_ && anchor.y - 4 * s - pop.h >= dd_top_) pop.y = anchor.y - 4 * s - pop.h;   // opens upward near the bottom of the page
+    else if (pop.y + pop.h > dd_bottom_) pop.y = std::max(dd_top_, dd_bottom_ - pop.h);
+    dd_block_ = pop;
     dropdown_draw_ = [this, pop, opts, current, ih, id]() mutable {
         Ui& uu = *ui_;
         const Theme& t = uu.th;
@@ -260,9 +266,9 @@ int App::dropdown(int id, Rect anchor, const std::vector<std::string>& opts, int
             Rect r{pop.x + 4 * S_, pop.y + 4 * S_ + i * ih, pop.w - 8 * S_, ih};
             if (uu.hover(r)) gfx_->fill_round(r, 6 * S_, t.hover);
             T(static_cast<int>(i) == current ? 600 : 400, 13, r.x + 10 * S_, r.y, ih / S_, opts[i], static_cast<int>(i) == current ? t.accent : t.text);
-            if (uu.clicked(r)) { dropdown_choice_ = {id, static_cast<int>(i)}; }
+            if (uu.clicked(r)) { dropdown_choice_ = {id, static_cast<int>(i)}; mark(); }
         }
-        if (uu.in.pressed && !pop.contains(uu.in.mx, uu.in.my)) dropdown_choice_ = {id, -2};
+        if (uu.in.pressed && !pop.contains(uu.in.mx, uu.in.my)) { dropdown_choice_ = {id, -2}; mark(); }
     };
     return -1;
 }
@@ -289,6 +295,10 @@ void App::draw_settings(Rect r) {
     float y = r.y + (cp ? 12.0f : 24.0f) * s - settings_scroll_.y;
     gfx_->clip(&r);
     dropdown_draw_ = nullptr;
+    dd_top_ = r.y; dd_bottom_ = r.y + r.h;
+    const Input in_saved = u.in;
+    if (dd_block_.w > 0 && dd_block_.contains(u.in.mx, u.in.my)) { u.in.pressed = u.in.released = u.in.rclick = false; u.in.down = false; }
+    dd_block_ = {0, 0, 0, 0};
     // pending dropdown selection from the previous frame's popup
     int pick_id = dropdown_choice_.first, pick = dropdown_choice_.second;
     dropdown_choice_ = {0, -1};
@@ -313,31 +323,41 @@ void App::draw_settings(Rect r) {
         y += 26 * s;
     };
     int row_i = 0;
+    const Color* icon_ov = nullptr;   // icon colour override for the row being drawn
+    float reserve_ov = -1;   // >= 0: right-hand space (logical px) the next row keeps free for its own controls
     float last_extra_ = 0;   // extra height (logical px) the last row gained from wrapping: dropdowns centre on it
     // Row primitive. kind: 0 info, 1 button, 2 danger. Returns true when clicked (kind != info).
     auto row = [&](uint32_t icon, const std::string& title, const std::string& sub, int kind, bool chevron, const std::string& pill, bool pill_on, float h_logical) {
         if (row_i++) { gfx_->fill({x + 17 * s, y, w - 34 * s, 1 * s}, {255, 255, 255, 15}); y += 1 * s; }
         int sub_lines = 1;
         const bool dd_row = cp && kind == 0 && pill.empty() && !chevron && !sub.empty();   // a row with a dropdown on its right: narrower text column
-        float reserve = cp ? (dd_row ? 160.0f : 90.0f) : 140.0f;
+        float reserve = cp ? (dd_row ? 160.0f : pill.empty() ? (chevron ? 46.0f : 30.0f) : 90.0f) : 140.0f;
+        if (reserve_ov >= 0) reserve = reserve_ov;
         if (cp && !pill.empty()) reserve = std::max(reserve, (gfx_->measure(F(600, 12), pill) / s + 24 + (chevron ? 30.0f : 0.0f) + 32));   // the description stops before the pill
         last_extra_ = 0;
+        int title_lines = 1;
+        if (cp && !sub.empty()) {   // a long title wraps to a second line rather than truncating
+            title_lines = std::min(2, wrap_count(400, 15, title, w - 2 * s - 54 * s - (dd_row ? 140.0f : reserve) * s));
+            if (title_lines > 1) { h_logical += 22.5f; card_extra_now_[cur_card_] += 22.5f; last_extra_ += 22.5f; }
+        }
         if (cp && !sub.empty()) {   // compact: descriptions wrap instead of truncating; the row (and its card) grow
-            sub_lines = wrap_count(400, 12, sub, w - 2 * s - 54 * s - reserve * s);
-            if (sub_lines > 1) { h_logical += (sub_lines - 1) * 18; card_extra_now_[cur_card_] += (sub_lines - 1) * 18; last_extra_ = (sub_lines - 1) * 18; }
+            sub_lines = wrap_count(400, 12, sub, w - 2 * s - 54 * s - (dd_row ? 24.0f : reserve) * s);
+            if (sub_lines > 1) { h_logical += (sub_lines - 1) * 18; card_extra_now_[cur_card_] += (sub_lines - 1) * 18; last_extra_ += (sub_lines - 1) * 18; }
         }
         Rect rr{x + 1 * s, y, w - 2 * s, h_logical * s};
         bool hov = kind != 0 && u.hover(rr) && r.contains(u.in.mx, u.in.my);
         if (hov) gfx_->fill(rr, th.hover);
-        Color ic = kind == 2 ? th.danger : th.sub;
-        fa(icon, rr.x + 28 * s, rr.y + rr.h / 2, 18, ic);
+        Color ic = kind == 2 ? th.danger : icon_ov ? *icon_ov : th.sub;
         bool has_sub = !sub.empty();
+        fa(icon, rr.x + 28 * s, rr.y + (has_sub ? std::min(rr.h / 2, 30.5f * s) : rr.h / 2), 18, ic);   // beside the title block, not the middle of a tall wrapped row
         Color tc = kind == 2 ? th.danger : th.text;
         if (has_sub) {
-            const float tw = rr.w - 54 * s - reserve * s;
-            T(400, 15, rr.x + 54 * s, rr.y + 10 * s, 22.5f, title, tc, tw);
-            if (sub_lines > 1) TW(400, 12, rr.x + 54 * s, rr.y + 33 * s, 18, sub, rgb(0xb5b5b5), tw);
-            else T(400, 12, rr.x + 54 * s, rr.y + 33 * s, 18, sub, rgb(0xb5b5b5), tw);
+            const float tw = rr.w - 54 * s - reserve * s, sw = dd_row ? rr.w - 54 * s - 24 * s : tw;
+            const float sy = rr.y + (33 + (title_lines - 1) * 22.5f) * s;
+            if (title_lines > 1) TW(400, 15, rr.x + 54 * s, rr.y + 10 * s, 22.5f, title, tc, dd_row ? rr.w - 54 * s - 140 * s : tw);
+            else T(400, 15, rr.x + 54 * s, rr.y + 10 * s, 22.5f, title, tc, tw);
+            if (sub_lines > 1) TW(400, 12, rr.x + 54 * s, sy, 18, sub, rgb(0xb5b5b5), sw);
+            else T(400, 12, rr.x + 54 * s, sy, 18, sub, rgb(0xb5b5b5), sw);
         } else {
             T(400, 15, rr.x + 54 * s, rr.y, h_logical, title, tc, rr.w - 54 * s - 100 * s);
         }
@@ -353,6 +373,8 @@ void App::draw_settings(Rect r) {
         y += h_logical * s;
         return kind != 0 && u.clicked(rr) && r.contains(u.in.mx, u.in.my);
     };
+    // Dropdown anchor of the row just drawn. Compact: on the title line (the description wraps under it at full width); wide: centred.
+    auto dd_rect = [&]() { return Rect{x + w - 16 * s - 120 * s, cp ? y - (71 + last_extra_) * s + 9 * s : y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s}; };
     int card_n = 0;
     for (float& e : card_extra_now_) e = 0;
     auto card_fill = [&](float top, float h) {
@@ -385,15 +407,19 @@ void App::draw_settings(Rect r) {
 #endif
     // ---- APPEARANCE
     section("APPEARANCE");
-    card_fill(y, 126 * s);
+    card_fill(y, 197 * s);
     {
         row(0xf186, "Mode", "Light / dark \xE2\x80\x94 follows your system by default", 0, false, "", false, 71);
-        Rect sel{x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s};
+        Rect sel = dd_rect();
         int cur = cfg_.theme_mode;
         int p = dropdown(1, sel, {"System", "Light", "Dark"}, cur);
         (void)p;
         if (pick_id == 1 && pick >= 0) { cfg_.theme_mode = pick; apply_theme(); cfg_.save(cfg_path_); dropdown_open_ = 0; }
         if (row(0xf53f, "Accent Theme", "", 1, true, "", false, 52)) modal_ = Modal::Theme;
+        row(0xf302, "Icon Style", "GitHub, Phosphor, Material or the classic solid icons", 0, false, "", false, 71);
+        Rect isel = dd_rect();
+        dropdown(9, isel, {"GitHub", "Classic", "Phosphor", "Material"}, cfg_.icon_set == 1 ? 0 : cfg_.icon_set == 0 ? 1 : cfg_.icon_set);
+        if (pick_id == 9 && pick >= 0) { static const int map[4] = {1, 0, 2, 3}; cfg_.icon_set = map[pick]; cfg_.save(cfg_path_); dropdown_open_ = 0; mark(); }
     }
     y += (1 + 32) * s; row_i = 0;
     // ---- PLAYBACK
@@ -459,9 +485,37 @@ void App::draw_settings(Rect r) {
         struct Stat { std::string value, label; };
         auto stat_row = [&](uint32_t icon, Color icon_col, const std::string& title, const std::string& sub, std::vector<Stat> stats, const std::string& badge, bool badge_on, bool badge_danger) {
             const float row_top = y + 1 * s;
-            row(icon, title, sub, 0, false, "", false, 71);
-            fa(icon, x + 1 * s + 28 * s, row_top + 35.5f * s, 18, icon_col);
+            const float stat_line = cp ? 22.0f : 0.0f;   // compact: the numbers sit on their own line under the description
+            if (cp) card_extra_now_[cur_card_] += stat_line;
+            icon_ov = &icon_col;
+            reserve_ov = cp ? (badge.empty() ? 30.0f : 120.0f) : -1.0f;
+            row(icon, title, sub, 0, false, "", false, 71 + stat_line);
+            icon_ov = nullptr; reserve_ov = -1;
             float rx = x + w - 17 * s;
+            if (cp) {
+                const float top = y - (71 + stat_line + last_extra_) * s;   // row top after the row() advance
+                float sx = x + 1 * s + 54 * s;
+                for (const Stat& st : stats) {
+                    std::string lbl = st.label; for (auto& ch : lbl) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+                    gfx_->set_letter_spacing(0.4f * s);
+                    const float lw = gfx_->measure(F(400, 10), lbl);
+                    gfx_->set_letter_spacing(0);
+                    const float vw = gfx_->measure(F(600, 14), st.value), colw = std::max(lw, vw);
+                    T(600, 14, sx, top + (55 + last_extra_) * s, 18, st.value, th.text);
+                    gfx_->set_letter_spacing(0.4f * s);
+                    T(400, 10, sx, top + (73 + last_extra_) * s, 14, lbl, {255, 255, 255, 153});
+                    gfx_->set_letter_spacing(0);
+                    sx += colw + 20 * s;
+                }
+                if (!badge.empty()) {
+                    const int fb = F(600, 12); const float bw = gfx_->measure(fb, badge) + 20 * s;
+                    Rect br{rx - bw, top + 10 * s, bw, 24 * s};
+                    gfx_->fill_round(br, 12 * s, badge_danger ? Color{255, 69, 58, 46} : badge_on ? alpha(th.accent, 0.2f) : Color{0, 0, 0, 0});
+                    if (!badge_danger && !badge_on) gfx_->stroke_round(br, 12 * s, 1 * s, {255, 255, 255, 61}, th.panel);
+                    T(600, 12, br.x + 10 * s, br.y, 24, badge, badge_danger ? Color{255, 69, 58, 255} : badge_on ? th.accent : th.sub);
+                }
+                return;
+            }
             if (!badge.empty()) {
                 const int fb = F(600, 12); const float bw = gfx_->measure(fb, badge) + 20 * s;
                 Rect br{rx - bw, row_top + 35.5f * s - 12 * s, bw, 24 * s};
@@ -494,7 +548,7 @@ void App::draw_settings(Rect r) {
                      pct < 0 ? "" : std::to_string(pct) + "% cached", pct >= 80, pct >= 0 && pct < 50);
         }
         stat_row(0xf233, amber, "Metadata \xE2\x80\x94 Internet Used", "Artist lists, album details, song lists, search \xE2\x80\x94 always from server", {{grouped(ps.api_calls), "API calls"}}, "", false, false);
-        y = card_top + card_h;
+        y = card_top + (card_h + card_extra_prev_[cur_card_] * s);
     }
     y += 32 * s; row_i = 0;
     // ---- OFFLINE & CACHE
@@ -531,7 +585,7 @@ void App::draw_settings(Rect r) {
         static const int q[] = {0, 320, 256, 192, 128, 64};
         std::vector<std::string> o = {"Original", "320 kbps", "256 kbps", "192 kbps", "128 kbps", "64 kbps"};
         int cur = 0; for (int i = 0; i < 6; ++i) if (q[i] == cfg_.stream_quality) cur = i;
-        dropdown(2, {x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s}, o, cur);
+        dropdown(2, dd_rect(), o, cur);
         if (pick_id == 2 && pick >= 0) { cfg_.stream_quality = q[pick]; cfg_.save(cfg_path_); dropdown_open_ = 0; }
     }
     y += (1 + 32) * s; row_i = 0;
@@ -543,11 +597,11 @@ void App::draw_settings(Rect r) {
         static const int q[] = {0, 320, 256, 128, 64};
         std::vector<std::string> o = {"Original", "320 kbps", "256 kbps", "128 kbps", "64 kbps"};
         int cur = 0; for (int i = 0; i < 5; ++i) if (q[i] == cfg_.download_quality) cur = i;
-        dropdown(3, {x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s}, o, cur);
+        dropdown(3, dd_rect(), o, cur);
         if (pick_id == 3 && pick >= 0) { cfg_.download_quality = q[pick]; cfg_.save(cfg_path_); if (downloads_) downloads_->set_quality_label(q[pick] ? std::to_string(q[pick]) : "original"); dropdown_open_ = 0; }
         row(0xf5fd, "Concurrent Downloads", "Up to " + std::to_string(cfg_.concurrent_downloads) + " songs at once", 0, false, "", false, 71);
         std::vector<std::string> n = {"1", "2", "3", "4", "5", "6", "7", "8"};
-        dropdown(4, {x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s}, n, cfg_.concurrent_downloads - 1);
+        dropdown(4, dd_rect(), n, cfg_.concurrent_downloads - 1);
         if (pick_id == 4 && pick >= 0) { cfg_.concurrent_downloads = pick + 1; cfg_.save(cfg_path_); dropdown_open_ = 0; }
     }
     y += (1 + 32) * s; row_i = 0;
@@ -557,7 +611,7 @@ void App::draw_settings(Rect r) {
     {
         row(skin::BookOpen, "Default View", "", 0, false, "", false, 71);
         std::vector<std::string> o = {"Artists", "Albums", "Songs", "Liked"};
-        dropdown(5, {x + w - 16 * s - 120 * s, y - (71 + last_extra_ * 0.5f) * s + 21 * s, 120 * s, 29 * s}, o, cfg_.default_view);
+        dropdown(5, dd_rect(), o, cfg_.default_view);
         if (pick_id == 5 && pick >= 0) { cfg_.default_view = pick; lib_mode_ = pick; cfg_.save(cfg_path_); dropdown_open_ = 0; }
     }
     y += (1 + 32) * s; row_i = 0;
@@ -605,7 +659,7 @@ void App::draw_settings(Rect r) {
         if (vols.empty()) sub = cache_base();
         if (row(0xf0a0, "Permanent cache location", sub, 1, true, "", false, 61)) choose_cache_folder();
 #if defined(__ANDROID__)
-        if (row(0xf013, "App install location", "Android can move the app itself to an SD card or adopted storage: Storage \xE2\x86\x92 Change", 1, false, "Open", true, 61)) SDL_OpenURL("package:settings");
+        if (row(0xf013, "App install location", "Android can move the app itself to an SD card or adopted storage: Storage \xE2\x80\xBA Change", 1, false, "Open", true, 61)) SDL_OpenURL("package:settings");
 #else
         row(0xf013, "App install location", "Managed by iOS", 0, false, "", false, 61);
 #endif
@@ -631,6 +685,7 @@ void App::draw_settings(Rect r) {
         for (int k = 0; k < 32; ++k) if (card_extra_now_[k] != card_extra_prev_[k]) { card_extra_prev_[k] = card_extra_now_[k]; changed = true; }
         if (changed) mark();
     }
+    u.in = in_saved;
     if (dropdown_draw_) dropdown_draw_();
 }
 

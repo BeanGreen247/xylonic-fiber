@@ -180,10 +180,11 @@ void App::draw_download_picker(float W, float H) {
     const Theme& th = u.th;
     const bool sheet = mobile_;
     const float item_h = sheet ? 74.0f : 62.0f;
-    const float head_h = 48 + 4 + 16.5f + 10;
+    const float mw = sheet ? W / s : std::min(420.0f, 0.92f * W / s);
+    const int sub_lines = wrap_count(400, 11, "Choose quality for offline storage. Higher quality uses more space.", (mw - 36) * s);   // the list starts below however many lines the hint needs
+    const float head_h = 48 + 4 + 16.5f * sub_lines + 10;
     const float footer_h = 8 + 1 + 12 + 42 + 16;
     const float mh = std::min(head_h + 5 * item_h + footer_h, H / s * (sheet ? 0.9f : 0.8f));
-    const float mw = sheet ? W / s : std::min(420.0f, 0.92f * W / s);
     Rect m = sheet ? Rect{0, H - mh * s, W, mh * s} : Rect{(W - mw * s) / 2, (H - mh * s) / 2, mw * s, mh * s};
     if (sheet) gfx_->fill_round({m.x, m.y, m.w, m.h + 20 * s}, 16 * s, th.bg_light);
     else { gfx_->fill({m.x - 1, m.y - 1, m.w + 2, m.h + 2}, {255, 255, 255, 61}); gfx_->fill(m, th.bg_light); }

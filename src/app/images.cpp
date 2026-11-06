@@ -152,6 +152,23 @@ uint32_t now_ms() {
 }
 }  // namespace
 
+SDL_Texture* load_png_texture(SDL_Renderer* r, const std::string& path) {
+    SDL_RWops* rw = SDL_RWFromFile(path.c_str(), "rb");
+    if (!rw) return nullptr;
+    Sint64 n = SDL_RWsize(rw);
+    std::string bytes(n > 0 ? static_cast<size_t>(n) : 0, '\0');
+    if (n <= 0 || SDL_RWread(rw, bytes.data(), 1, bytes.size()) != bytes.size()) { SDL_RWclose(rw); return nullptr; }
+    SDL_RWclose(rw);
+    std::vector<uint8_t> px; int w = 0, h = 0;
+    if (!decode_rgba(bytes, px, w, h)) return nullptr;
+    SDL_Texture* t = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, w, h);
+    if (!t) return nullptr;
+    SDL_UpdateTexture(t, nullptr, px.data(), w * 4);
+    SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(t, SDL_ScaleModeLinear);
+    return t;
+}
+
 bool ImageCache::is_placeholder(const std::string& cover_id, const std::string& bytes) { return is_placeholder_bytes(cover_id, bytes); }
 
 bool ImageCache::fallback_id(const std::string& cover_id) const {

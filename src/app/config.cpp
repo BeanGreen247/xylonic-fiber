@@ -12,7 +12,7 @@ bool Config::load(const std::string& path) {
     auto num = [&](const char* k, int def) { yyjson_val* v = yyjson_obj_get(r, k); return v && yyjson_is_num(v) ? static_cast<int>(yyjson_get_sint(v)) : def; };
     server_url = str("server_url"); username = str("username"); pin_sha256 = str("pin_sha256"); cache_root = str("cache_root");
     volume_pct = num("volume_pct", 80); stream_quality = num("stream_quality", 0);
-    theme = num("theme", 0); theme_mode = num("theme_mode", 0);
+    theme = num("theme", 0); theme_mode = num("theme_mode", 0); icon_set = num("icon_set", 1);
     download_quality = num("download_quality", 320); concurrent_downloads = std::min(8, std::max(1, num("concurrent_downloads", 3)));
     default_view = num("default_view", 0); car_minimal = num("car_minimal", 0); perf_mode = num("perf_mode", 0);
     offline_mode = num("offline_mode", 0) != 0;
@@ -22,6 +22,7 @@ bool Config::load(const std::string& path) {
     be_controlled = num("be_controlled", 1) != 0; control_others = num("control_others", 1) != 0;
     if (theme < 0 || theme > 11) theme = 0;
     if (theme_mode < 0 || theme_mode > 2) theme_mode = 0;
+    if (icon_set < 0 || icon_set > 3) icon_set = 1;
     size_t ci, cn; yyjson_val* cc;
     conns.clear();
     yyjson_arr_foreach(yyjson_obj_get(r, "connections"), ci, cn, cc) {
@@ -69,6 +70,7 @@ bool Config::save(const std::string& path) const {
     yyjson_mut_obj_add_int(d, o, "control_others", control_others);
     yyjson_mut_obj_add_int(d, o, "theme", theme);
     yyjson_mut_obj_add_int(d, o, "theme_mode", theme_mode);
+    yyjson_mut_obj_add_int(d, o, "icon_set", icon_set);
     yyjson_mut_val* ct = yyjson_mut_arr(d);
     for (const Custom& c : custom) {
         yyjson_mut_val* e = yyjson_mut_arr_add_obj(d, ct);

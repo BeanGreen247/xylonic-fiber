@@ -351,7 +351,7 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
     int qi = 0; for (int i = 0; i < 6; ++i) if (qvals[i] == cfg_.stream_quality) qi = i;
     popup(qb, {"Original", "320 kbps", "256 kbps", "192 kbps", "128 kbps", "64 kbps"}, qi, quality_popup_, [&](int i) {
         cfg_.stream_quality = qvals[i]; cfg_.save(cfg_path_);
-        np_toast_ = std::string("Quality \xE2\x86\x92 ") + (qvals[i] ? std::to_string(qvals[i]) + " kbps" : "Original") + " (next track)"; np_toast_until_ = SDL_GetTicks() + 3500;
+        np_toast_ = std::string("Quality \xE2\x80\xBA ") + (qvals[i] ? std::to_string(qvals[i]) + " kbps" : "Original") + " (next track)"; np_toast_until_ = SDL_GetTicks() + 3500;
     });
     static const double svals[] = {0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0};
     int si = 2; for (int i = 0; i < 7; ++i) if (std::fabs(player_.speed() - svals[i]) < 1e-6) si = i;

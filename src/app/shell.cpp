@@ -16,7 +16,6 @@ std::string mmss(int s) {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
 const char* kSectionTitle[4] = {"Recently Added", "Recently Played", "Most Played", "Random Mix"};
 const char* kSectionType[4] = {"newest", "recent", "frequent", "random"};
-const uint32_t kSectionIcon[4] = {skin::CalendarPlus, skin::History, skin::Fire, skin::Shuffle};
 }  // namespace
 
 // ---------------------------------------------------------------- fonts and primitives
@@ -33,11 +32,13 @@ int App::F(int weight, float px, bool italic) {
     return id;
 }
 
-int App::FA(float px) {
-    int key = -static_cast<int>(px * 10) - 1;
+int App::FA(float px, int set) {
+    if (set < 0) set = cfg_.icon_set;
+    static const char* files[4] = {"fa-solid-subset.ttf", "icons-octicons.ttf", "icons-phosphor.ttf", "icons-material.ttf"};
+    int key = -static_cast<int>(px * 10) - 1 - set * 1000000;
     auto it = font_ids_.find(key);
     if (it != font_ids_.end()) return it->second;
-    int id = gfx_->add_font((assets_dir_ + "fa-solid-subset.ttf").c_str(), px * S_);
+    int id = gfx_->add_font((assets_dir_ + files[set]).c_str(), px * S_);
     font_ids_[key] = id;
     return id;
 }
@@ -50,6 +51,7 @@ float App::T(int weight, float px, float x, float y_top, float line_h, const std
 
 void App::fa(uint32_t cp, float cx, float cy, float px, Color c) {
     int f = FA(px);
+    if (cfg_.icon_set && !gfx_->has_glyph(f, cp)) f = FA(px, 0);   // a set without this glyph falls back to the classic one
     std::string g = skin::utf8(cp);
     float w = gfx_->measure(f, g), lh = gfx_->line_height(f);
     gfx_->text(f, cx - w / 2, cy - lh / 2, g, c);
@@ -83,11 +85,13 @@ void App::draw_main(float W, float H) {
     mobile_ = W / s <= 767.0f;   // LayoutModeContext COMPACT_MAX
     banner_h_ = (missing_banner_ && !offline_) ? (mobile_ ? 47.0f : 60.0f) * s : 0.0f;
     if (!mobile_) draw_nav(H);
-    draw_header(W);
-    const float hh = (mobile_ ? 56.0f : static_cast<float>(skin::kHeaderH)) * s;
+    // On-screen keyboard (window shrunk by adjustResize while a text field has focus): the header, player card and tab bar make room for the page
+    const bool kb_up = mobile_ && ui_->focus != 0 && H / s < 420;
+    if (!kb_up) draw_header(W);
+    const float hh = kb_up ? 0.0f : (mobile_ ? 56.0f : static_cast<float>(skin::kHeaderH)) * s;
     { float bh = 0; draw_missing_banner(W, hh, bh); }
-    const float bnav = mobile_ ? 56 * s : 0;
-    float navw = mobile_ ? 0.0f : (nav_expanded_ ? 200.0f : skin::kNavW) * s, top = hh, bar = (mobile_ ? 60.0f : skin::kPlayerH) * s;
+    const float bnav = mobile_ && !kb_up ? 56 * s : 0;
+    float navw = mobile_ ? 0.0f : (nav_expanded_ ? 200.0f : skin::kNavW) * s, top = hh, bar = (mobile_ ? (kb_up ? 0.0f : 60.0f) : skin::kPlayerH) * s;
     Rect content{navw, top + banner_h_, W - navw, H - top - banner_h_ - bar - bnav};
     View& v = views_.back();
     Rect body{content.x, content.y, content.w, content.h};
@@ -114,7 +118,7 @@ void App::draw_main(float W, float H) {
     }
     gfx_->clip(nullptr);
     if (!blocked) uin.in = saved;   // the player bar, the nav and the panel stay inert under a dialog
-    if (mobile_) { draw_player_bar_mobile({0, H - bar - bnav, W, bar}); if (!blocked) uin.in = saved; draw_bottom_nav(W, H); }
+    if (mobile_) { if (!kb_up) { draw_player_bar_mobile({0, H - bar - bnav, W, bar}); if (!blocked) uin.in = saved; draw_bottom_nav(W, H); } }
     else draw_player_bar({navw, H - bar, W - navw, bar});
     draw_right_panel(W, H);
     // A dialog that opened during this frame must not see the touch that opened it: on a phone its first row sits under the finger
@@ -141,14 +145,12 @@ void App::draw_header(float W) {
     // brand
     const bool brand_text = true;
     if (mob) {   // .header (compact): 56 px, padding 0 12, logo + 20 px title; search, Remote, Mini and the links are hidden
-        svg(0, {12 * s, 14 * s, 28 * s, 28 * s}, {255, 255, 255, 255});
         gfx_->set_letter_spacing(-0.5f * s);
-        T(600, 20, 52 * s, 10 * s, 36, "Xylonic", th.accent);
+        T(600, 20, 16 * s, 10 * s, 36, "Xylonic Fiber", th.accent);
         gfx_->set_letter_spacing(0);
     } else {
-        svg(0, {24 * s, 18 * s, 28 * s, 28 * s}, {255, 255, 255, 255});
         gfx_->set_letter_spacing(-0.5f * s);
-        T(600, 24, 64 * s, 14 * s, 36, "Xylonic", th.accent);
+        T(600, 24, 24 * s, 14 * s, 36, "Xylonic", th.accent);
         gfx_->set_letter_spacing(0);
     }
     (void)brand_text;
@@ -157,12 +159,12 @@ void App::draw_header(float W) {
         return u.clicked(r);
     };
     if (!mob) {
-        Rect gh{155 * s, 10 * s, 44 * s, 44 * s};
+        Rect gh{120 * s, 10 * s, 44 * s, 44 * s};
         u.tip(gh, "View on GitHub");
         if (round_btn(gh, 22 * s)) SDL_OpenURL("https://github.com/BeanGreen247/xylonic-fiber");
         svg(1, {gh.x + 13 * s, gh.y + 13 * s, 18 * s, 18 * s}, th.sub);
 #if !defined(XF_APP_STORE)
-        Rect sup{215 * s, 10 * s, 44 * s, 44 * s};
+        Rect sup{180 * s, 10 * s, 44 * s, 44 * s};
         u.tip(sup, "Support the Project");
         if (round_btn(sup, 22 * s)) SDL_OpenURL("https://github.com/sponsors/BeanGreen247");
         fa(skin::Heart, sup.x + 22 * s, sup.y + 22 * s, 18, th.sub);
@@ -207,7 +209,7 @@ void App::draw_header(float W) {
     {
         const Rect rb{gx + sw + 12 * s, 10 * s, 116 * s, 43 * s}, mb{rb.x + rb.w + 12 * s, 10 * s, 95 * s, 43 * s};
         u.tip(rb, remote_mode_ ? "Remote: connected \xE2\x80\x94 click to manage" : "Connect to another Xylonic device on your network");
-        if (pill(rb, skin::Satellite, remote_mode_ ? "Remote \xE2\x97\x8F" : "Remote")) modal_ = Modal::Remote;
+        if (pill(rb, skin::Satellite, remote_mode_ ? "Remote \xE2\x80\xA2" : "Remote")) modal_ = Modal::Remote;
         const bool has_song = queue_.current() != nullptr;           // Mini Player is disabled until a song is loaded
         u.tip(mb, has_song ? "Mini Player (Ctrl+M)" : "No song loaded - play a song to use Mini Player");
         if (pill(mb, skin::Compress, "Mini") && has_song) toggle_mini();
@@ -522,41 +524,40 @@ void App::draw_player_bar_mobile(Rect r) {
     Ui& u = *ui_;
     const float s = S_;
     const Theme& th = u.th;
-    gfx_->fill(r, th.panel);
+    gfx_->fill(r, th.bg);
     gfx_->fill({r.x, r.y - 4 * s, r.w, 4 * s}, {0, 0, 0, 22});
+    // floating card: art, title and artist, play and next; a thin progress line along its bottom edge
+    const Rect card{r.x + 8 * s, r.y + 4 * s, r.w - 16 * s, r.h - 8 * s};
+    gfx_->fill_round(card, 10 * s, th.panel2);
     const Song* cur = queue_.current();
     const float dur = static_cast<float>(player_.duration_seconds()), pos = static_cast<float>(player_.position_seconds());
-    gfx_->fill({r.x, r.y, r.w, 2 * s}, {255, 255, 255, 46});
-    if (dur > 0) gfx_->fill({r.x, r.y, r.w * std::min(1.0f, pos / dur), 2 * s}, th.accent);
-    const float row_y = r.y + 2 * s, row_h = 58 * s;
-    const float right = r.x + r.w - 12 * s;
-    Rect nb{right - 44 * s, row_y + 7 * s, 44 * s, 44 * s};
-    Rect pb{nb.x - 8 * s - 52 * s, row_y + 3 * s, 52 * s, 52 * s};
-    Rect vb{pb.x - 8 * s - 44 * s, row_y + 7 * s, 44 * s, 44 * s};
-    Rect cv{r.x + 12 * s, row_y + 9 * s, 40 * s, 40 * s};
-    const float tx = cv.x + cv.w + 12 * s, tw = vb.x - 12 * s - tx;
-    if (cur) {
-        if (SDL_Texture* t = cover(cur->cover_art, 40, cur->artist, cur->album)) gfx_->image_round(t, cv, 8 * s); else draw_art_fallback(cv, cur->cover_art, 8 * s);
-        T(600, 13, tx, row_y + 11 * s, 19.5f, cur->title, th.text, tw);
-        T(400, 11, tx, row_y + 30 * s, 16.5f, track_loading_ ? "Loading..." : !play_err_.empty() ? play_err_ : cur->artist, play_err_.empty() ? th.sub : th.danger, tw);
-    } else {
-        gfx_->fill_round(cv, 8 * s, th.panel2);
-        fa(skin::Music, cv.x + cv.w / 2, cv.y + cv.h / 2, 16, {255, 255, 255, 90});
-        T(600, 13, tx, row_y + 11 * s, 19.5f, "No song playing", th.text, tw);
-        T(400, 11, tx, row_y + 30 * s, 16.5f, "\xE2\x80\x94", th.sub);
+    if (cur && dur > 0) {
+        gfx_->fill({card.x + 12 * s, card.y + card.h - 3 * s, card.w - 24 * s, 2 * s}, {255, 255, 255, 40});
+        gfx_->fill({card.x + 12 * s, card.y + card.h - 3 * s, (card.w - 24 * s) * std::min(1.0f, pos / dur), 2 * s}, th.accent);
     }
-    if (cur && u.clicked({r.x, r.y, vb.x - r.x, r.h})) { np_open_ = true; mark(); }
-    auto round_btn = [&](Rect b, uint32_t icon, float px, bool enabled) {
-        if (enabled && u.hover(b)) gfx_->fill_round(b, b.w / 2, th.hover);
-        fa(icon, b.x + b.w / 2, b.y + b.h / 2, px, enabled ? th.text : alpha(th.text, 0.4f));
-        return enabled && u.clicked(b);
-    };
-    if (round_btn(vb, skin::StepBack, 18, cur != nullptr)) prev_track();
+    const float right = card.x + card.w - 6 * s;
+    Rect nb{right - 40 * s, card.y + (card.h - 40 * s) / 2, 40 * s, 40 * s};
+    Rect pb{nb.x - 40 * s, nb.y, 40 * s, 40 * s};
+    Rect cv{card.x + 6 * s, card.y + (card.h - 42 * s) / 2 - 1 * s, 42 * s, 42 * s};
+    const float tx = cv.x + cv.w + 12 * s, tw = pb.x - 8 * s - tx;
+    const float ty = card.y + (card.h - 36 * s) / 2 - 1 * s;
+    if (cur) {
+        if (SDL_Texture* t = cover(cur->cover_art, 42, cur->artist, cur->album)) gfx_->image_round(t, cv, 6 * s); else draw_art_fallback(cv, cur->cover_art, 6 * s);
+        T(600, 13, tx, ty, 19.5f, cur->title, th.text, tw);
+        T(400, 12, tx, ty + 18 * s, 17, track_loading_ ? "Loading..." : !play_err_.empty() ? play_err_ : cur->artist, play_err_.empty() ? th.sub : th.danger, tw);
+    } else {
+        gfx_->fill_round(cv, 6 * s, th.panel);
+        fa(skin::Music, cv.x + cv.w / 2, cv.y + cv.h / 2, 16, {255, 255, 255, 90});
+        T(600, 13, tx, ty, 19.5f, "Nothing playing", th.text, tw);
+        T(400, 12, tx, ty + 18 * s, 17, "Pick something to play", th.sub, tw);
+    }
+    if (cur && u.clicked({card.x, card.y, pb.x - card.x, card.h})) { np_open_ = true; mark(); }
     const bool playing = player_.playing();
-    gfx_->circle(pb.x + 26 * s, pb.y + 26 * s, 26 * s, cur ? (u.hover(pb) ? rgb(0xe8e8e8) : rgb(0xffffff)) : rgb(0x2d2d2d));
-    fa(playing ? skin::Pause : skin::Play, pb.x + 26 * s + (playing ? 0 : 1 * s), pb.y + 26 * s, 20, cur ? rgb(0x121212) : alpha(th.text, 0.35f));
+    const Color on = cur ? th.text : alpha(th.text, 0.35f);
+    fa(playing ? skin::Pause : skin::Play, pb.x + pb.w / 2, pb.y + pb.h / 2, 22, on);
     if (cur && u.clicked(pb)) toggle_play();
-    if (round_btn(nb, skin::StepFwd, 18, cur != nullptr)) next_track();
+    fa(skin::StepFwd, nb.x + nb.w / 2, nb.y + nb.h / 2, 20, on);
+    if (cur && u.clicked(nb)) next_track();
 }
 
 // MobileBottomNav: Home (disabled offline), Library, Search, Queue (submenu: Queue / History / Playlists), Settings.
@@ -675,33 +676,28 @@ void App::draw_discover(Rect r) {
     // Compact (<=767 px): main-content padding 12, h2 24 px, 180x133 cards (5 px padding, 170x100 cover, 11 px name only), no arrows.
     const bool cp = mobile_;
     const float pad = (cp ? 12.0f : static_cast<float>(skin::kContentPad)) * s;
-    float cw = (cp ? 180.0f : skin::kCardW) * s, ch = (cp ? 133.0f : skin::kCardH) * s, gap = (cp ? 24.0f : skin::kCardGap) * s;
-    const float row_h = (cp ? 148.0f : 254.0f) * s;
+    float cw = (cp ? 148.0f : skin::kCardW) * s, ch = (cp ? 204.0f : skin::kCardH) * s, gap = (cp ? 12.0f : skin::kCardGap) * s;
+    const float row_h = (cp ? 212.0f : 254.0f) * s;
     float total = (cp ? 52.0f : 80.0f) * s + 4 * (32 * s + 16 * s + row_h + 48 * s);
     if (u.hover(r)) discover_scroll_.y -= u.in.wheel * 60 * s;
     discover_scroll_.clamp(total + 2 * pad, r.h);
     float x = r.x + pad, y = r.y + pad - discover_scroll_.y, w = r.w - 2 * pad - 12 * s;  // 12px scrollbar gutter
     // title row
     if (cp) {
-        gfx_->circle(x + 14 * s, y + 18 * s, 13 * s, th.accent);
-        fa(skin::Compass, x + 14 * s, y + 18 * s, 17, th.accent_text);
         gfx_->set_letter_spacing(-0.24f * s);
-        T(700, 24, x + 40 * s, y, 36, "Discover", th.text);
+        T(700, 26, x, y, 36, "Discover", th.text);
         gfx_->set_letter_spacing(0);
         y += 52 * s;
     } else {
-        gfx_->circle(x + 18 * s, y + 24 * s, 17 * s, th.accent);
-        fa(skin::Compass, x + 18 * s, y + 24 * s, 22, th.accent_text);
         gfx_->set_letter_spacing(-0.32f * s);
-        T(700, 32, x + 52 * s, y, 48, "Discover", th.text);
+        T(700, 32, x, y, 48, "Discover", th.text);
         gfx_->set_letter_spacing(0);
         y += 80 * s;
     }
     for (int i = 0; i < 4; ++i) {
         Section& sec = sections_[i];
         // header
-        fa(kSectionIcon[i], x + 10 * s, y + 16 * s, 18, th.accent);
-        T(500, 20, x + 33 * s, y, 32, kSectionTitle[i], th.text);
+        T(700, 20, x, y, 32, kSectionTitle[i], th.text);
         Rect rf{x + w - 32 * s, y, 32 * s, 32 * s};
         if (u.hover(rf)) gfx_->fill_round(rf, 16 * s, th.hover);
         fa(skin::Sync, rf.x + 16 * s, rf.y + 16 * s, 13.3f, th.sub);
@@ -725,10 +721,11 @@ void App::draw_discover(Rect r) {
         } else if (sec.loading && sec.albums.empty()) {
             for (int k = 0; k < 4; ++k) {
                 Rect c{x + k * (cw + gap), y, cw, ch};
-                gfx_->fill_round(c, 16 * s, th.panel);
-                gfx_->fill_round({c.x + 16 * s, c.y + 16 * s, 148 * s, 148 * s}, 4 * s, th.panel2);
-                gfx_->fill_round({c.x + 16 * s, c.y + 180 * s, 100 * s, 12 * s}, 6 * s, th.panel2);
-                gfx_->fill_round({c.x + 16 * s, c.y + 206 * s, 70 * s, 10 * s}, 5 * s, th.panel2);
+                const float ax = cp ? 0.0f : 16 * s, aw = 148 * s;
+                if (!cp) gfx_->fill_round(c, 16 * s, th.panel);
+                gfx_->fill_round({c.x + ax, c.y + ax, aw, aw}, 8 * s, th.panel2);
+                gfx_->fill_round({c.x + ax, c.y + ax + aw + 14 * s, 100 * s, 12 * s}, 6 * s, th.panel2);
+                gfx_->fill_round({c.x + ax, c.y + ax + aw + 38 * s, 70 * s, 10 * s}, 5 * s, th.panel2);
             }
         } else if (sec.albums.empty()) {
             fa(skin::CompactDisc, x + 10 * s, y + 20 * s, 16, th.sub);
@@ -741,26 +738,18 @@ void App::draw_discover(Rect r) {
                 const Album& a = sec.albums[k];
                 Rect card{cx, y, cw, ch};
                 bool hov = u.hover(card) && row.contains(u.in.mx, u.in.my);
-                gfx_->fill_round(card, (cp ? 12.0f : 16.0f) * s, th.panel);
-                if (hov) gfx_->fill_round(card, (cp ? 12.0f : 16.0f) * s, th.hover);
-                if (cp) {   // cover object-fit: cover into 170x100: the square art is cropped through a clip
-                    Rect cov{cx + 5 * s, y + 5 * s, 170 * s, 100 * s};
-                    const float cx0 = std::max(cov.x, row.x), cx1 = std::min(cov.x + cov.w, row.x + row.w);
-                    Rect vis{cx0, cov.y, std::max(0.0f, cx1 - cx0), cov.h};
-                    gfx_->clip(&vis);
-                    Rect sq{cov.x, cov.y - 35 * s, 170 * s, 170 * s};
-                    if (SDL_Texture* t = cover(a.cover_art, 170, a.artist, a.name)) gfx_->image_round(t, sq, 4 * s);
-                    else draw_art_fallback(sq, a.cover_art, 4 * s);
-                    gfx_->clip(&row);
-                    const int fn = F(600, 11);
-                    T(600, 11, cov.x + std::max(0.0f, (cov.w - std::min(gfx_->measure(fn, a.name), cov.w)) / 2), y + 109 * s, 17, a.name, th.text, cov.w);
+                if (hov && !cp) gfx_->fill_round(card, 12 * s, th.hover);
+                if (cp) {   // flat card: square art, title and artist left aligned under it
+                    Rect cov{cx, y, cw, cw};
+                    if (SDL_Texture* t = cover(a.cover_art, 148, a.artist, a.name)) gfx_->image_round(t, cov, 8 * s);
+                    else draw_art_fallback(cov, a.cover_art, 8 * s);
+                    T(600, 13, cov.x, y + cw + 8 * s, 20, a.name, th.text, cw);
+                    T(400, 12, cov.x, y + cw + 28 * s, 18, (a.year ? std::to_string(a.year) + " \xC2\xB7 " : std::string()) + a.artist, th.sub, cw);
                 } else {
                 Rect cov{cx + 16 * s, y + 16 * s, 148 * s, 148 * s};
                 if (SDL_Texture* t = cover(a.cover_art, 148, a.artist, a.name)) gfx_->image_round(t, cov, 4 * s);
                 else draw_art_fallback(cov, a.cover_art, 4 * s);
-                int fn = F(600, 15.2f);
-                float nw = gfx_->measure(fn, a.name);
-                T(600, 15.2f, cov.x + std::max(0.0f, (cov.w - std::min(nw, cov.w)) / 2), y + 176 * s, 23, a.name, th.text, cov.w);
+                T(600, 15.2f, cov.x, y + 176 * s, 23, a.name, th.text, cov.w);
                 std::string sub = (a.year ? std::to_string(a.year) + " \xC2\xB7 " : std::string()) + a.artist;
                 T(400, 13.6f, cov.x, y + 203 * s, 20, sub, th.sub, cov.w);
                 }

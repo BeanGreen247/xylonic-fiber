@@ -138,8 +138,8 @@ void App::draw_library(Rect r) {
                    : lib_mode_ == 1 ? alb_items_.size() : lib_mode_ == 2 ? song_items_.size() : liked_.size();
     int cols_a = std::max(1, static_cast<int>((w / s + 32) / (201 + 32)));
     int cols_b = std::max(1, static_cast<int>((w / s + 24) / (207 + 24)));
-    // compact header: toggle 52, gap 12, stats pill 45, then Shuffle All and Download All at 48 with 8 px gaps
-    float header_h = narrow ? (lib_mode_ == 3 ? 52 + 12 + 45 : 52 + 12 + 45 + 8 + 48 + (download_btn_state() != 0 ? 8 + 48 : 0)) * s : (lib_mode_ == 0 ? 99 : 42) * s;
+    // compact header: toggle 52, gap 12, then one 40 px row: the count on the left, round Shuffle and Download buttons on the right
+    float header_h = narrow ? (52 + 12 + 40) * s : (lib_mode_ == 0 ? 99 : 42) * s;
     if (narrow) { cols_a = 3; cols_b = 3; }
     const float base_header_h = header_h;
     const float err_h = shuffle_error_.empty() ? 0.0f : 45.0f * s;   // .library-inline-error: 8 + 8 + line + 8
@@ -212,30 +212,39 @@ void App::draw_library(Rect r) {
     int n_art = static_cast<int>(arts.size()), n_alb = 0;
     for (auto& a : arts) n_alb += a.album_count;
     if (narrow) {
-        // .library-stats (only the primary one on phones): 45 px high, full width, centred; actions follow at 48 px
-        auto stat = [&](float py, uint32_t ic, const std::string& label) {
-            Rect b{x, py, w, 45 * s};
-            gfx_->stroke_round(b, 22.5f * s, 1 * s, {255, 255, 255, 54}, th.bg);
-            const float lw = gfx_->measure(F(400, 14), label);
-            fa(ic, b.x + (b.w - lw - 22 * s) / 2 + 7 * s, b.y + b.h / 2, 14, th.accent);
-            T(400, 14, b.x + (b.w - lw - 22 * s) / 2 + 22 * s, b.y, 45, label, th.sub);
-        };
         const float ry = y0 + (52 + 12) * s;
-        if (lib_mode_ == 0) stat(ry, 0xf0c0, std::to_string(n_art) + (offline_ ? " cached artists" : " artists"));
-        else if (lib_mode_ == 3) stat(ry, skin::Heart, std::to_string(liked_.size()));
+        std::string label; uint32_t ic;
+        if (lib_mode_ == 0) { ic = 0xf0c0; label = std::to_string(n_art) + (offline_ ? " cached artists" : " artists"); }
+        else if (lib_mode_ == 3) { ic = skin::Heart; label = std::to_string(liked_.size()) + " liked"; }
         else {
             int off = lib_page_[lib_mode_] * kPageSize;
             size_t cnt = lib_mode_ == 1 ? alb_items_.size() : song_items_.size();
             bool more = lib_mode_ == 1 ? alb_more_ : song_more_;
-            std::string range = cnt ? std::to_string(off + 1) + "\xE2\x80\x93" + std::to_string(off + cnt) + (lib_mode_ == 1 && more ? " of " + std::to_string(off + cnt + 1) + "+" : "") : "0";
-            if (offline_) range = std::to_string(offline_total_[lib_mode_ == 1 ? 0 : 1]) + (lib_mode_ == 1 ? " cached albums" : " cached songs");   // AllAlbumsGrid / AllSongsGrid
-            stat(ry, lib_mode_ == 1 ? 0xf8d9u : static_cast<uint32_t>(skin::Music), range);
+            label = cnt ? std::to_string(off + 1) + "\xE2\x80\x93" + std::to_string(off + cnt) + (lib_mode_ == 1 && more ? " of " + std::to_string(off + cnt + 1) + "+" : "") : "0";
+            if (offline_) label = std::to_string(offline_total_[lib_mode_ == 1 ? 0 : 1]) + (lib_mode_ == 1 ? " cached albums" : " cached songs");   // AllAlbumsGrid / AllSongsGrid
+            ic = lib_mode_ == 1 ? 0xf8d9u : static_cast<uint32_t>(skin::Music);
         }
+        Color lc = th.sub; bool warn = false;
+        if (lib_mode_ != 3 && shuffle_confirm_) { label = "Tap again to confirm"; lc = orange; ic = skin::Warning; warn = true; }
+        else if (lib_mode_ != 3 && shuffling_all_) label = "Loading...";
+        const bool has_dl = lib_mode_ != 3 && download_btn_state() != 0;
+        const float btn = 40 * s, tw = w - (lib_mode_ == 3 ? 0 : (has_dl ? 2 : 1) * (btn + 8 * s)) - 26 * s;
+        fa(ic, x + 8 * s, ry + btn / 2, 14, warn ? lc : th.accent);
+        T(500, 14, x + 26 * s, ry, 40, label, lc, tw);
+        auto circ = [&](float px, uint32_t gi, Color tint, bool disabled) {
+            Rect b{px, ry, btn, btn};
+            if (disabled) tint = {108, 117, 125, 255};
+            gfx_->fill_round(b, btn / 2, alpha(tint, disabled ? 0.15f : u.hover(b) ? 0.30f : 0.18f));
+            fa(gi, b.x + btn / 2, b.y + btn / 2, 16, tint);
+            return !disabled && u.clicked(b);
+        };
         if (lib_mode_ != 3) {
-            float ay = ry + (45 + 8) * s;
-            shuffle_btn(x, ay, w);
-            ay += (48 + 8) * s;
-            download_btn(x, ay, w);
+            float bx2 = x + w - btn;
+            if (circ(bx2, shuffling_all_ ? 0xf110u : static_cast<uint32_t>(skin::Shuffle), shuffle_confirm_ ? orange : th.accent, shuffling_all_)) shuffle_all_pressed();
+            if (has_dl) {
+                bx2 -= btn + 8 * s;
+                if (circ(bx2, bulk_downloading_ ? 0xf110u : static_cast<uint32_t>(skin::Download), th.accent, bulk_downloading_)) open_download_picker(download_btn_state() == 2);
+            }
         }
     } else {
         float ry = lib_mode_ == 0 ? y0 + 57 * s : y0 - 1 * s;
@@ -285,16 +294,16 @@ void App::draw_library(Rect r) {
                 const float pxn = x + cn * (cwn + 6 * s), pyn = cy + rn * (chn + 6 * s);
                 if (pyn + chn < r.y || pyn > r.y + r.h) continue;
                 Rect card{pxn, pyn, cwn, chn};
-                gfx_->fill_round(card, 12 * s, th.panel);
                 if (u.hover(card) && r.contains(u.in.mx, u.in.my)) gfx_->fill_round(card, 12 * s, th.hover);
-                Rect cov{pxn + 5 * s, pyn + 5 * s, cwn - 10 * s, 100 * s};
+                const float d = cwn - 10 * s;   // round artist photo, name and album count centred under it
+                Rect av{pxn + 5 * s, pyn + 4 * s, d, d};
                 std::string cid = a.cover_art.empty() ? a.id : a.cover_art;
-                gfx_->clip(&cov);
-                Rect sq{cov.x, cov.y + (cov.h - cov.w) / 2, cov.w, cov.w};
-                if (SDL_Texture* t = cover(cid, 110, a.name, "")) gfx_->image_round(t, sq, 4 * s); else draw_art_fallback(sq, cid, 4 * s);
-                gfx_->clip(&r);
-                const float nw = std::min(gfx_->measure(F(600, 11), a.name), cov.w);
-                T(600, 11, cov.x + (cov.w - nw) / 2, pyn + 109 * s, 17, a.name, th.text, cov.w);
+                if (SDL_Texture* t = cover(cid, 110, a.name, "")) gfx_->image_round(t, av, d / 2); else draw_art_fallback(av, cid, d / 2);
+                const float nw = std::min(gfx_->measure(F(600, 12), a.name), cwn - 8 * s);
+                T(600, 12, pxn + (cwn - nw) / 2, av.y + d + 6 * s, 17, a.name, th.text, cwn - 8 * s);
+                const std::string cnt = std::to_string(a.album_count) + (a.album_count == 1 ? " album" : " albums");
+                const float cw2 = std::min(gfx_->measure(F(400, 11), cnt), cwn - 8 * s);
+                T(400, 11, pxn + (cwn - cw2) / 2, av.y + d + 23 * s, 16, cnt, th.sub, cwn - 8 * s);
                 if (u.clicked(card) && r.contains(u.in.mx, u.in.my)) { push_view(ViewKind::Artist, a.id, a.name); load_artist(a.id); }
                 continue;
             }
@@ -327,15 +336,11 @@ void App::draw_library(Rect r) {
                 const float pxn = x + cn * (cwn + 6 * s), pyn = cy + rn * (chn + 6 * s);
                 if (pyn + chn < r.y || pyn > r.y + r.h) continue;
                 Rect card{pxn, pyn, cwn, chn};
-                gfx_->fill_round(card, 12 * s, th.panel);
                 if (u.hover(card) && r.contains(u.in.mx, u.in.my)) gfx_->fill_round(card, 12 * s, th.hover);
-                Rect cov{pxn + 5 * s, pyn + 5 * s, cwn - 10 * s, 100 * s};
-                gfx_->clip(&cov);
-                Rect sq{cov.x, cov.y + (cov.h - cov.w) / 2, cov.w, cov.w};
-                if (SDL_Texture* t = cover(a.cover_art, 110, a.artist, a.name)) gfx_->image_round(t, sq, 4 * s); else draw_art_fallback(sq, a.cover_art, 4 * s);
-                gfx_->clip(&r);
-                const float nw = std::min(gfx_->measure(F(600, 11), a.name), cov.w);
-                T(600, 11, cov.x + (cov.w - nw) / 2, pyn + 109 * s, 17, a.name, th.text, cov.w);
+                Rect sq{pxn + 2 * s, pyn, cwn - 4 * s, cwn - 4 * s};   // flat card: square art, then title and artist left aligned
+                if (SDL_Texture* t = cover(a.cover_art, 110, a.artist, a.name)) gfx_->image_round(t, sq, 8 * s); else draw_art_fallback(sq, a.cover_art, 8 * s);
+                T(600, 12, sq.x, sq.y + sq.h + 4 * s, 17, a.name, th.text, sq.w);
+                T(400, 11, sq.x, sq.y + sq.h + 21 * s, 16, a.artist, th.sub, sq.w);
                 if (u.clicked(card) && r.contains(u.in.mx, u.in.my)) { push_view(ViewKind::Album, a.id, a.name); load_album(a.id); }
                 continue;
             }

@@ -1,5 +1,6 @@
 // Theme chooser, custom theme editor and firewall setup dialogs (ThemeSelector.tsx, CustomThemeEditor.tsx, FirewallSetupDialog.tsx).
 #include "app.h"
+#include "images.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -158,7 +159,7 @@ void App::draw_theme_modal(float W, float H) {
     gfx_->fill({0, 0, W, H}, {0, 0, 0, 170});
     const float mw = std::min(680.0f, W / s * 0.92f), mhmax = H / s * 0.8f;
     const float inner = mw - 36;
-    const int cols = std::max(1, static_cast<int>((inner + 16) / (140 + 16)));
+    const int cols = std::max(1, static_cast<int>((inner + 16) / (120 + 16)));   // two columns fit a 320 px screen
     const float cardw = (inner - 16 * (cols - 1)) / cols, cardh = 153;
     const int prow = (kPresetCount + cols - 1) / cols, crow = (kCustomSlots + cols - 1) / cols;
     const float content = 18 + (21 + 16 + prow * cardh + (prow - 1) * 16 + 32) + (21 + 16 + crow * cardh + (crow - 1) * 16 + 32) + 64 + 18 - 12;
@@ -315,21 +316,24 @@ void App::draw_splash(float W, float H) {
     if (!splash_start_) splash_start_ = now;
     if (!connecting_ && !splash_end_ && now - splash_start_ >= 300) splash_end_ = now;
     float a = 1.0f;
-    if (splash_end_) { a = 1.0f - (now - splash_end_) / 450.0f; if (a <= 0) { splash_gone_ = true; mark(); return; } }
+    if (splash_end_) { a = 1.0f - (now - splash_end_) / 450.0f; if (a <= 0) { splash_gone_ = true; if (splash_tex_) { SDL_DestroyTexture(splash_tex_); splash_tex_ = nullptr; } mark(); return; } }
     const float s = S_;
     const float enter = std::min(1.0f, (now - splash_start_) / 300.0f);
     const float sc = 0.92f + 0.08f * enter, ca = a * enter;
     const Color bg = ui_->th.bg;
     gfx_->fill({0, 0, W, H}, {bg.r, bg.g, bg.b, static_cast<uint8_t>(a * 255)});
-    const float logo = 96 * s * sc, name_h = 44 * s * sc, gap = 24 * s * sc;
+    if (!splash_tex_) splash_tex_ = load_png_texture(ren_, icons_dir_ + "app-icon-512.png");
+    const float logo = std::min(128 * s, std::min(W, H) * 0.42f) * sc, name_h = 40 * s * sc, gap = 22 * s * sc;
     const float top = (H - (logo + gap + name_h)) / 2;
-    svg(0, {(W - logo) / 2, top, logo, logo}, {255, 255, 255, static_cast<uint8_t>(ca * 255)});
-    const int f = F(700, 36 * sc);
-    gfx_->set_letter_spacing(3 * s);
-    const std::string nm = "XYLONIC";
+    const uint8_t ia = static_cast<uint8_t>(ca * 255);
+    if (splash_tex_) gfx_->image_round(splash_tex_, {(W - logo) / 2, top, logo, logo}, logo * 0.225f, {255, 255, 255, ia});
+    const float fpx = std::min(30.0f, (W / s - 48) / 9.5f) * sc;   // "XYLONIC FIBER" stays inside a 320 px screen
+    const int f = F(700, fpx);
+    gfx_->set_letter_spacing(2.5f * s);
+    const std::string nm = "XYLONIC FIBER";
     const float nw = gfx_->measure(f, nm);
-    Color ac = ui_->th.accent; ac.a = static_cast<uint8_t>(ca * 255);
-    T(700, 36 * sc, (W - nw) / 2, top + logo + gap, 44 * sc, nm, ac);
+    Color ac = ui_->th.accent; ac.a = ia;
+    T(700, fpx, (W - nw) / 2, top + logo + gap, 40 * sc, nm, ac);
     gfx_->set_letter_spacing(0);
     mark();
 }
