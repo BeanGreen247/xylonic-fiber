@@ -147,6 +147,7 @@ void RemoteService::stop() {
     if (th_s_.joinable()) th_s_.join();
     if (lfd_ >= 0) { close(lfd_); lfd_ = -1; }
     if (sfd_ >= 0) { close(sfd_); sfd_ = -1; }
+    for (int i = 0; i < 700 && clients_.load() > 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));   // handlers time out after 5 s
 }
 
 void RemoteService::set_enabled(bool on) {
@@ -267,7 +268,9 @@ void RemoteService::server_loop() {
         if (poll(&pf, 1, 250) <= 0) continue;
         int c = accept(sfd_, nullptr, nullptr);
         if (c < 0) continue;
-        std::thread([this, c] { handle_client(c); }).detach();
+        if (clients_.load() >= 16) { close(c); continue; }   // a LAN peer cannot exhaust threads by opening connections
+        clients_.fetch_add(1);
+        std::thread([this, c] { handle_client(c); clients_.fetch_sub(1); }).detach();
     }
 }
 

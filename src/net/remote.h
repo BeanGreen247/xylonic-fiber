@@ -64,6 +64,7 @@ private:
     StateProvider state_;
     EventHandler on_event_;
     std::atomic<bool> run_{false};
+    std::atomic<int> clients_{0};   // in-flight handle_client threads: capped, and stop() waits for them (they use `this`)
     std::thread th_b_, th_l_, th_s_;
     int lfd_ = -1, sfd_ = -1;
 };

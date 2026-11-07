@@ -31,6 +31,11 @@ public:
     void enqueue(const std::vector<Song>& songs, int quality = -1);
     // URL builder that knows the quality of each queued song (replaces the plain builder once set).
     void set_quality_url_fn(std::function<std::string(const std::string&, int, const std::string&)> f) { url_q_ = std::move(f); }   // (id, quality, song suffix)
+    // Resolves quality -1 to the current default setting when a song is queued, so the stored quality, file label and later fetch always agree.
+    void set_default_quality_fn(std::function<int()> f) { default_q_ = std::move(f); }
+    // True when (quality, song suffix) is fetched untranscoded; only then is the byte count checked against the expected size. Transcoded
+    // streams (bitrate limit, or a format the player cannot decode) have no known final length.
+    void set_exact_fn(std::function<bool(int, const std::string&)> f) { exact_ = std::move(f); }
     void pause(const std::string& id);
     void resume(const std::string& id);
     void retry_failed();
@@ -74,6 +79,8 @@ private:
     std::string quality_ = "original";
     std::function<std::string(const std::string&)> url_fn_;
     std::function<std::string(const std::string&, int, const std::string&)> url_q_;
+    std::function<int()> default_q_;
+    std::function<bool(int, const std::string&)> exact_;
     ConnectOptions opt_;
     std::function<void()> on_change_;
     std::function<void(const Song&)> on_done_;

@@ -101,6 +101,7 @@ HttpResult http_get(const std::string& url0, const BodySink& sink, const Connect
             for (;;) {
                 if (!rd->line(line)) { ok = false; break; }
                 int64_t sz = std::strtoll(line.c_str(), nullptr, 16);
+                if (sz < 0) { ok = false; break; }   // garbage size line
                 if (sz == 0) break;
                 if (!pump(*rd, sz, sink, deliver, aborted)) { ok = false; break; }
                 if (aborted) break;

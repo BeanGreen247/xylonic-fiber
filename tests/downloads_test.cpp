@@ -118,6 +118,14 @@ int main() {
         auto albums = d.done_albums();
         CHECK(albums.size() == 2 && (albums[0].songs.size() + albums[1].songs.size()) == 3);
         d.retry_failed(); CHECK(wait_for([&] { return d.pending() == 0; }));  // still 404: fails again
+        // transcoded (inexact) download: the served length (50000) differs from the original's size (90000) and must still succeed
+        d.set_exact_fn([](int q, const std::string&) { return q == 0; });
+        d.set_default_quality_fn([] { return 320; });
+        d.enqueue({mk("tx", "alT", 90000)});   // quality -1 resolves to 320 at queue time
+        CHECK(wait_for([&] { return !d.path_if_done("tx").empty(); }));
+        { Store::Row r; CHECK(st.dl_get("tx", r) && r.quality == 320); }
+        d.enqueue({mk("ex", "alT", 90000)}, 0);   // original: the response's Content-Length (50000) is the expectation, not the catalog size
+        CHECK(wait_for([&] { return !d.path_if_done("ex").empty(); }));
         // pause / resume on a slow file
         d.enqueue({mk("slow", "alC", 400000)});
         CHECK(wait_for([&] { auto sp = d.snapshot(); for (auto& it : *sp) if (it.song.id == "slow" && it.state == Downloads::Active && d.live_bytes(it.song.id, it.bytes) > 0) return true; return false; }));

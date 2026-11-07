@@ -107,7 +107,7 @@ void App::draw_modal(float W, float H) {
         Rect b = frame(560, 500, 0xf24e, "Licenses");
         T(400, 13, b.x + 20 * s, b.y + 64 * s, 20, "Xylonic Fiber and its native dependencies use these licenses:", th.sub, b.w - 40 * s);
         static const char* lines[] = {"Xylonic Fiber — MIT", "SDL2 — zlib", "mbedTLS — Apache-2.0", "yyjson — MIT", "dr_mp3, dr_flac, dr_wav — public domain / MIT-0", "libopus — BSD-3-Clause", "libvorbis, libogg — BSD-3-Clause", "FDK AAC (Fraunhofer) — FDK AAC license", "Apple ALAC decoder — Apache-2.0", "Roboto — Apache-2.0", "Font Awesome Free — OFL-1.1 / CC BY 4.0"};
-        for (int i = 0; i < 12; ++i) { T(400, 13, b.x + 28 * s, b.y + (94 + i * 27) * s, 20, lines[i], th.text); }
+        for (size_t i = 0; i < sizeof lines / sizeof lines[0]; ++i) { T(400, 13, b.x + 28 * s, b.y + (94 + static_cast<float>(i) * 27) * s, 20, lines[i], th.text); }
         T(400, 11, b.x + 20 * s, b.y + 444 * s, 18, "Full attribution is included with the distributed assets.", th.sub);
         if (u.button({b.x + b.w - 130 * s, b.y + b.h - 48 * s, 110 * s, 32 * s}, "Close")) modal_ = Modal::None;
     } else if (modal_ == Modal::ConfirmCarMode) {   // window.confirm('Start Car Mode?...')

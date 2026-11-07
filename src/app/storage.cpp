@@ -1,4 +1,5 @@
 #include "storage.h"
+#include <cstdlib>
 #include <SDL.h>
 #if defined(__ANDROID__)
 #include "android_bridge.h"
@@ -49,6 +50,20 @@ static std::string quote(const std::string& s) {
     return r + "'";
 }
 
+// True when `name` is an executable on PATH (zenity/kdialog live in /usr/local/bin, Nix profiles, Flatpak runtimes, not only /usr/bin).
+static bool on_path(const char* name) {
+    const char* path = std::getenv("PATH");
+    std::string p = path ? path : "/usr/bin:/bin:/usr/local/bin";
+    size_t pos = 0;
+    while (pos <= p.size()) {
+        size_t e = p.find(':', pos);
+        if (e == std::string::npos) e = p.size();
+        if (e > pos && ::access((p.substr(pos, e - pos) + "/" + name).c_str(), X_OK) == 0) return true;
+        pos = e + 1;
+    }
+    return false;
+}
+
 std::string pick_folder(const std::string& start) {
 #if defined(__ANDROID__) || defined(__IPHONEOS__) || defined(_WIN32)
     (void)start;
@@ -59,8 +74,8 @@ std::string pick_folder(const std::string& start) {
     cmd = "osascript -e 'POSIX path of (choose folder)' 2>/dev/null";
     (void)start;
 #else
-    if (::access("/usr/bin/zenity", X_OK) == 0) cmd = "zenity --file-selection --directory --title='Cache location' --filename=" + quote(start) + " 2>/dev/null";
-    else if (::access("/usr/bin/kdialog", X_OK) == 0) cmd = "kdialog --getexistingdirectory " + quote(start) + " 2>/dev/null";
+    if (on_path("zenity")) cmd = "zenity --file-selection --directory --title='Cache location' --filename=" + quote(start) + " 2>/dev/null";
+    else if (on_path("kdialog")) cmd = "kdialog --getexistingdirectory " + quote(start) + " 2>/dev/null";
     else return {};
 #endif
     FILE* f = popen(cmd.c_str(), "r");

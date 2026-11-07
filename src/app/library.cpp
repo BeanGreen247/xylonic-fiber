@@ -398,7 +398,6 @@ void App::draw_library(Rect r) {
         }
         if (list.empty()) {
             bool busy = lib_mode_ == 2 ? song_loading_ : liked_loading_;
-            float ey = cy + 40 * s;
             if (busy) T(400, 16, x, cy, 24, "Loading...", th.sub);
             else if (lib_mode_ == 3) draw_library_state(x, cy, w, skin::Heart, "No Liked Songs", "Star songs on your server to see them here.", false, "", 0);
             else draw_library_state(x, cy, w, skin::Music, offline_ ? "No Cached Songs" : "No Songs Found", offline_ ? "Download some songs to listen offline." : "", false, "", 0);

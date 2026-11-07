@@ -1,3 +1,4 @@
+#include <cctype>
 #include <thread>
 #include <atomic>
 #include <algorithm>
@@ -59,7 +60,13 @@ Downloads::~Downloads() {
     if (media_) media_->save();
 }
 
-std::string Downloads::file_for(const Song& s) const { return dir_ + s.id + "." + (s.suffix.empty() ? "mp3" : s.suffix); }
+// Id and suffix come from the server; keep only filename-safe characters so a hostile or odd id ("../x", "a/b") cannot leave the downloads folder.
+static std::string safe_part(const std::string& in) {
+    std::string o;
+    for (char ch : in) o += (std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_' || ch == '.') ? ch : '_';
+    return o;
+}
+std::string Downloads::file_for(const Song& s) const { return dir_ + safe_part(s.id) + "." + (s.suffix.empty() ? "mp3" : safe_part(s.suffix)); }
 
 void Downloads::changed(Change kind) {
     if (kind != Change::Progress) ++struct_gen_;   // chunks arriving do not change the list, only the live byte counts
@@ -78,7 +85,7 @@ void Downloads::enqueue(const std::vector<Song>& songs, int quality) {
         if (store_.dl_get(s.id, ex) && (ex.state == Done || ex.state == Queued || ex.state == Active)) continue;
         Store::Row r;
         r.id = s.id; r.album_id = s.album_id; r.state = Queued; r.total = static_cast<int64_t>(s.size);
-        r.path = file_for(s); r.song_json = to_json(s); r.quality = quality;
+        r.path = file_for(s); r.song_json = to_json(s); r.quality = quality < 0 && default_q_ ? default_q_() : quality;
         rows.push_back(std::move(r));
     }
     store_.dl_upsert_many(rows);
@@ -331,7 +338,8 @@ bool Downloads::fetch(const Store::Row& row) {
     store_.dl_set(row.id, Active, 0, row.total, row.path);
     std::string part = row.path + ".part";
     FILE* f = std::fopen(part.c_str(), "wb");
-    int64_t got = 0, total = row.total;
+    int64_t got = 0, total = row.total, hdr_len = 0;
+    const bool exact = !exact_ || exact_(row.quality, suffix_of(row.song_json));
     bool ok = f != nullptr;
     HttpResult r;
     if (ok) {
@@ -342,8 +350,9 @@ bool Downloads::fetch(const Store::Row& row) {
             { std::lock_guard<std::mutex> lk(m_); live_bytes_[row.id] = got; }
             changed(Change::Progress);
             return true;
-        }, opt_, {}, [&](int, int64_t len) { if (len > 0) total = len; });
-        ok = r.error.empty() && r.status == 200 && (total <= 0 || got == total) && got > 0;
+        }, opt_, {}, [&](int, int64_t len) { if (len > 0) { total = len; hdr_len = len; } });
+        const int64_t expect = hdr_len > 0 ? hdr_len : row.total;   // transcoded streams: row.total is the original's size, so it is not a valid expectation
+        ok = r.error.empty() && r.status == 200 && got > 0 && (!exact || expect <= 0 || got == expect);
         std::fclose(f);
     }
     bool canceled = cancel.load();
@@ -356,7 +365,12 @@ bool Downloads::fetch(const Store::Row& row) {
     bool still = store_.dl_get(row.id, now);  // may have been removed meanwhile
     if (!still) { ::unlink(part.c_str()); changed(); return false; }
     if (ok && !canceled) {
-        ::rename(part.c_str(), row.path.c_str());
+        if (::rename(part.c_str(), row.path.c_str()) != 0) {   // the folder vanished (unplugged volume): fail instead of recording a file that is not there
+            ::unlink(part.c_str());
+            store_.dl_set(row.id, Failed, 0, total, row.path);
+            last_notify_ = 0; changed(Change::Background);
+            return false;
+        }
         std::string hash, final_path = row.path;
         if (media_) {
             // Streams the file into the manifest (hashing happens outside any lock): stored once per content, refcounted per song, pinned against eviction.

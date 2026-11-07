@@ -351,6 +351,11 @@ void App::open_account_data() {
             const bool native = !decoder_kind_for_ext(lower_ext(suffix)).empty();   // anything the player cannot decode is fetched as MP3
             return c->download_url(id, kbps, kbps > 0 || !native);
         });
+        downloads_->set_default_quality_fn([this] { return cfg_.download_quality; });
+        downloads_->set_exact_fn([this](int quality, const std::string& suffix) {
+            const int kbps = quality < 0 ? cfg_.download_quality : quality;
+            return kbps == 0 && !decoder_kind_for_ext(lower_ext(suffix)).empty();   // matches the download.view branch of the URL builder above
+        });
         downloads_->set_quality_label(cfg_.download_quality ? std::to_string(cfg_.download_quality) : "original");
         downloads_->set_on_change([this] { ui_post([this] { dl_dirty_ = true; mark(); }); });
         downloads_->set_on_done([this, c](const Song& sg) {   // cover art of every downloaded song, fetched once per cover (offline browsing shows it)
