@@ -315,6 +315,11 @@ ImageCache::Fetch ImageCache::fetch_bytes(const std::string& did, const std::str
     return Fetch::Ok;
 }
 
+void ImageCache::forget_offline_misses() {
+    for (const std::string& key : offline_miss_) { fallback_.erase(key); fallback_ids_.erase(parse(key).id); retry_.erase(key); }
+    offline_miss_.clear();
+}
+
 ImageCache::Fetch ImageCache::fetch_to_disk(const std::string& cover_id, const UrlFn& url_fn, bool hi) {
     const std::string did = hi ? "hi:" + cover_id : resolve_alias(cover_id);
     if (on_disk(did)) return Fetch::Ok;
@@ -356,7 +361,7 @@ SDL_Texture* ImageCache::get(const std::string& key, UrlFn url_fn, const std::st
 void ImageCache::run_job(const std::string& key, Key k, UrlFn url_fn, std::string artist, std::string album) {
     std::string bytes;
     Fetch st = Fetch::Failed;
-    bool have = false;
+    bool have = false, offline = false;
     if (k.net) {
         ++internet_fetches_;
         const std::string tk = artist + "::" + album;
@@ -381,7 +386,9 @@ void ImageCache::run_job(const std::string& key, Key k, UrlFn url_fn, std::strin
             }
         }
         if (cached) { if (!refreshed) ++disk_hits_; have = true; st = Fetch::Ok; }
-        else {
+        else if (url_fn(k.hi ? kHiSize : kStdSize).empty()) {   // no server to ask (offline): not on disk means no art, and retrying cannot change that
+            st = Fetch::Failed; offline = true;
+        } else {
             ++server_fetches_;
             st = fetch_bytes(did, url_fn(k.hi ? kHiSize : kStdSize), !k.hi, bytes);
             have = st == Fetch::Ok;
@@ -390,11 +397,12 @@ void ImageCache::run_job(const std::string& key, Key k, UrlFn url_fn, std::strin
     std::vector<uint8_t> data; int w = 0, h = 0; uint32_t avg = 0;
     if (have && decode_rgba(bytes, data, w, h)) { downscale_rgba(data, w, h, k.dev); avg = average_rgb(data, w, h); }
     else { if (have) SDL_Log("IMG decode failed key=%s bytes=%zu", key.c_str(), bytes.size()); data.clear(); if (st == Fetch::Ok) st = Fetch::Failed; }
-    ui_post([this, key, data = std::move(data), w, h, avg, st, hi = k.hi, net = k.net]() mutable {
+    ui_post([this, key, data = std::move(data), w, h, avg, st, hi = k.hi, net = k.net, offline]() mutable {
         pending_.erase(key);
         if (xf_log_enabled()) xf_log("IMG done key=%s st=%d data=%zu %dx%d tex=%zu pend=%zu", key.c_str(), static_cast<int>(st), data.size(), w, h, tex_.size(), pending_.size());
         if (st == Fetch::Placeholder) { fallback_.insert(key); fallback_ids_.insert(parse(key).id); if (on_ready_) on_ready_(); return; }
         if (st != Fetch::Ok || data.empty()) {
+            if (offline) { fallback_.insert(key); fallback_ids_.insert(parse(key).id); offline_miss_.insert(key); if (on_ready_) on_ready_(); return; }
             auto& rt = retry_[key]; ++rt.first;
             if (net || rt.first > 3) { fallback_.insert(key); fallback_ids_.insert(parse(key).id); if (on_ready_) on_ready_(); return; }   // original: 3 retries, then the icon
             rt.second = SDL_GetTicks() + (st == Fetch::RateLimited ? 2000u : 5000u);

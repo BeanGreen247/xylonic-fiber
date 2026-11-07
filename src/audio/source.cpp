@@ -1,5 +1,6 @@
 #include "source.h"
 #include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <fcntl.h>
 #include <unistd.h>
@@ -115,6 +116,12 @@ long HttpFileSource::read(void* buf, size_t n) {
     return r;
 }
 
+bool HttpFileSource::wait_complete(int timeout_ms) {
+    std::unique_lock<std::mutex> lk(m_);
+    cv_.wait_for(lk, std::chrono::milliseconds(timeout_ms), [this] { return done_.load() || failed_.load() || cancel_.load(); });
+    return done_.load() && !failed_.load() && win_start_.load() == 0 && (size_.load() < 0 || avail_.load() == size_.load());
+}
+
 bool HttpFileSource::seek(int64_t off, Origin o) {
     int64_t t = o == Set ? off : o == Cur ? pos_ + off : size_.load() + off;
     if (o == End && size_.load() < 0) return false;
@@ -123,16 +130,53 @@ bool HttpFileSource::seek(int64_t off, Origin o) {
     return true;
 }
 
+// The decoder a local file needs, from its first bytes: a download may hold a different format than the song's suffix says (a FLAC fetched as
+// MP3, or the reverse). Empty when the header is not one of the formats the player reads, so the caller keeps its own guess.
+std::string sniff_audio_kind(const std::string& path) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return std::string();
+    unsigned char b[96] = {};
+    const size_t n = std::fread(b, 1, sizeof b, f);
+    std::fclose(f);
+    if (n < 4) return std::string();
+    auto is = [&](size_t at, const char* s, size_t len) { return at + len <= n && std::memcmp(b + at, s, len) == 0; };
+    if (is(0, "fLaC", 4)) return "flac";
+    if (is(0, "RIFF", 4) || is(0, "RF64", 4) || is(0, "riff", 4)) return "wav";   // RIFF, RF64, Wave64
+    if (is(0, "FORM", 4) && (is(8, "AIFF", 4) || is(8, "AIFC", 4))) return "aiff";
+    if (is(4, "ftyp", 4)) return "m4a";
+    if (is(0, "OggS", 4) && n >= 28) {
+        const size_t off = 27u + b[26];   // first packet follows the page header and its segment table
+        if (is(off, "OpusHead", 8)) return "opus";
+        if (is(off + 1, "vorbis", 6)) return "vorbis";
+        if (off < n && b[off] == 0x7f && is(off + 1, "FLAC", 4)) return "oggflac";
+        return std::string();             // other Ogg payloads are not read
+    }
+    if (is(0, "ID3", 3)) return "mp3";
+    if (b[0] == 0xFF && (b[1] & 0xF6) == 0xF0) return "aac";   // ADTS: sync + layer 00
+    if (b[0] == 0xFF && (b[1] & 0xE0) == 0xE0) return "mp3";
+    return std::string();
+}
+
 std::unique_ptr<Decoder> open_track(const std::string& url, const std::string& permanent_path, const std::string& stream_path,
                                     const std::string& kind, const ConnectOptions& opt, std::string& err) {
     if (!permanent_path.empty() && ::access(permanent_path.c_str(), R_OK) == 0) {
-        if (auto d = open_decoder(permanent_path, kind)) return d;  // unreadable permanent copy: fall through to the stream
+        const std::string sk = sniff_audio_kind(permanent_path);
+        if (auto d = open_decoder(permanent_path, sk.empty() ? kind : sk)) return d;  // unreadable permanent copy: fall through to the stream
     }
     if (!stream_path.empty() && ::access(stream_path.c_str(), R_OK) == 0) {
-        if (auto d = open_decoder(stream_path, kind)) return d;
+        const std::string sk = sniff_audio_kind(stream_path);
+        if (auto d = open_decoder(stream_path, sk.empty() ? kind : sk)) return d;
     }
     auto src = std::make_unique<HttpFileSource>(url, stream_path, opt);
     if (!src->start(opt.timeout_ms, err)) return nullptr;
+    if (!decoder_kind_streams(kind)) {   // Ogg, Opus, M4A, AAC, AIFF need the whole file (or its index at the end): download it, then decode from disk
+        if (!src->wait_complete(180000)) { err = "download did not finish"; return nullptr; }
+        src.reset();   // renames the finished .part into stream_path
+        const std::string sk = sniff_audio_kind(stream_path);
+        auto d = open_decoder(stream_path, sk.empty() ? kind : sk);
+        if (!d) err = "unsupported or invalid audio file";
+        return d;
+    }
     auto d = open_decoder_source(std::move(src), kind);
     if (!d) err = "unsupported or invalid audio stream";
     return d;

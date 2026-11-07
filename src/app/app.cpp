@@ -1,5 +1,8 @@
 #include <cctype>
 #include "app.h"
+#include "../audio/decoder.h"
+#include "../../third_party/yyjson.h"
+#include <unordered_set>
 #include <thread>
 #include "android_bridge.h"
 #if !defined(__ANDROID__)
@@ -309,20 +312,25 @@ void App::resolve_account(std::function<void()> done) {
     mark();
 }
 
+// The configured downloads/cache folder cannot be used right now (an SD card that is not mounted yet) and a stand-in is in use.
+bool App::storage_unavailable() const {
+    auto slash = [](std::string r) { if (!r.empty() && r.back() != '/') r += '/'; return r; };
+    return (!cfg_.cache_root.empty() && cache_base() != slash(cfg_.cache_root)) || (!cfg_.downloads_root.empty() && downloads_base() != slash(cfg_.downloads_root));
+}
+
 void App::open_account_data() {
     acct_ = cfg_.account_id(cfg_.server_url, cfg_.username);   // follows the account, not the address
     const std::string base = cache_base();
     perm_dir_ = downloads_base() + "downloads/" + acct_ + "/";
     stream_dir_ = base + "stream/" + acct_ + "/";
-    {
-        auto slash = [](std::string r) { if (!r.empty() && r.back() != '/') r += '/'; return r; };
-        const bool lost = (!cfg_.cache_root.empty() && base != slash(cfg_.cache_root)) || (!cfg_.downloads_root.empty() && downloads_base() != slash(cfg_.downloads_root));
-        if (lost) { toast_ = "Chosen storage is unavailable (removed?). Using internal storage for now"; toast_until_ = SDL_GetTicks() + 5000; }   // the setting is kept: it applies again when the volume returns
-    }
+    storage_lost_ = storage_unavailable();
+    if (storage_lost_) { toast_ = "Chosen storage is unavailable (SD card not mounted yet?). Downloads return when it is"; toast_until_ = SDL_GetTicks() + 6000; }   // the setting is kept: it applies again when the volume returns
     mkdirs(perm_dir_); mkdirs(stream_dir_);
+    downloads_.reset();   // its threads read the Store: they must be gone before the Store is replaced (use-after-free otherwise)
     store_ = std::make_unique<Store>();
     if (!store_->open(pref_ + "data_" + acct_ + ".json")) store_.reset();
-    if (store_) {   // the cache may have moved since these rows were written: re-root them under the current folder
+    if (store_ && images_) images_->set_alias(store_->cover_alias());   // song covers resolve to their album art, offline starts included
+    if (store_ && !storage_lost_) {   // the cache may have moved since these rows were written: re-root them under the current folder (never onto a stand-in folder: the rows must keep pointing at the real one)
         const std::string marker = "/downloads/" + acct_ + "/";
         for (auto& r : store_->dl_all()) {
             const std::string np = heal_path(r.path, marker, perm_dir_);
@@ -335,12 +343,21 @@ void App::open_account_data() {
         downloads_ = std::make_unique<Downloads>(*store_, perm_dir_, [this, c](const std::string& id) {
             return c ? c->download_url(id, cfg_.download_quality) : std::string();   // read per request so the setting applies at once
         }, copt_, cfg_.concurrent_downloads);
+        // Per-song quality (the picker's choice, or the setting when -1). The player decodes MP3 and FLAC only, so an original in any other
+        // format, or any bitrate-limited download, is fetched as MP3 through stream.view; FLAC and MP3 originals come through download.view.
+        downloads_->set_quality_url_fn([this, c](const std::string& id, int quality, const std::string& suffix) {
+            if (!c) return std::string();
+            const int kbps = quality < 0 ? cfg_.download_quality : quality;
+            const bool native = !decoder_kind_for_ext(lower_ext(suffix)).empty();   // anything the player cannot decode is fetched as MP3
+            return c->download_url(id, kbps, kbps > 0 || !native);
+        });
         downloads_->set_quality_label(cfg_.download_quality ? std::to_string(cfg_.download_quality) : "original");
         downloads_->set_on_change([this] { ui_post([this] { dl_dirty_ = true; mark(); }); });
         downloads_->set_on_done([this, c](const Song& sg) {   // cover art of every downloaded song, fetched once per cover (offline browsing shows it)
             if (c && images_ && !sg.cover_art.empty()) images_->fetch_to_disk(sg.cover_art, [c, id = sg.cover_art](int size) { return c->cover_url(id, size); });
         });
-        downloads_->start_verify();   // drops rows whose file vanished, on worker threads (it used to block the first frame)
+        if (storage_lost_) downloads_->pause_all();   // nothing may be fetched or dropped while the real folder is away
+        else downloads_->start_verify();   // drops rows whose file vanished, on worker threads (it used to block the first frame)
     }
     dl_dirty_ = true;
 }
@@ -391,8 +408,13 @@ void App::refresh_dl_state() {
 }
 
 int App::songs_downloaded() const {
+    if (!downloads_) return 0;
+    auto snap = downloads_->snapshot();
+    const uint64_t ver = store_ ? store_->dl_version() : 0;
+    if (snap.get() == songs_dl_snap_ && ver == songs_dl_ver_) return songs_dl_n_;
     int n = 0;
-    if (downloads_) { auto snap = downloads_->snapshot(); for (const auto& it : *snap) if (it.state == Downloads::Done) ++n; }
+    for (const auto& it : *snap) if (it.state == Downloads::Done) ++n;
+    songs_dl_snap_ = snap.get(); songs_dl_n_ = n; songs_dl_ver_ = ver;
     return n;
 }
 
@@ -423,6 +445,7 @@ void App::enter_offline() {
     nav_ = Nav::Library;   // Discover needs the server: offline starts in the Library
     open_account_data();
     queue_.load_songs(pref_ + "queue_" + acct_ + ".json");
+    load_playstate();
     queue_saved_rev_ = queue_.revision();
     history_load();
     pl_load();
@@ -436,6 +459,7 @@ void App::on_connected() {
     offline_ = false;
     screen_ = Screen::Main;
     images_->set_connect_options(copt_);
+    images_->forget_offline_misses();   // covers that could not load offline get a real try now
     f_pass_.clear();
     views_.clear();
     views_.push_back({ViewKind::Root, "", "Home", {}});
@@ -443,6 +467,7 @@ void App::on_connected() {
     open_account_data();
     std::string acct = acct_;
     queue_.load_songs(pref_ + "queue_" + acct + ".json");
+    load_playstate();
     queue_saved_rev_ = queue_.revision();
     history_load();
     pl_load();
@@ -453,7 +478,14 @@ void App::on_connected() {
     if (downloads_ && client_) {   // downloaded songs keep their cover art on disk, so the library looks right offline (older downloads did not fetch it)
         worker_->post([this, c = client_, s = session_] {
             std::vector<std::string> ids;
-            for (const Album& al : downloads_->done_albums()) for (const Song& sg : al.songs) if (!sg.cover_art.empty() && std::find(ids.begin(), ids.end(), sg.cover_art) == ids.end()) ids.push_back(sg.cover_art);
+            std::unordered_set<std::string> have, artist_ids;
+            for (const Album& al : downloads_->done_albums()) for (const Song& sg : al.songs) {
+                if (!sg.cover_art.empty() && have.insert(sg.cover_art).second) ids.push_back(sg.cover_art);
+                if (!sg.artist_id.empty()) artist_ids.insert(sg.artist_id);
+            }
+            std::string aj; std::vector<Artist> all_artists;   // artist pictures of downloaded music too, so the offline library is not blank
+            if (store_ && store_->get("artists", aj) && from_json(aj, all_artists))
+                for (const Artist& ar : all_artists) if (!ar.cover_art.empty() && artist_ids.count(ar.id) && have.insert(ar.cover_art).second) ids.push_back(ar.cover_art);
             for (const std::string& id : ids) { if (s != session_) return; images_->fetch_to_disk(id, [c, id](int size) { return c->cover_url(id, size); }); }
         });
     }
@@ -609,7 +641,7 @@ SDL_Texture* App::cover(const std::string& id, int px, const std::string& artist
     // Performance modes request smaller textures: Gaming 3/4, Eco 1/2 of the device size (the disk copy is always the 300 px original).
     const float mode = cfg_.perf_mode == 2 ? 0.5f : cfg_.perf_mode == 1 ? 0.75f : 1.0f;
     const int dev = std::max(32, static_cast<int>(px * S_ * mode));
-    auto c = client_;  // offline: empty URL, the image only resolves from the disk cache
+    auto c = offline_ ? nullptr : client_;  // offline: empty URL, the image only resolves from the disk cache (and no request leaves the device)
     ImageCache::UrlFn url = [c, id](int size) { return c ? c->cover_url(id, size) : std::string(); };
     if (id.empty()) {
         if (offline_ || (artist.empty() && album.empty())) return nullptr;
@@ -689,17 +721,18 @@ void App::set_nav(Nav n) {
 // ---------------------------------------------------------------- playback
 
 std::string App::track_kind(const Song& s) const {
-    std::string e = lower_ext(s.suffix);
-    return e == "flac" ? "flac" : "mp3";  // anything else is transcoded to mp3 by the server
+    const std::string e = lower_ext(s.suffix), k = decoder_kind_for_ext(e);
+    // the original file when the player can decode it and no bitrate cap applies (FLAC ignores the cap); otherwise the server sends MP3
+    return !k.empty() && (cfg_.stream_quality == 0 || e == "flac") ? k : std::string("mp3");
 }
 
 std::string App::perm_path(const Song& s) const { return downloads_ ? downloads_->path_if_done(s.id) : std::string(); }
 
 std::string App::stream_path(const Song& s) const {
     std::string e = lower_ext(s.suffix);
-    bool native = e == "mp3" || e == "flac";
+    const bool original = !decoder_kind_for_ext(e).empty() && (cfg_.stream_quality == 0 || e == "flac");
     std::string q = cfg_.stream_quality > 0 && e != "flac" ? "_q" + std::to_string(cfg_.stream_quality) : "";
-    return stream_dir_ + s.id + q + "." + (native ? e : std::string("mp3"));
+    return stream_dir_ + s.id + q + "." + (original ? e : std::string("mp3"));
 }
 
 void App::play_songs(const std::vector<Song>& songs, size_t start, bool shuffle) {
@@ -710,11 +743,11 @@ void App::play_songs(const std::vector<Song>& songs, size_t start, bool shuffle)
     start_current();
 }
 
-// The native decoders read MP3 and FLAC only. A transcoded stream (maxBitRate) without an explicit format comes back in whatever the
-// server's default transcoding is (Navidrome: often Opus or AAC), which the original's <audio> element played but we cannot: ask for MP3.
+// A transcoded stream (maxBitRate) without an explicit format comes back in whatever the server's default transcoding is (Navidrome:
+// often Opus or AAC): ask for MP3. Formats the player has no decoder for (WMA, APE, DSD...) are also asked for as MP3.
 static std::string stream_format(const std::string& ext, int kbps) {
     if (kbps > 0) return "mp3";
-    return ext == "mp3" || ext == "flac" ? std::string() : std::string("mp3");
+    return !decoder_kind_for_ext(ext).empty() ? std::string() : std::string("mp3");
 }
 
 void App::start_current() {
@@ -732,7 +765,6 @@ void App::start_current() {
     play_err_.clear();
     player_.stop();
     std::string e = lower_ext(song.suffix);
-    bool native = e == "mp3" || e == "flac";
     int kbps = cfg_.stream_quality;
     std::string url = client_ ? client_->stream_url(song.id, e == "flac" ? 0 : kbps, stream_format(e, e == "flac" ? 0 : kbps)) : std::string();
     worker_->post([this, gen, song, url, c = copt_, perm = perm_path(song), strm = stream_path(song), kind = track_kind(song)] {
@@ -745,11 +777,14 @@ void App::start_current() {
             player_.set_volume(vol_);
             const bool attached = player_.attach(std::move(*dec), static_cast<double>(song.duration));
             const bool started = attached && player_.play();
+            if (started && resume_id_ == song.id && resume_pos_ > 1.0 && resume_pos_ < static_cast<double>(song.duration) - 2.0) player_.seek_seconds(resume_pos_);   // pick up where the last session stopped
+            resume_id_.clear(); resume_pos_ = 0;
             xf_log("play %s: attached=%d started=%d", song.id.c_str(), attached, started);
             SDL_Log("play %s: attached=%d started=%d: %s", song.id.c_str(), attached, started, started ? "" : SDL_GetError());
             scrobbled_id_.clear();
             history_add(song);
             if (client_) worker_->post([c = client_, id = song.id] { std::string e; c->scrobble(id, false, e); });
+            save_playstate();
             mark();
         });
     });
@@ -763,6 +798,7 @@ void App::toggle_play() {
     if (player_.playing()) player_.pause();
     else if (player_.duration_seconds() > 0 || player_.position_seconds() > 0) player_.play();
     else start_current();
+    save_playstate();
     mark();
 }
 
@@ -794,6 +830,7 @@ void App::mpris_command(MprisCmd c, double arg, const std::string& sarg) {
 }
 
 void App::mpris_push() {
+    { const uint32_t t = SDL_GetTicks(); if (t - mpris_push_ms_ < 250) return; mpris_push_ms_ = t; }   // 4 Hz is plenty: this built a signature string and hit the cover cache on every frame
     const Song* cur = queue_.current();
     MprisState st;
     st.has_song = cur != nullptr;
@@ -842,7 +879,6 @@ void App::preload_next() {
     preloaded_id_ = song.id;
     uint32_t gen = play_gen_;
     std::string e = lower_ext(song.suffix);
-    bool native = e == "mp3" || e == "flac";
     std::string url = client_ ? client_->stream_url(song.id, e == "flac" ? 0 : cfg_.stream_quality, stream_format(e, e == "flac" ? 0 : cfg_.stream_quality)) : std::string();
     worker_->post([this, gen, song, url, c = copt_, perm = perm_path(song), strm = stream_path(song), kind = track_kind(song)] {
         std::string err;
@@ -892,8 +928,53 @@ void App::set_volume(float v) {
     cfg_.volume_pct = static_cast<int>(vol_ * 100 + 0.5f);
 }
 
+// Where playback stopped: current song, position, shuffle and repeat. Survives a restart or a reboot (the queue file alone only holds the songs).
+void App::save_playstate() {
+    if (screen_ != Screen::Main || queue_.empty() || acct_.empty()) return;
+    const Song* cur = queue_.current();
+    if (!cur) return;
+    yyjson_mut_doc* d = yyjson_mut_doc_new(nullptr);
+    yyjson_mut_val* o = yyjson_mut_obj(d);
+    yyjson_mut_doc_set_root(d, o);
+    yyjson_mut_obj_add_strcpy(d, o, "id", cur->id.c_str());
+    yyjson_mut_obj_add_uint(d, o, "index", queue_.index());
+    const double pos = track_loading_ ? 0.0 : player_.position_seconds();
+    yyjson_mut_obj_add_real(d, o, "pos", pos > 0 ? pos : (resume_id_ == cur->id ? resume_pos_ : 0.0));   // still loading after a restart: keep the saved spot
+    yyjson_mut_obj_add_bool(d, o, "shuffle", queue_.shuffle());
+    yyjson_mut_obj_add_int(d, o, "repeat", static_cast<int>(queue_.repeat()));
+    const std::string path = pref_ + "playstate_" + acct_ + ".json", tmp = path + ".tmp";
+    if (yyjson_mut_write_file(tmp.c_str(), d, 0, nullptr, nullptr)) std::rename(tmp.c_str(), path.c_str());
+    yyjson_mut_doc_free(d);
+    playstate_saved_ms_ = SDL_GetTicks();
+}
+
+void App::load_playstate() {
+    yyjson_doc* d = yyjson_read_file((pref_ + "playstate_" + acct_ + ".json").c_str(), 0, nullptr, nullptr);
+    if (!d) return;
+    yyjson_val* r = yyjson_doc_get_root(d);
+    yyjson_val* id = yyjson_obj_get(r, "id"); yyjson_val* ix = yyjson_obj_get(r, "index"); yyjson_val* ps = yyjson_obj_get(r, "pos");
+    yyjson_val* sh = yyjson_obj_get(r, "shuffle"); yyjson_val* rp = yyjson_obj_get(r, "repeat");
+    if (id && yyjson_is_str(id) && ix && yyjson_is_num(ix)) {
+        size_t idx = static_cast<size_t>(yyjson_get_uint(ix));
+        const auto& songs = queue_.songs();
+        if (idx >= songs.size() || songs[idx].id != yyjson_get_str(id)) {   // the queue changed since: find the song by id
+            idx = songs.size();
+            for (size_t i = 0; i < songs.size(); ++i) if (songs[i].id == yyjson_get_str(id)) { idx = i; break; }
+        }
+        if (idx < songs.size()) {
+            queue_.jump(idx);
+            resume_id_ = yyjson_get_str(id);
+            resume_pos_ = ps && yyjson_is_num(ps) ? yyjson_get_num(ps) : 0.0;
+            if (rp && yyjson_is_num(rp)) { const int v = static_cast<int>(yyjson_get_sint(rp)); if (v >= 0 && v <= 2) queue_.set_repeat(static_cast<Repeat>(v)); }
+            if (sh && yyjson_get_bool(sh)) queue_.set_shuffle(true);   // after jump: the shuffle keeps the current song
+        }
+    }
+    yyjson_doc_free(d);
+}
+
 void App::save_queue_state() {
     if (screen_ != Screen::Main) return;
+    save_playstate();
     if (queue_.revision() != queue_saved_rev_) {
         queue_.save_songs(pref_ + "queue_" + acct_ + ".json");
         queue_saved_rev_ = queue_.revision();
@@ -911,7 +992,8 @@ void App::handle(const SDL_Event& e) {
     Input& in = ui_->in;
     switch (e.type) {
     case SDL_QUIT: running_ = false; break;
-    case SDL_APP_DIDENTERBACKGROUND: background_ = true; break;
+    case SDL_APP_WILLENTERBACKGROUND: save_playstate(); break;
+    case SDL_APP_DIDENTERBACKGROUND: background_ = true; save_playstate(); break;
     case SDL_APP_WILLENTERFOREGROUND: case SDL_APP_DIDENTERFOREGROUND: background_ = false; mark(); break;
     case SDL_WINDOWEVENT:
         if (e.window.event == SDL_WINDOWEVENT_RESIZED || e.window.event == SDL_WINDOWEVENT_EXPOSED || e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || e.window.event == SDL_WINDOWEVENT_RESTORED) mark();
@@ -925,13 +1007,29 @@ void App::handle(const SDL_Event& e) {
         if (e.button.button == SDL_BUTTON_LEFT) { in.mx = e.button.x * M_; in.my = e.button.y * M_; in.down = false; const bool slid = press_touch_ && std::hypot(in.mx - in.press_x, in.my - in.press_y) > 12 * S_;   // a touch that travelled is a scroll or drag, never a tap, even when no finger-motion event marked it
             in.released = !touch_moved_ && !slid && !long_fired_; touch_moved_ = false; long_fired_ = false; press_touch_ = false; mark(); }
         break;
-    case SDL_FINGERDOWN: touch_moved_ = false; touch_accum_ = 0; break;
+    case SDL_FINGERDOWN: touch_moved_ = false; touch_accum_ = 0; touch_dead_dy_ = touch_dead_dx_ = 0; fling_vel_ = 0; touch_scrolled_ = false; touch_last_ms_ = e.tfinger.timestamp; break;   // a new touch stops a fling
     case SDL_FINGERMOTION: {  // touch drag scrolls (the synthesized mouse events only click/drag widgets)
-        float dy = e.tfinger.dy * static_cast<float>(ui_->in.screen_h);
-        touch_accum_ += std::fabs(dy) + std::fabs(e.tfinger.dx * static_cast<float>(ui_->in.screen_h));
-        if (touch_accum_ > 14 * S_ && ui_->active == 0) { touch_moved_ = true; in.wheel += dy / (60 * S_); in.hwheel += -e.tfinger.dx * static_cast<float>(ui_->in.screen_h) / (60 * S_) * -1; mark(); }
+        const float sh = static_cast<float>(ui_->in.screen_h);
+        float dy = e.tfinger.dy * sh, dx = e.tfinger.dx * sh;
+        touch_accum_ += std::fabs(dy) + std::fabs(dx);
+        if (!touch_moved_) { touch_dead_dy_ += dy; touch_dead_dx_ += dx; }
+        if (touch_accum_ > 10 * S_ && ui_->active == 0) {
+            // the movement inside the tap slop is applied too, so the content follows the finger from where it went down
+            if (!touch_moved_) { dy = touch_dead_dy_; dx = touch_dead_dx_; }
+            touch_moved_ = touch_scrolled_ = true;
+            in.wheel += dy / (60 * S_); in.hwheel += -dx / (60 * S_) * -1;
+            const uint32_t dt = std::max<uint32_t>(1, e.tfinger.timestamp - touch_last_ms_);
+            touch_last_ms_ = e.tfinger.timestamp; touch_wall_ms_ = SDL_GetTicks();
+            const float v = std::max(-60.0f, std::min(60.0f, (dy / (60 * S_)) * 1000.0f / static_cast<float>(dt)));   // wheel notches per second, smoothed
+            fling_vel_ = fling_vel_ * 0.6f + v * 0.4f;
+            mark();
+        }
         break;
     }
+    case SDL_FINGERUP:   // lifted while still moving: keep scrolling with momentum
+        if (touch_scrolled_ && std::fabs(fling_vel_) >= 3.0f && SDL_GetTicks() - touch_wall_ms_ <= 100u) fling_last_ = SDL_GetTicks();
+        else fling_vel_ = 0;
+        break;
     case SDL_MOUSEWHEEL:
         if (SDL_GetModState() & KMOD_SHIFT) in.hwheel += e.wheel.preciseY; else in.wheel += e.wheel.preciseY;
         in.hwheel += e.wheel.preciseX;
@@ -982,7 +1080,7 @@ int App::run() {
     uint32_t last_draw = 0;
     while (running_) {
         bool pulse_live = car_open_ && cfg_.car_pulse && !pulse_off_ && player_.playing();
-        bool animating = pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_ || tip_pending_ || (press_touch_ && !long_fired_ && ui_->in.down);
+        bool animating = storage_lost_ || fling_vel_ != 0 || pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_ || tip_pending_ || (press_touch_ && !long_fired_ && ui_->in.down);
         SDL_Event e {};
         bool got = false;
         if (dirty_ || opt_.bench > 0) got = SDL_PollEvent(&e) != 0;
@@ -993,11 +1091,32 @@ int App::run() {
             handle(e);
             got = SDL_PollEvent(&e) != 0;
         }
+        if (fling_vel_ != 0) {   // momentum after a touch scroll: decays exponentially, stops below a notch per second
+            const uint32_t t = SDL_GetTicks();
+            const float dt = std::min(0.05f, static_cast<float>(t - fling_last_) / 1000.0f);
+            fling_last_ = t;
+            if (dt > 0) {
+                ui_->in.wheel += fling_vel_ * dt;
+                fling_vel_ *= std::exp(-dt * 3.2f);
+                if (std::fabs(fling_vel_) < 1.0f) fling_vel_ = 0;
+                mark();
+            }
+        }
         if (screen_ == Screen::Main) tick_player();
         if (opt_.mini && !mini_win_ && queue_.current() && !track_loading_) toggle_mini();
         if (search_pending_ && SDL_GetTicks() >= search_due_) run_search();
         tick_sleep();
         uint32_t now = SDL_GetTicks();
+        if (player_.playing() && now - playstate_saved_ms_ > 10000) save_playstate();   // a killed app (Android, reboot) keeps the spot to within 10 s
+        if (storage_lost_ && screen_ == Screen::Main && now - storage_check_ms_ > 3000) {   // the SD card came up after the app did: reopen the real folders
+            storage_check_ms_ = now;
+            if (!storage_unavailable()) {
+                storage_lost_ = false;
+                open_account_data();
+                toast_ = "Storage is back: your downloads are available"; toast_until_ = SDL_GetTicks() + 4000;
+                dl_dirty_ = true; mark();
+            }
+        }
         if (ui_->wants_frames && now - last_draw > 400) mark();
         if (pulse_live && now - last_draw >= 33) mark();
         if (tip_pending_ && now - last_draw >= 80) mark();

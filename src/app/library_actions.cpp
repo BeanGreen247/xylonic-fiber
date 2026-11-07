@@ -269,6 +269,7 @@ void App::toggle_offline() {
         mark();
         return;
     }
+    if (!offline_ && images_) images_->forget_offline_misses();
     alb_loaded_page_ = song_loaded_page_ = -1;   // the Albums and Songs lists switch between the server and the downloads
     if (offline_ && nav_ == Nav::Home) set_nav(Nav::Library);
     load_home(); load_artists();

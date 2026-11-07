@@ -116,6 +116,7 @@ private:
     // CSS-like text: y_top/line_height in logical px, glyphs centred in the line box. Returns drawn width.
     // Word-wrapped text; returns the height used (device px).
     int wrap_count(int weight, float px, const std::string& s, float max_w);
+    std::unordered_map<uint64_t, int> wrap_cache_;   // wrap_count results: Settings re-wrapped every description every frame
     float TWC(int weight, float px, float cx, float y_top, float line_h, const std::string& s, Color c, float max_w);   // centred word-wrapped text
     float TW(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w);
     float T(int weight, float px, float x, float y_top, float line_h, const std::string& s, Color c, float max_w = 0, bool italic = false);
@@ -206,6 +207,12 @@ private:
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
     void on_connected();
     void enter_offline();
+    void save_playstate();
+    void load_playstate();
+    std::string resume_id_; double resume_pos_ = 0; uint32_t playstate_saved_ms_ = 0;   // saved playback spot, applied when that song next starts
+    bool storage_unavailable() const;
+    bool storage_lost_ = false;
+    uint32_t storage_check_ms_ = 0;
     void open_account_data();
     void resolve_account(std::function<void()> done);   // maps the connected address to an account (shared data across addresses)
     void refresh_dl_state();
@@ -266,6 +273,9 @@ private:
     float M_ = 1.0f;   // mouse: window units -> render pixels
     bool touch_moved_ = false, long_fired_ = false, press_touch_ = false;   // long_fired_: a held touch already became a right click (context menu)
     uint32_t press_ms_ = 0;
+    bool touch_scrolled_ = false;
+    float touch_dead_dy_ = 0, touch_dead_dx_ = 0, fling_vel_ = 0;   // movement inside the tap slop; touch scroll momentum (wheel notches per second)
+    uint32_t touch_wall_ms_ = 0, touch_last_ms_ = 0, fling_last_ = 0, mpris_push_ms_ = 0;
     float touch_accum_ = 0;  // device pixels per logical unit
     bool dirty_ = true, running_ = true, background_ = false;
     double render_ms_ = 0.0, render_fps_ = 0.0;
@@ -284,6 +294,7 @@ private:
     void check_metered();
     void apply_metered(bool metered);
     int songs_downloaded() const;
+    mutable const void* songs_dl_snap_ = nullptr; mutable int songs_dl_n_ = 0; mutable uint64_t songs_dl_ver_ = 0;   // songs_downloaded() recounts only when the downloads snapshot changed
     std::string acct_;
     std::unique_ptr<Store> store_;
     std::unique_ptr<Downloads> downloads_;
@@ -346,7 +357,8 @@ private:
     std::atomic<bool> move_cancel_{false};
     bool picking_ = false;   // the system folder chooser is open (Android)
     std::string move_error_, move_target_;
-    std::vector<StorageVolume> vols_;
+    std::vector<StorageVolume> vols_, settings_vols_;
+    uint32_t settings_vols_ms_ = 0;
     int vol_choice_ = -1;
     std::string pl_delete_pending_;
     std::string switch_pass_, switch_err_; int switch_idx_ = -1; bool switching_ = false;   // Settings > Account > Switch Server

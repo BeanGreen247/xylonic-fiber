@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include "aaudio_out.h"
 #include "decoder.h"
 #include "dsp.h"
 #include "ring.h"
@@ -30,6 +31,9 @@ public:
     double position_seconds();
     double duration_seconds() const;
     bool playing() const { return playing_.load(); }
+    // What the current decoder is actually reading (codec name, source rate, bit depth 0 = lossy, channels); rate 0 when nothing is loaded.
+    struct Info { std::string codec; uint32_t rate = 0, bits = 0, channels = 0; };
+    Info info() const { std::lock_guard<std::mutex> lk(info_m_); return info_; }
     bool finished() const { return eof_.load() && !has_next() && ring_.readable() == 0; }
     void set_volume(float v) { volume_.store(v); }
     // Output rate to open the device at (0 = the track's own rate). Phones need their native rate: OpenSL ES refuses others on some devices.
@@ -52,13 +56,25 @@ public:
 
 private:
     static void callback(void* user, uint8_t* stream, int len);
-    void fill(int16_t* out, size_t samples);
+    // SDL device format: float everywhere except the Android fallback (used only when AAudio is unavailable), which is 16-bit dithered from the float mix.
+#if defined(__ANDROID__)
+    static constexpr bool s16_device_ = true;
+#else
+    static constexpr bool s16_device_ = false;
+#endif
+    bool out_s16_ = false;
+    std::vector<float> s16_tmp_;
+    uint32_t dither_state_ = 0x9e3779b9u;
+    void fill(float* out, size_t samples);
     void decode_loop();
     void start_thread();
     void stop_thread();
     void close_device();
     void settle_boundary();
 
+    mutable std::mutex info_m_;
+    Info info_;
+    void set_info(const Decoder& d) { std::lock_guard<std::mutex> lk(info_m_); info_ = Info{d.codec(), d.sample_rate(), d.bits(), d.channels()}; }
     std::unique_ptr<Decoder> dec_;
     SampleRing ring_{1u << 16};  // 64k samples = 0.74 s at 44.1k stereo: short enough that EQ/speed edits are heard quickly
     std::thread th_;
@@ -84,6 +100,10 @@ private:
     std::unique_ptr<Decoder> next_dec_;
     // device
     uint32_t device_ = 0;
+#if defined(__ANDROID__)
+    AAudioOut aaudio_;   // the Android output; SDL is only the fallback when AAudio is unavailable
+    bool use_aaudio_ = false;
+#endif
     uint32_t dev_rate_ = 44100, pref_rate_ = 0;
     std::atomic<uint32_t> src_rate_{44100};
     uint32_t channels_ = 2;

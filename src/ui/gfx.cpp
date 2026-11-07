@@ -1,5 +1,6 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "gfx.h"
+#include <cstring>
 #include <cstdlib>
 #include <cmath>
 #include "../../third_party/stb_truetype.h"
@@ -369,12 +370,21 @@ size_t utf8(const std::string& s, size_t i, uint32_t& cp) {
 }  // namespace
 
 float Gfx::measure(int font, const std::string& s) {
+    uint64_t key = 1469598103934665603ULL ^ static_cast<uint64_t>(font + 1);
+    uint32_t sp = 0;
+    std::memcpy(&sp, &spacing_, sizeof sp);
+    key = (key ^ sp) * 1099511628211ULL;
+    for (unsigned char c : s) { key ^= c; key *= 1099511628211ULL; }
+    auto hit = measure_cache_.find(key);
+    if (hit != measure_cache_.end()) return hit->second;
+    if (measure_cache_.size() > 16384) measure_cache_.clear();
     float w = 0;
     for (size_t i = 0; i < s.size();) {
         uint32_t cp;
         i += utf8(s, i, cp);
         if (const Glyph* g = glyph(font, cp)) w += g->adv + spacing_;
     }
+    measure_cache_[key] = w;
     return w;
 }
 

@@ -42,7 +42,9 @@ public:
     // URLs embed auth (per Subsonic spec) so they must not be logged.
     // format: ask the server to transcode (e.g. "mp3") when the source codec is not decodable here.
     std::string stream_url(const std::string& id, int max_bitrate = 0, const std::string& format = "") const;
-    std::string download_url(const std::string& id, int max_bitrate = 0) const;
+    // Original file (`download`) unless transcode_mp3: then `stream` with maxBitRate and format=mp3, because `download` ignores the bitrate
+    // (the original app also downloads through stream.view). max_bitrate 0 with transcode_mp3 asks for the server's best MP3 (320).
+    std::string download_url(const std::string& id, int max_bitrate = 0, bool transcode_mp3 = false) const;
     std::string cover_url(const std::string& cover_id, int size = 0) const;
 
     // Exposed for tests.

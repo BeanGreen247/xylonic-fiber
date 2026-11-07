@@ -41,6 +41,8 @@ public:
     ~ImageCache();
     void set_disk_budget(uint64_t bytes) { budget_ = bytes; }
     void set_connect_options(ConnectOptions o) { opt_ = std::move(o); }
+    // Covers that were not on disk while no server was reachable show the icon at once (no retries); going online makes them try again.
+    void forget_offline_misses();
     void set_on_ready(std::function<void()> f) { on_ready_ = std::move(f); }
     void set_itunes_fallback(bool on) { itunes_ = on; }
     void set_blackout(bool on) { blackout_ = on; }   // no on-demand fetches while the bulk precache runs
@@ -101,7 +103,7 @@ private:
     std::unordered_map<std::string, uint32_t> avg_;
     std::unordered_set<std::string> pending_;
     std::unordered_map<std::string, std::pair<int, uint32_t>> retry_;   // key -> (attempts, retry not before tick)
-    std::unordered_set<std::string> fallback_, fallback_ids_;         // keys / ids showing the icon
+    std::unordered_set<std::string> fallback_, fallback_ids_, offline_miss_;         // keys / ids showing the icon
     std::unordered_set<std::string> revalidated_try_;                 // artist ids refreshed (or tried) this session (guarded by pm_)
     // shared
     mutable std::mutex am_;

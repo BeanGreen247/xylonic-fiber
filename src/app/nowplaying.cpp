@@ -309,9 +309,12 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
     const Song m = cur ? *cur : Song{};
     auto pick = [&](auto a, auto b) { return a ? a : b; };
     const std::string suffix = !m.suffix.empty() ? m.suffix : np_meta_.suffix;
-    const int br = pick(m.bit_rate, np_meta_.bit_rate), sr = pick(m.sampling_rate, np_meta_.sampling_rate), bd = pick(m.bit_depth, np_meta_.bit_depth);
+    const Player::Info pi = player_.info();   // what the decoder really reads beats the server's tags (and works offline)
+    const int br = pick(m.bit_rate, np_meta_.bit_rate);
+    const int sr = pi.rate ? static_cast<int>(pi.rate) : pick(m.sampling_rate, np_meta_.sampling_rate);
+    const int bd = pi.rate ? static_cast<int>(pi.bits) : pick(m.bit_depth, np_meta_.bit_depth);
     const uint64_t size = m.size ? m.size : np_meta_.size;
-    std::string f_fmt = suffix.empty() ? "\xE2\x80\x94" : suffix; for (auto& ch : f_fmt) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    std::string f_fmt = pi.rate && !pi.codec.empty() ? pi.codec : suffix.empty() ? "\xE2\x80\x94" : suffix; for (auto& ch : f_fmt) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
     char tmp[48] = {};
     const std::string f_br = br ? std::to_string(br) + " kbps" : "\xE2\x80\x94";
     std::string f_sr = "\xE2\x80\x94"; if (sr) { if (sr >= 1000) std::snprintf(tmp, sizeof tmp, "%.1f kHz", sr / 1000.0); else std::snprintf(tmp, sizeof tmp, "%d Hz", sr); f_sr = tmp; }

@@ -104,11 +104,11 @@ void App::draw_modal(float W, float H) {
         for (int i = 0; i < 6; ++i) { fa(skin::Check, b.x + 28 * s, b.y + (70 + i * 32) * s, 11, th.accent); T(400, 13, b.x + 48 * s, b.y + (60 + i * 32) * s, 24, lines[i], th.text); }
         if (u.button({b.x + b.w - 130 * s, b.y + b.h - 48 * s, 110 * s, 32 * s}, "Close")) modal_ = Modal::None;
     } else if (modal_ == Modal::Licenses) {
-        Rect b = frame(560, 350, 0xf24e, "Licenses");
+        Rect b = frame(560, 500, 0xf24e, "Licenses");
         T(400, 13, b.x + 20 * s, b.y + 64 * s, 20, "Xylonic Fiber and its native dependencies use these licenses:", th.sub, b.w - 40 * s);
-        static const char* lines[] = {"Xylonic Fiber — MIT", "SDL2 — zlib", "mbedTLS — Apache-2.0", "yyjson — MIT", "dr_mp3 — public domain / Unlicense", "Roboto — Apache-2.0", "Font Awesome Free — OFL-1.1 / CC BY 4.0"};
-        for (int i = 0; i < 7; ++i) { T(400, 13, b.x + 28 * s, b.y + (94 + i * 27) * s, 20, lines[i], th.text); }
-        T(400, 11, b.x + 20 * s, b.y + 294 * s, 18, "Full attribution is included with the distributed assets.", th.sub);
+        static const char* lines[] = {"Xylonic Fiber — MIT", "SDL2 — zlib", "mbedTLS — Apache-2.0", "yyjson — MIT", "dr_mp3, dr_flac, dr_wav — public domain / MIT-0", "libopus — BSD-3-Clause", "libvorbis, libogg — BSD-3-Clause", "FDK AAC (Fraunhofer) — FDK AAC license", "Apple ALAC decoder — Apache-2.0", "Roboto — Apache-2.0", "Font Awesome Free — OFL-1.1 / CC BY 4.0"};
+        for (int i = 0; i < 12; ++i) { T(400, 13, b.x + 28 * s, b.y + (94 + i * 27) * s, 20, lines[i], th.text); }
+        T(400, 11, b.x + 20 * s, b.y + 444 * s, 18, "Full attribution is included with the distributed assets.", th.sub);
         if (u.button({b.x + b.w - 130 * s, b.y + b.h - 48 * s, 110 * s, 32 * s}, "Close")) modal_ = Modal::None;
     } else if (modal_ == Modal::ConfirmCarMode) {   // window.confirm('Start Car Mode?...')
         const std::vector<std::string> ls{"Car Mode opens a distraction-free widescreen player with large driving-friendly controls."};
@@ -372,6 +372,7 @@ void App::draw_settings(Rect r) {
             if (sub_lines > 1) { h_logical += (sub_lines - 1) * 18; card_extra_now_[cur_card_] += (sub_lines - 1) * 18; last_extra_ += (sub_lines - 1) * 18; }
         }
         Rect rr{x + 1 * s, y, w - 2 * s, h_logical * s};
+        if (rr.y + rr.h < r.y - 2 * s || rr.y > r.y + r.h + 2 * s) { y += h_logical * s; return false; }   // off screen: height is known, nothing to draw or click
         bool hov = kind != 0 && u.hover(rr) && r.contains(u.in.mx, u.in.my);
         if (hov) gfx_->fill(rr, th.hover);
         Color ic = kind == 2 ? th.danger : icon_ov ? *icon_ov : th.sub;
@@ -386,7 +387,7 @@ void App::draw_settings(Rect r) {
             if (sub_lines > 1) TW(400, 12, rr.x + 54 * s, sy, 18, sub, rgb(0xb5b5b5), sw);
             else T(400, 12, rr.x + 54 * s, sy, 18, sub, rgb(0xb5b5b5), sw);
         } else {
-            T(400, 15, rr.x + 54 * s, rr.y, h_logical, title, tc, rr.w - 54 * s - 100 * s);
+            T(400, 15, rr.x + 54 * s, rr.y, h_logical, title, tc, rr.w - 54 * s - ((cp && kind == 0 && pill.empty() && !chevron) ? 160.0f : 100.0f) * s);   // a title-only row with a dropdown on its right must stop before it
         }
         float rx = rr.x + rr.w - 16 * s;
         if (chevron) { fa(skin::ChevRight, rx - 7 * s, rr.y + rr.h / 2, 14, rgb(0xb5b5b5)); rx -= 30 * s; }
@@ -682,7 +683,8 @@ void App::draw_settings(Rect r) {
     section("STORAGE");
     card_fill(y, 185 * s);
     {
-        const auto vols = storage_volumes();
+        if (SDL_GetTicks() - settings_vols_ms_ > 2500 || settings_vols_.empty()) { settings_vols_ = storage_volumes(); settings_vols_ms_ = SDL_GetTicks(); }   // a JNI + StorageManager query: not every frame
+        const auto& vols = settings_vols_;
         auto where = [&](const std::string& base) {
             for (auto& v : vols) if (base.compare(0, v.path.size(), v.path) == 0) {
                 char t[160] = {}; std::snprintf(t, sizeof t, "%s \xC2\xB7 %.1f GB free", v.label.c_str(), v.free_bytes / 1073741824.0); return std::string(t);

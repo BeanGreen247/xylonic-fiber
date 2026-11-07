@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <set>
+#include "../audio/source.h"
 #include "../net/http.h"
 #include "model_json.h"
 #include <mbedtls/sha256.h>
@@ -29,12 +30,16 @@ template <class F> void parallel_for(size_t n, F&& fn) {
     work();
     for (auto& x : th) x.join();
 }
+std::string suffix_of(const std::string& song_json) {
+    Song sg;
+    return from_json(song_json, sg) ? sg.suffix : std::string();
+}
 }  // namespace
 
 Downloads::Downloads(Store& store, std::string dir, std::function<std::string(const std::string&)> url_fn, ConnectOptions opt, int threads)
     : store_(store), dir_(std::move(dir)), url_fn_(std::move(url_fn)), opt_(std::move(opt)) {
     if (!dir_.empty() && dir_.back() != '/') dir_ += '/';
-    if (!dir_.empty()) { media_ = std::make_shared<xf::cache::MediaCache>(dir_ + "media"); media_->open(); }
+    if (!dir_.empty()) { media_ = std::make_shared<xf::cache::MediaCache>(dir_ + "media"); media_->open(false); }   // its reconcile (one stat per downloaded file) runs in start_verify, off the UI thread
     for (auto& r : store_.dl_all())  // an interrupted run leaves rows Active: requeue them
         if (r.state == Active) store_.dl_set(r.id, Queued, 0, r.total, r.path);
     reconcile();
@@ -197,7 +202,9 @@ void Downloads::clear_all() {
     remove_many(ids);
 }
 
-int Downloads::verify() {
+// deep: also reads each file header and drops rows the player cannot decode (an original m4a/ogg/opus fetched before downloads were
+// converted to MP3), so "Download Missing" fetches them again in a playable format.
+int Downloads::verify(bool deep) {
     struct Item { std::string id, path; int64_t total; };
     std::vector<Item> items;
     store_.dl_each([&](const Store::Row& r) { if (r.state == Done) items.push_back({r.id, r.path, r.total}); });   // no song JSON copies
@@ -205,6 +212,7 @@ int Downloads::verify() {
     parallel_for(items.size(), [&](size_t i) {
         struct stat st{};
         if (::stat(items[i].path.c_str(), &st) != 0 || (items[i].total > 0 && st.st_size != items[i].total)) bad[i] = 1;
+        else if (deep && sniff_audio_kind(items[i].path).empty()) bad[i] = 1;
     });
     std::vector<std::string> drop;
     for (size_t i = 0; i < items.size(); ++i) if (bad[i]) drop.push_back(items[i].id);
@@ -212,12 +220,12 @@ int Downloads::verify() {
     return static_cast<int>(drop.size());
 }
 
-void Downloads::start_verify() {
+void Downloads::start_verify(bool deep) {
     std::lock_guard<std::mutex> lk(bg_m_);
     if (verifying_.exchange(true)) return;
     if (bg_.joinable()) bg_.join();
     verify_dropped_ = 0;
-    bg_ = std::thread([this] { verify_dropped_ = verify(); verifying_ = false; if (on_change_) on_change_(); });
+    bg_ = std::thread([this, deep] { if (media_) media_->reconcile(); verify_dropped_ = verify(deep); verifying_ = false; if (on_change_) on_change_(); });
 }
 
 void Downloads::clear_queue_async() {
@@ -327,7 +335,7 @@ bool Downloads::fetch(const Store::Row& row) {
     bool ok = f != nullptr;
     HttpResult r;
     if (ok) {
-        r = http_get(url_q_ ? url_q_(row.id, row.quality) : url_fn_(row.id), [&](const uint8_t* p, size_t n) {
+        r = http_get(url_q_ ? url_q_(row.id, row.quality, suffix_of(row.song_json)) : url_fn_(row.id), [&](const uint8_t* p, size_t n) {
             if (cancel.load()) return false;
             if (std::fwrite(p, 1, n, f) != n) return false;
             got += static_cast<int64_t>(n);

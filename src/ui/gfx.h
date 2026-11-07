@@ -100,4 +100,5 @@ private:
     uint64_t draw_calls_ = 0;
     double present_ms_ = 0;
     float spacing_ = 0;
+    std::unordered_map<uint64_t, float> measure_cache_;   // (font, spacing, text) -> width; Settings measured the same strings every frame
 };

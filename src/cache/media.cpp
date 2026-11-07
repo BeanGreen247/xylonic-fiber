@@ -35,7 +35,7 @@ struct Reader {
 
 std::string MediaCache::path_for(MediaKind kind, const std::string& hash) const { return dir_ + "/" + kind_dir(kind) + "/" + hash; }
 
-bool MediaCache::open() {
+bool MediaCache::open(bool reconcile_now) {
     std::error_code ec;
     fs::create_directories(dir_ + "/audio", ec); fs::create_directories(dir_ + "/artwork", ec);
     { std::lock_guard<std::mutex> lk(m_);
@@ -50,7 +50,7 @@ bool MediaCache::open() {
           for (uint64_t i = 0; ok && i < nk; ++i) { std::string k; Key key; uint32_t pinned = 0; ok = r.str(k) && r.str(key.hash) && r.u32(pinned) && blobs.count(key.hash); key.pinned = pinned != 0; if (ok) { keys[k] = key; ++blobs[key.hash].refs; if (key.pinned) ++blobs[key.hash].pinned; } }
           if (ok) { blobs_ = std::move(blobs); keys_ = std::move(keys); clock_ = clock; }   // else: start empty, reconcile removes stray files
       } }
-    reconcile();
+    if (reconcile_now) reconcile();
     return true;
 }
 

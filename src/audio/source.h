@@ -30,6 +30,7 @@ public:
     bool seek(int64_t off, Origin o) override;
     int64_t tell() const override { return pos_; }
     int64_t size() const { return size_.load(); }
+    bool wait_complete(int timeout_ms);   // blocks until the whole file is on disk; false on failure or timeout
     // Whole file present from byte 0 (a track entered by a Range jump never completes, so it is not kept as a cache file).
     bool complete() const { return !failed_.load() && win_start_.load() == 0 && size_.load() >= 0 ? avail_.load() == size_.load() : (done_.load() && !failed_.load() && win_start_.load() == 0); }
 
@@ -54,5 +55,8 @@ private:
 
 // Opens a track for playback: `permanent_path` (downloaded copy) if it exists, else streams `url` into `stream_path`.
 // Blocks on the network, so call it from a worker thread and hand the result to Player::attach.
+// "flac", "mp3", "wav", "aiff", "vorbis", "opus", "m4a" or "aac" from the file header; empty when it is none of them (see source.cpp).
+std::string sniff_audio_kind(const std::string& path);
+
 std::unique_ptr<Decoder> open_track(const std::string& url, const std::string& permanent_path, const std::string& stream_path,
                                     const std::string& kind, const ConnectOptions& opt, std::string& err);

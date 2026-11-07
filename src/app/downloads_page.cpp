@@ -339,7 +339,7 @@ void App::draw_downloads(Rect r) {
         const bool can_verify = !dm_verifying_ && cached_songs > 0;
         if (btn(vb, vl, rgb(0xffffff), can_verify, 15.2f, 44 * s)) {
             dm_verifying_ = true; dm_verify_before_ = cached_songs; dm_verify_t0_ = std::chrono::steady_clock::now();
-            downloads_->start_verify();   // stats the files on worker threads; the page keeps drawing
+            downloads_->start_verify(true);   // stats the files on worker threads; the page keeps drawing
             mark();
         }
         if (dm_verifying_) {

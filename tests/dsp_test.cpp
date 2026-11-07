@@ -12,9 +12,25 @@ int main() {
         for (double step : {0.5, 1.0, 2.0, 1.0881}) {
             Resampler r; std::vector<float> out; r.process(in.data(), 44100, step, out);
             double expect = 44100.0 / step;
-            CHECK(std::fabs(static_cast<double>(out.size() / 2) - expect) < 4);
+            CHECK(static_cast<double>(out.size() / 2) <= expect + 1 && static_cast<double>(out.size() / 2) > expect - 70);   // the kernel holds back its last half width
+            r.finish(step, out);   // end of track: the held-back tail is delivered
+            CHECK(static_cast<double>(out.size() / 2) >= expect - 2);
         }
         Resampler r; std::vector<float> out; r.process(in.data(), 44100, 1.0, out); CHECK(out.size() == in.size());  // passthrough
+    }
+    { // sinc resampler quality: in-band tones pass at unity gain, tones above the output Nyquist are removed instead of folding down
+        auto tone = [&](double f, double rate, double step) {
+            auto in = sine(f, rate, static_cast<size_t>(rate));
+            Resampler r; std::vector<float> out;
+            for (size_t off = 0; off < in.size() / 2; off += 1024) r.process(in.data() + off * 2, std::min<size_t>(1024, in.size() / 2 - off), step, out);   // streamed in blocks
+            std::vector<float> left; for (size_t i = 0; i + 1 < out.size(); i += 2) left.push_back(out[i]);
+            return rms(left, left.size() / 4) * 1.4142136f;   // amplitude of the steady part
+        };
+        const float pass = tone(1000, 96000, 2.0), pass2 = tone(10000, 44100, 44100.0 / 48000.0), alias = tone(30000, 96000, 2.0), alias2 = tone(40000, 192000, 4.0);
+        CHECK(pass > 0.48f && pass < 0.52f);      // 0.5 in, 0.5 out (96k -> 48k)
+        CHECK(pass2 > 0.48f && pass2 < 0.52f);    // 44.1k -> 48k keeps a 10 kHz tone
+        CHECK(alias < 0.01f);                      // 30 kHz at 96k would fold to 18 kHz at 48k: must be filtered away
+        CHECK(alias2 < 0.01f);                     // 40 kHz at 192k -> 48k likewise
     }
     { // shelves: +12 dB low shelf boosts 60 Hz, leaves 5 kHz; high shelf the opposite
         auto lo = sine(60, 44100, 44100), hi = sine(5000, 44100, 44100);

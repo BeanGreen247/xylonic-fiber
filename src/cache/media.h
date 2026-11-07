@@ -16,7 +16,7 @@ enum class MediaKind : uint8_t { Audio = 1, Artwork = 2 };
 class MediaCache {
 public:
     explicit MediaCache(std::string dir) : dir_(std::move(dir)) {}
-    bool open();                                           // load manifest (a corrupt one starts empty), then reconcile
+    bool open(bool reconcile_now = true);   // reconcile_now false: the caller runs reconcile() later (a big blob table on a slow card)                                           // load manifest (a corrupt one starts empty), then reconcile
     bool save();
     // Stores bytes through a temp file and atomic rename. Identical content is stored once.
     bool put(const std::string& key, MediaKind kind, const std::string& data, bool pinned = false);

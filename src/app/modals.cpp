@@ -37,6 +37,12 @@ std::vector<std::string> split_lines(const std::string& s) {
 
 int App::wrap_count(int weight, float px, const std::string& str, float max_w) {
     const int f = F(weight, px);
+    uint64_t key = 1469598103934665603ULL ^ static_cast<uint64_t>(f + 1);
+    key = (key ^ static_cast<uint64_t>(static_cast<int64_t>(max_w * 4))) * 1099511628211ULL;
+    for (unsigned char c : str) { key ^= c; key *= 1099511628211ULL; }
+    auto hit = wrap_cache_.find(key);
+    if (hit != wrap_cache_.end()) return hit->second;
+    if (wrap_cache_.size() > 4096) wrap_cache_.clear();
     int lines = 1;
     std::string line, word;
     for (size_t i = 0; i <= str.size(); ++i) {
@@ -48,6 +54,7 @@ int App::wrap_count(int weight, float px, const std::string& str, float max_w) {
             }
         } else word += str[i];
     }
+    wrap_cache_[key] = lines;
     return lines;
 }
 

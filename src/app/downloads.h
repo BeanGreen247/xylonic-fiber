@@ -30,7 +30,7 @@ public:
     // quality kbps (0 original); -1 uses the default download setting at fetch time.
     void enqueue(const std::vector<Song>& songs, int quality = -1);
     // URL builder that knows the quality of each queued song (replaces the plain builder once set).
-    void set_quality_url_fn(std::function<std::string(const std::string&, int)> f) { url_q_ = std::move(f); }
+    void set_quality_url_fn(std::function<std::string(const std::string&, int, const std::string&)> f) { url_q_ = std::move(f); }   // (id, quality, song suffix)
     void pause(const std::string& id);
     void resume(const std::string& id);
     void retry_failed();
@@ -42,8 +42,8 @@ public:
     void remove(const std::string& id);          // cancels and deletes file + row
     void remove_many(const std::vector<std::string>& ids);   // same for a batch: one manifest save and one notification (clearing a 5000-song queue)
     void clear_all();
-    int verify();                                // drops rows whose file is gone or short; returns how many (stats on several threads)
-    void start_verify();                         // same on a background thread; poll verify_running / verify_dropped
+    int verify(bool deep = false);                                // drops rows whose file is gone or short; returns how many (stats on several threads)
+    void start_verify(bool deep = false);                         // same on a background thread; poll verify_running / verify_dropped
     bool verify_running() const { return verifying_.load(); }
     int verify_dropped() const { return verify_dropped_.load(); }
     void clear_queue_async();                    // clear_queue off the calling thread; the change notification fires when done
@@ -73,7 +73,7 @@ private:
     std::shared_ptr<xf::cache::MediaCache> media_;   // owns the downloaded bytes: refcount dedup, verify, orphan reconcile
     std::string quality_ = "original";
     std::function<std::string(const std::string&)> url_fn_;
-    std::function<std::string(const std::string&, int)> url_q_;
+    std::function<std::string(const std::string&, int, const std::string&)> url_q_;
     ConnectOptions opt_;
     std::function<void()> on_change_;
     std::function<void(const Song&)> on_done_;
