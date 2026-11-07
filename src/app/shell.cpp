@@ -469,17 +469,26 @@ void App::draw_player_bar(Rect strip) {
         }
         if (u.in.pressed && !pop.contains(u.in.mx, u.in.my) && !spd.contains(u.in.mx, u.in.my)) speed_popup_ = false;
     }
-    gfx_->fill_round(qual, 16 * s, th.panel);
-    gfx_->stroke_round(qual, 16 * s, 1 * s, edge, th.panel);
-    if (u.hover(qual)) gfx_->fill_round(qual, 16 * s, th.hover);
-    int bars = cfg_.stream_quality == 0 ? 6 : cfg_.stream_quality >= 320 ? 5 : cfg_.stream_quality >= 256 ? 4 : cfg_.stream_quality >= 192 ? 3 : cfg_.stream_quality >= 128 ? 2 : 1;
+    // StreamingQualitySelector.tsx: drive icon + the saved quality for a downloaded song, cloud + streaming quality otherwise; offline mode dims
+    // the button and it cannot open the picker ("Playing from cache").
+    const Song* qcur = queue_.current();
+    int cached_q = -2;   // -2 not downloaded, 0 original, else kbps
+    if (qcur && !perm_path(*qcur).empty() && store_) { Store::Row row; if (store_->dl_get(qcur->id, row)) cached_q = row.quality < 0 ? cfg_.download_quality : row.quality; }
+    const float dim = offline_ ? 0.45f : 1.0f;
+    auto dimmed = [&](Color c) { c.a = static_cast<uint8_t>(c.a * dim); return c; };
+    if (offline_) quality_popup_ = false;
+    gfx_->fill_round(qual, 16 * s, dimmed(th.panel));
+    gfx_->stroke_round(qual, 16 * s, 1 * s, dimmed(edge), th.panel);
+    if (!offline_ && u.hover(qual)) gfx_->fill_round(qual, 16 * s, th.hover);
+    const int shown_kbps = cached_q != -2 ? cached_q : cfg_.stream_quality;
+    int bars = shown_kbps == 0 ? 6 : shown_kbps >= 320 ? 6 : shown_kbps >= 256 ? 5 : shown_kbps >= 192 ? 4 : shown_kbps >= 128 ? 3 : 2;
     for (int i = 0; i < 6; ++i) {
         float bh = (5 + 3 * i) * s;
-        gfx_->fill_round({qual.x + 9 * s + i * 5 * s, qual.y + 26 * s - bh, 3 * s, bh}, 1.5f * s, i < bars ? th.accent : alpha(th.text, 0.25f));
+        gfx_->fill_round({qual.x + 9 * s + i * 5 * s, qual.y + 26 * s - bh, 3 * s, bh}, 1.5f * s, i < bars ? dimmed(th.accent) : dimmed(alpha(th.text, 0.25f)));
     }
-    fa(skin::Cloud, qual.x + 51 * s, qual.y + 16 * s, 14, th.accent);
-    T(600, 12, qual.x + 65 * s, qual.y, 32, cfg_.stream_quality ? std::to_string(cfg_.stream_quality) + "k" : "Original", th.text);
-    if (u.clicked(qual)) { quality_popup_ = !quality_popup_; speed_popup_ = false; mark(); }
+    fa(cached_q != -2 ? 0xf0a0u : static_cast<uint32_t>(skin::Cloud), qual.x + 51 * s, qual.y + 16 * s, 14, dimmed(th.accent));
+    T(600, 12, qual.x + 65 * s, qual.y, 32, shown_kbps ? std::to_string(shown_kbps) + "k" : "Original", dimmed(th.text));
+    if (u.clicked(qual) && !offline_) { quality_popup_ = !quality_popup_; speed_popup_ = false; mark(); }
     if (quality_popup_) {
         static const int qualities[] = {0, 320, 256, 192, 128, 64};
         static const char* labels[] = {"Original", "320 kbps", "256 kbps", "192 kbps", "128 kbps", "64 kbps"};

@@ -278,26 +278,36 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
     y += 4 * s;
     const float sw = (W - 44 * s - 8 * s) / 2, sh = 38 * s;
     Rect qb{22 * s, y, sw, sh}, sp{22 * s + sw + 8 * s, y, sw, sh};
+    // Like StreamingQualitySelector.tsx: a downloaded song shows the drive icon and the quality it was saved at, a streamed one the cloud and
+    // the streaming quality; in offline mode the button is dimmed and cannot open the picker ("Playing from cache").
+    const bool cached_cur = cur && !perm_path(*cur).empty();
+    int cached_q = -2;   // -2 not downloaded, 0 original, else kbps
+    if (cached_cur && store_) { Store::Row row; if (store_->dl_get(cur->id, row)) cached_q = row.quality < 0 ? cfg_.download_quality : row.quality; }
+    const float dim = offline_ ? 0.45f : 1.0f;
+    auto dimmed = [&](Color c) { c.a = static_cast<uint8_t>(c.a * dim); return c; };
     for (Rect* r : {&qb, &sp}) {
-        gfx_->fill_round(*r, 6 * s, {255, 255, 255, static_cast<uint8_t>(u.hover(*r) ? 41 : 33)});
-        gfx_->stroke_round(*r, 6 * s, 1 * s, {255, 255, 255, 102});
+        const bool dead = r == &qb && offline_;
+        gfx_->fill_round(*r, 6 * s, dimmed(Color{255, 255, 255, static_cast<uint8_t>(!dead && u.hover(*r) ? 41 : 33)}));
+        gfx_->stroke_round(*r, 6 * s, 1 * s, r == &qb ? dimmed(Color{255, 255, 255, 102}) : Color{255, 255, 255, 102});
     }
+    if (offline_) quality_popup_ = false;
     {
-        const std::string ql = cfg_.stream_quality ? std::to_string(cfg_.stream_quality) + "k" : "Original";
+        const int shown_kbps = cached_q != -2 ? cached_q : cfg_.stream_quality;   // 0 = original
+        const std::string ql = shown_kbps ? std::to_string(shown_kbps) + "k" : "Original";
         const int fq = F(600, 12);
         const float tw = gfx_->measure(fq, ql), total = 38 * s + 14 * s + 5 * s + tw;
         float bx = qb.x + (qb.w - total) / 2;
-        const int bars = cfg_.stream_quality == 0 ? 6 : cfg_.stream_quality >= 320 ? 5 : cfg_.stream_quality >= 256 ? 4 : cfg_.stream_quality >= 192 ? 3 : cfg_.stream_quality >= 128 ? 2 : 1;
-        for (int i = 0; i < 6; ++i) { const float bh = (4 + 2.4f * i) * s; gfx_->fill_round({bx + i * 5.5f * s, qb.y + qb.h / 2 + 7 * s - bh, 3 * s, bh}, 1.5f * s, i < bars ? th.accent : Color{255, 255, 255, 64}); }
-        fa(skin::Cloud, bx + 38 * s + 7 * s, qb.y + qb.h / 2, 13, th.accent);
-        T(600, 12, bx + 38 * s + 19 * s, qb.y, sh / s, ql, {255, 255, 255, 191});
+        const int bars = shown_kbps == 0 ? 6 : shown_kbps >= 320 ? 6 : shown_kbps >= 256 ? 5 : shown_kbps >= 192 ? 4 : shown_kbps >= 128 ? 3 : 2;   // getQualityBars of the original
+        for (int i = 0; i < 6; ++i) { const float bh = (4 + 2.4f * i) * s; gfx_->fill_round({bx + i * 5.5f * s, qb.y + qb.h / 2 + 7 * s - bh, 3 * s, bh}, 1.5f * s, i < bars ? dimmed(th.accent) : dimmed(Color{255, 255, 255, 64})); }
+        fa(cached_q != -2 ? 0xf0a0u : static_cast<uint32_t>(skin::Cloud), bx + 38 * s + 7 * s, qb.y + qb.h / 2, 13, dimmed(th.accent));   // hard drive when played from the downloads
+        T(600, 12, bx + 38 * s + 19 * s, qb.y, sh / s, ql, dimmed(Color{255, 255, 255, 191}));
         char sb[16] = {}; const double spd = player_.speed();
         if (spd == static_cast<int>(spd)) std::snprintf(sb, sizeof sb, "%d\xC3\x97", static_cast<int>(spd)); else std::snprintf(sb, sizeof sb, "%g\xC3\x97", spd);
         const float stw = gfx_->measure(fq, sb);
         fa(skin::Bolt, sp.x + (sp.w - stw - 16 * s) / 2 + 5 * s, sp.y + sp.h / 2, 11, th.accent);
         T(600, 12, sp.x + (sp.w - stw - 16 * s) / 2 + 16 * s, sp.y, sh / s, sb, {255, 255, 255, 191});
     }
-    if (u.clicked(qb)) { quality_popup_ = !quality_popup_; speed_popup_ = false; }
+    if (u.clicked(qb) && !offline_) { quality_popup_ = !quality_popup_; speed_popup_ = false; }
     if (u.clicked(sp)) { speed_popup_ = !speed_popup_; quality_popup_ = false; }
     y += sh;
     // audio stats: Format, Bitrate, Sample Rate, Bit Depth, File Size (song data, else getSong)
