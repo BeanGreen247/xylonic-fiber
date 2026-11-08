@@ -18,6 +18,7 @@ yyjson_mut_val* song_val(Doc* d, const Song& s) {
     yyjson_mut_obj_add_int(d, o, "year", s.year);
     yyjson_mut_obj_add_int(d, o, "duration", s.duration);
     yyjson_mut_obj_add_int(d, o, "bitRate", s.bit_rate);
+    yyjson_mut_obj_add_int(d, o, "samplingRate", s.sampling_rate); yyjson_mut_obj_add_int(d, o, "bitDepth", s.bit_depth); yyjson_mut_obj_add_int(d, o, "channelCount", s.channels);
     yyjson_mut_obj_add_uint(d, o, "size", s.size);
     yyjson_mut_obj_add_bool(d, o, "starred", s.starred);
     return o;
@@ -68,18 +69,19 @@ void read_song(yyjson_val* o, Song& s) {
     s.id = str(o, "id"); s.title = str(o, "title"); s.album = str(o, "album"); s.album_id = str(o, "albumId");
     s.artist = str(o, "artist"); s.artist_id = str(o, "artistId"); s.cover_art = str(o, "coverArt"); s.suffix = str(o, "suffix");
     s.track = num(o, "track"); s.year = num(o, "year"); s.duration = num(o, "duration"); s.bit_rate = num(o, "bitRate");
+    s.sampling_rate = num(o, "samplingRate"); s.bit_depth = num(o, "bitDepth"); s.channels = num(o, "channelCount");
     yyjson_val* sz = yyjson_obj_get(o, "size"); s.size = sz && yyjson_is_num(sz) ? yyjson_get_uint(sz) : 0;
     yyjson_val* st = yyjson_obj_get(o, "starred"); s.starred = st && yyjson_get_bool(st);
 }
 void read_album(yyjson_val* o, Album& a) {
     a.id = str(o, "id"); a.name = str(o, "name"); a.artist = str(o, "artist"); a.artist_id = str(o, "artistId"); a.cover_art = str(o, "coverArt");
     a.song_count = num(o, "songCount"); a.duration = num(o, "duration"); a.year = num(o, "year");
-    size_t i, n; yyjson_val* s;
+    size_t i = 0, n = 0; yyjson_val* s = nullptr;
     yyjson_arr_foreach(yyjson_obj_get(o, "songs"), i, n, s) { a.songs.emplace_back(); read_song(s, a.songs.back()); }
 }
 void read_artist(yyjson_val* o, Artist& a) {
     a.id = str(o, "id"); a.name = str(o, "name"); a.cover_art = str(o, "coverArt"); a.album_count = num(o, "albumCount");
-    size_t i, n; yyjson_val* s;
+    size_t i = 0, n = 0; yyjson_val* s = nullptr;
     yyjson_arr_foreach(yyjson_obj_get(o, "albums"), i, n, s) { a.albums.emplace_back(); read_album(s, a.albums.back()); }
 }
 template <class F>
@@ -105,8 +107,8 @@ bool from_json(const std::string& j, Song& out) { return parse(j, [&](yyjson_val
 bool from_json(const std::string& j, Album& out) { return parse(j, [&](yyjson_val* r) { if (!yyjson_is_obj(r)) return false; out = Album{}; read_album(r, out); return true; }); }
 bool from_json(const std::string& j, Artist& out) { return parse(j, [&](yyjson_val* r) { if (!yyjson_is_obj(r)) return false; out = Artist{}; read_artist(r, out); return true; }); }
 bool from_json(const std::string& j, std::vector<Album>& out) {
-    return parse(j, [&](yyjson_val* r) { if (!yyjson_is_arr(r)) return false; out.clear(); size_t i, n; yyjson_val* v; yyjson_arr_foreach(r, i, n, v) { out.emplace_back(); read_album(v, out.back()); } return true; });
+    return parse(j, [&](yyjson_val* r) { if (!yyjson_is_arr(r)) return false; out.clear(); size_t i = 0, n = 0; yyjson_val* v = nullptr; yyjson_arr_foreach(r, i, n, v) { out.emplace_back(); read_album(v, out.back()); } return true; });
 }
 bool from_json(const std::string& j, std::vector<Artist>& out) {
-    return parse(j, [&](yyjson_val* r) { if (!yyjson_is_arr(r)) return false; out.clear(); size_t i, n; yyjson_val* v; yyjson_arr_foreach(r, i, n, v) { out.emplace_back(); read_artist(v, out.back()); } return true; });
+    return parse(j, [&](yyjson_val* r) { if (!yyjson_is_arr(r)) return false; out.clear(); size_t i = 0, n = 0; yyjson_val* v = nullptr; yyjson_arr_foreach(r, i, n, v) { out.emplace_back(); read_artist(v, out.back()); } return true; });
 }

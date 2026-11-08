@@ -1,4 +1,5 @@
 // Store + Downloads against an in-process HTTP server (fast files, a slow one, a 404).
+#include <filesystem>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -76,6 +77,19 @@ int main() {
       unlink(path.c_str());
       { Store s; CHECK(s.open(path)); std::string v; CHECK(s.get("album:journal", v) && v == "persisted"); }
       unlink(path.c_str()); unlink((path + ".journal").c_str());
+      std::error_code ec0; std::filesystem::remove_all(path + ".meta", ec0);
+    }
+
+    {   // query API: likes, playlists and technical fields come back from the indexed metadata, across a restart
+      char tmpl[] = "meta-store-XXXXXX"; int fd = mkstemp(tmpl); close(fd); unlink(tmpl); std::string path = tmpl;
+      Album al; al.id = "alb"; al.name = "A"; al.artist = "Art"; al.songs = {mk("q1", "alb"), mk("q2", "alb")}; al.songs[0].title = "Quartz Song"; al.songs[0].cover_art = "cov1"; al.songs[0].bit_rate = 320; al.songs[0].suffix = "flac";
+      { Store s; CHECK(s.open(path)); CHECK(s.put("album:alb", to_json(al))); s.set_liked("q2", true);
+        s.set_playlist("pl1", {al.songs[1], al.songs[0]});
+        Song got; CHECK(s.song("q1", got) && got.cover_art == "cov1" && got.bit_rate == 320 && got.suffix == "flac");
+        CHECK(s.liked("q2")); CHECK(!s.liked("q1")); CHECK(s.liked_songs().size() == 1); CHECK(s.playlist_contains("pl1", "q1")); CHECK(!s.playlist_contains("pl1", "zz")); }
+      { Store s; CHECK(s.open(path)); CHECK(s.liked("q2")); CHECK(s.playlist_contains("pl1", "q2")); CHECK(s.local_search("quartz").size() == 1); CHECK(s.local_search("quartz")[0].cover_art == "cov1"); // snapshot + persisted index
+        Album shrunk = al; shrunk.songs.resize(1); CHECK(s.put("album:alb", to_json(shrunk))); CHECK(s.local_search("quartz").size() == 1 && s.local_search("q").size() <= 2); }
+      std::error_code ec; std::filesystem::remove_all(path + ".meta", ec); unlink(path.c_str()); unlink((path + ".journal").c_str());
     }
 
     int lfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -93,7 +107,7 @@ int main() {
         mkdir((dir + "/files").c_str(), 0700);
         d.enqueue({mk("1", "alA"), mk("2", "alA"), mk("3", "alB"), mk("missing", "alB")});
         CHECK(wait_for([&] { return d.pending() == 0; }));
-        auto snap = d.snapshot();
+        auto snap_p = d.snapshot(); const auto& snap = *snap_p;
         int done = 0, failed = 0;
         for (auto& it : snap) { if (it.state == Downloads::Done) ++done; if (it.state == Downloads::Failed) ++failed; }
         CHECK(done == 3 && failed == 1);
@@ -104,11 +118,19 @@ int main() {
         auto albums = d.done_albums();
         CHECK(albums.size() == 2 && (albums[0].songs.size() + albums[1].songs.size()) == 3);
         d.retry_failed(); CHECK(wait_for([&] { return d.pending() == 0; }));  // still 404: fails again
+        // transcoded (inexact) download: the served length (50000) differs from the original's size (90000) and must still succeed
+        d.set_exact_fn([](int q, const std::string&) { return q == 0; });
+        d.set_default_quality_fn([] { return 320; });
+        d.enqueue({mk("tx", "alT", 90000)});   // quality -1 resolves to 320 at queue time
+        CHECK(wait_for([&] { return !d.path_if_done("tx").empty(); }));
+        { Store::Row r; CHECK(st.dl_get("tx", r) && r.quality == 320); }
+        d.enqueue({mk("ex", "alT", 90000)}, 0);   // original: the response's Content-Length (50000) is the expectation, not the catalog size
+        CHECK(wait_for([&] { return !d.path_if_done("ex").empty(); }));
         // pause / resume on a slow file
         d.enqueue({mk("slow", "alC", 400000)});
-        CHECK(wait_for([&] { for (auto& it : d.snapshot()) if (it.song.id == "slow" && it.state == Downloads::Active && it.bytes > 0) return true; return false; }));
+        CHECK(wait_for([&] { auto sp = d.snapshot(); for (auto& it : *sp) if (it.song.id == "slow" && it.state == Downloads::Active && d.live_bytes(it.song.id, it.bytes) > 0) return true; return false; }));
         d.pause("slow");
-        CHECK(wait_for([&] { for (auto& it : d.snapshot()) if (it.song.id == "slow") return it.state == Downloads::Paused; return false; }));
+        CHECK(wait_for([&] { auto sp = d.snapshot(); for (auto& it : *sp) if (it.song.id == "slow") return it.state == Downloads::Paused; return false; }));
         d.resume("slow");
         CHECK(wait_for([&] { return !d.path_if_done("slow").empty(); }));
         // remove
@@ -118,6 +140,44 @@ int main() {
         std::string missing = d.path_if_done("3"); unlink(missing.c_str()); CHECK(d.verify() == 1 && d.path_if_done("3").empty());
         FILE* orphan = std::fopen((dir + "/files/orphan.mp3").c_str(), "wb"); if (orphan) { std::fputs("orphan", orphan); std::fclose(orphan); }
         CHECK(d.reconcile() == 1 && access((dir + "/files/orphan.mp3").c_str(), F_OK) != 0);
+    }
+    { // a library-sized queue stays cheap: batch enqueue, repeated snapshots and pending(), batch clear (paused so nothing downloads)
+        Store st; CHECK(st.open(dir + "/big.json"));
+        Downloads d(st, dir + "/bigfiles", urlf, ConnectOptions{});
+        d.pause_all();
+        std::vector<Song> many;
+        for (int i = 0; i < 4000; ++i) many.push_back(mk("big" + std::to_string(i), "alBig" + std::to_string(i / 10)));
+        auto t0 = std::chrono::steady_clock::now();
+        d.enqueue(many);
+        auto ms = [&] { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count(); };
+        CHECK(ms() < 3000);
+        t0 = std::chrono::steady_clock::now();
+        int n = 0;
+        for (int i = 0; i < 200; ++i) { n += d.pending(); auto sp = d.snapshot(); n += static_cast<int>(sp->size()); }
+        CHECK(n == 200 * 8000 && ms() < 1500);   // cached snapshot + non-copying pending()
+        t0 = std::chrono::steady_clock::now();
+        d.clear_queue();
+        CHECK(d.pending() == 0 && d.snapshot()->empty() && ms() < 5000);
+    }
+    { // async clear and async verify of a big queue finish off-thread
+        Store st; CHECK(st.open(dir + "/as.json"));
+        Downloads d(st, dir + "/asfiles", urlf, ConnectOptions{}); d.pause_all();
+        std::vector<Song> big; for (int i = 0; i < 5000; ++i) big.push_back(mk("as" + std::to_string(i), "alAs"));
+        d.enqueue(big);
+        d.start_verify(); for (int i = 0; i < 500 && d.verify_running(); ++i) sleep_ms(10);
+        CHECK(!d.verify_running() && d.verify_dropped() == 0);
+        auto t1 = std::chrono::steady_clock::now();
+        d.clear_queue_async();
+        for (int i = 0; i < 500 && d.pending() > 0; ++i) sleep_ms(10);
+        CHECK(d.pending() == 0 && st.dl_all().empty());
+        std::printf("async clear of 5000: %lld ms\n", static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t1).count()));
+    }
+    { // batch writes survive a restart (journal replay of multi-row transactions)
+        std::vector<Song> few; for (int i = 0; i < 50; ++i) few.push_back(mk("rs" + std::to_string(i), "alRs"));
+        { Store st; CHECK(st.open(dir + "/rs.json")); Downloads d(st, dir + "/rsfiles", urlf, ConnectOptions{}); d.pause_all(); d.enqueue(few); }
+        { Store st; CHECK(st.open(dir + "/rs.json")); CHECK(st.dl_all().size() == 50);
+          Downloads d(st, dir + "/rsfiles", urlf, ConnectOptions{}); d.pause_all(); d.clear_queue(); }
+        { Store st; CHECK(st.open(dir + "/rs.json")); CHECK(st.dl_all().empty()); }
     }
     { // persistence across restart
         Store st; CHECK(st.open(dbp));

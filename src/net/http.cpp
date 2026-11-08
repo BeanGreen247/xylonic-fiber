@@ -28,7 +28,7 @@ struct Reader {
     }
     bool line(std::string& out) {
         out.clear();
-        int c;
+        int c = 0;
         while ((c = get()) >= 0) {
             if (c == '\n') {
                 if (!out.empty() && out.back() == '\r') out.pop_back();
@@ -95,12 +95,13 @@ HttpResult http_get(const std::string& url0, const BodySink& sink, const Connect
         }
         if (on_headers) on_headers(res.status, chunked ? -1 : res.content_length);
         bool deliver = res.status >= 200 && res.status < 300, aborted = false;
-        bool ok;
+        bool ok = false;
         if (chunked) {
             ok = true;
             for (;;) {
                 if (!rd->line(line)) { ok = false; break; }
                 int64_t sz = std::strtoll(line.c_str(), nullptr, 16);
+                if (sz < 0) { ok = false; break; }   // garbage size line
                 if (sz == 0) break;
                 if (!pump(*rd, sz, sink, deliver, aborted)) { ok = false; break; }
                 if (aborted) break;

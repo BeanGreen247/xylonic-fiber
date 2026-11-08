@@ -3,9 +3,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <csignal>
 #include "app/app.h"
 
 int main(int argc, char** argv) {
+    std::signal(SIGPIPE, SIG_IGN);   // a peer closing mid-send must not kill the process (Apple has no MSG_NOSIGNAL)
     AppOptions o;
     for (int i = 1; i < argc; ++i) {
         auto arg = [&](const char* name) { return !std::strcmp(argv[i], name) && i + 1 < argc; };
@@ -19,8 +21,14 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--autoplay")) o.autoplay = true;
         else if (!std::strcmp(argv[i], "--selftest")) o.selftest = true;
         else if (!std::strcmp(argv[i], "--offline")) o.offline = true;
+        else if (!std::strcmp(argv[i], "--software")) o.software = true;
         else if (arg("--search")) o.search = argv[++i];
         else if (arg("--panel")) o.panel = argv[++i];
+        else if (arg("--dm")) o.dm = argv[++i];
+        else if (arg("--modal")) o.modal = argv[++i];
+        else if (arg("--scroll")) o.scroll = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--no-precache")) o.no_precache = true;
+        else if (arg("--bench")) o.bench = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--nowplaying")) o.nowplaying = true;
         else if (!std::strcmp(argv[i], "--carmode")) o.carmode = true;
         else if (!std::strcmp(argv[i], "--mini")) o.mini = true;
@@ -28,7 +36,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--help-dialog")) o.help = true;
         else if (arg("--download-album")) o.download_album = argv[++i];
     }
-    int rc;
+    int rc = 0;
     {
         App app(o);
         rc = !app.init() ? 1 : o.selftest ? 0 : app.run();

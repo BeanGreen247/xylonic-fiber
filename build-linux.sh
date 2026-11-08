@@ -6,16 +6,16 @@ BUILD_DIR=${XF_BUILD_DIR:-"$ROOT_DIR/build-linux"}
 BUILD_JOBS=${XF_BUILD_JOBS:-2}
 RUN_APP=0
 RUN_ARGS=()
-RUN_TESTS=1
+RUN_TESTS=0
 
 usage() {
     cat <<'EOF'
 Build the native Linux Xylonic Fiber executable.
 
 Usage:
-  ./build-linux.sh                 Build release executable and run tests
-  ./build-linux.sh --run [args]    Build, test, then launch the executable
-  ./build-linux.sh --no-test       Build without running CTest
+  ./build-linux.sh                 Build release executable (no tests)
+  ./build-linux.sh --run [args]    Build, then launch the executable
+  ./build-linux.sh --test          Build and run CTest
   ./build-linux.sh --help          Show this help
 
 Examples:
@@ -32,6 +32,7 @@ EOF
 while (($#)); do
     case "$1" in
         --run) RUN_APP=1; shift; RUN_ARGS=("$@"); break ;;
+        --test) RUN_TESTS=1; shift ;;
         --no-test) RUN_TESTS=0; shift ;;
         --help|-h) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;

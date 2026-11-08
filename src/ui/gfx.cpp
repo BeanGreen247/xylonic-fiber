@@ -1,5 +1,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "gfx.h"
+#include <cstring>
+#include <cstdlib>
 #include <cmath>
 #include "../../third_party/stb_truetype.h"
 
@@ -55,7 +57,7 @@ int Gfx::add_font(const char* path, float px) {
     }
     if (!stbtt_InitFont(&f->info, f->data->data(), stbtt_GetFontOffsetForIndex(f->data->data(), 0))) return -1;
     f->size = px;
-    f->scale = stbtt_ScaleForPixelHeight(&f->info, px);
+    f->scale = stbtt_ScaleForMappingEmToPixels(&f->info, px);
     stbtt_GetFontVMetrics(&f->info, &f->ascent, &f->descent, &f->gap);
     fonts_.push_back(std::move(f));
     return static_cast<int>(fonts_.size()) - 1;
@@ -70,6 +72,11 @@ bool Gfx::pack(int w, int h, int& x, int& y) {
     return true;
 }
 
+bool Gfx::has_glyph(int fi, uint32_t cp) const {
+    if (fi < 0 || fi >= static_cast<int>(fonts_.size())) return false;
+    return stbtt_FindGlyphIndex(&fonts_[fi]->info, static_cast<int>(cp)) != 0;
+}
+
 const Gfx::Glyph* Gfx::glyph(int fi, uint32_t cp) {
     if (fi < 0 || fi >= static_cast<int>(fonts_.size())) return nullptr;
     FontFace& f = *fonts_[fi];
@@ -77,7 +84,7 @@ const Gfx::Glyph* Gfx::glyph(int fi, uint32_t cp) {
     if (it != f.glyphs.end()) return &it->second;
     int gi = stbtt_FindGlyphIndex(&f.info, static_cast<int>(cp));
     if (gi == 0 && cp != 0xFFFD && cp != '?') return glyph(fi, '?');
-    int adv, lsb, x0, y0, x1, y1;
+    int adv = 0, lsb = 0, x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     stbtt_GetGlyphHMetrics(&f.info, gi, &adv, &lsb);
     stbtt_GetGlyphBitmapBox(&f.info, gi, f.scale, f.scale, &x0, &y0, &x1, &y1);
     Glyph g{};
@@ -86,7 +93,7 @@ const Gfx::Glyph* Gfx::glyph(int fi, uint32_t cp) {
     g.yoff = static_cast<float>(y0);
     int w = x1 - x0, h = y1 - y0;
     if (w > 0 && h > 0) {
-        int ax, ay;
+        int ax = 0, ay = 0;
         if (!pack(w, h, ax, ay)) { flush(); reset_atlas(); if (!pack(w, h, ax, ay)) return nullptr; }
         std::vector<uint8_t> a(static_cast<size_t>(w) * h);
         stbtt_MakeGlyphBitmap(&f.info, a.data(), w, h, w, f.scale, f.scale, gi);
@@ -113,7 +120,32 @@ void Gfx::flush() {
     v_.clear(); idx_.clear();
 }
 
-void Gfx::end_frame() { flush(); SDL_RenderPresent(ren_); }
+void Gfx::shift_y(int dy) {
+    flush();
+    if (dy <= 0) { SDL_RenderSetViewport(ren_, nullptr); return; }
+    int w = 0, h = 0;
+    SDL_GetRendererOutputSize(ren_, &w, &h);
+    const SDL_Rect vp{0, dy, w, std::max(1, h - dy)};
+    SDL_RenderSetViewport(ren_, &vp);
+}
+
+void Gfx::end_frame() {
+    flush();
+    if (!capture_path_.empty()) {   // read the finished frame before the present leaves the back buffer undefined
+        int w = 0, h = 0;
+        SDL_GetRendererOutputSize(ren_, &w, &h);
+        if (SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888)) {
+            SDL_RenderReadPixels(ren_, nullptr, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
+            SDL_SaveBMP(s, capture_path_.c_str());
+            SDL_FreeSurface(s);
+        }
+        capture_path_.clear();
+    }
+    SDL_RenderFlush(ren_);   // runs the queued draw commands, so the time below is the window update alone
+    const uint64_t t0 = SDL_GetPerformanceCounter();
+    SDL_RenderPresent(ren_);
+    present_ms_ = static_cast<double>(SDL_GetPerformanceCounter() - t0) * 1000.0 / static_cast<double>(SDL_GetPerformanceFrequency());
+}
 
 void Gfx::quad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, Color c) {
     int b = static_cast<int>(v_.size());
@@ -134,7 +166,7 @@ const Gfx::Shape* Gfx::shape(int R, int t) {
     uint64_t key = (static_cast<uint64_t>(R) << 16) | static_cast<uint64_t>(t);
     auto it = shapes_.find(key);
     if (it != shapes_.end()) return &it->second;
-    int ax, ay;
+    int ax = 0, ay = 0;
     if (!pack(R + 2, R + 2, ax, ay)) { flush(); reset_atlas(); if (!pack(R + 2, R + 2, ax, ay)) return nullptr; }
     ax += 1; ay += 1;  // 1px gutter against bleeding
     std::vector<uint32_t> px(static_cast<size_t>(R) * R);
@@ -161,7 +193,7 @@ void Gfx::fill_round(Rect r, float rad, Color c) {
     float x0 = std::round(r.x), y0 = std::round(r.y), x1 = std::round(r.x + r.w), y1 = std::round(r.y + r.h);
     float w = x1 - x0, h = y1 - y0;
     if (w <= 0 || h <= 0) return;
-    int R = static_cast<int>(std::lround(std::min(rad, std::min(w, h) / 2)));
+    int R = std::min(static_cast<int>(std::lround(rad)), static_cast<int>(std::min(w, h) / 2));  // 2R <= size so translucent fills never double-blend a seam
     if (R < 2 || R > 160) { fill({x0, y0, w, h}, c); return; }
     const Shape* sh = shape(R, 0);
     if (!sh) { fill({x0, y0, w, h}, c); return; }
@@ -177,7 +209,7 @@ void Gfx::stroke_round(Rect r, float rad, float t, Color c, Color) {
     float x0 = std::round(r.x), y0 = std::round(r.y), x1 = std::round(r.x + r.w), y1 = std::round(r.y + r.h);
     float w = x1 - x0, h = y1 - y0;
     int T = std::max(1, static_cast<int>(std::lround(t)));
-    int R = static_cast<int>(std::lround(std::min(rad, std::min(w, h) / 2)));
+    int R = std::min(static_cast<int>(std::lround(rad)), static_cast<int>(std::min(w, h) / 2));
     if (R < 2 || R > 160) { stroke({x0, y0, w, h}, static_cast<float>(T), c); return; }
     const Shape* sh = shape(R, T);
     if (!sh) { stroke({x0, y0, w, h}, static_cast<float>(T), c); return; }
@@ -240,6 +272,25 @@ void Gfx::line(float x0, float y0, float x1, float y1, float t, Color c) {
     tri(x0 + nx, y0 + ny, x1 - nx, y1 - ny, x0 - nx, y0 - ny, c);
 }
 
+void Gfx::arc(float cx, float cy, float r, float t, float start, float sweep, Color c, bool round_caps) {
+    if (sweep <= 0 || t <= 0) return;
+    const float u = 1.0f / aw_, v = 1.0f / ah_;
+    const int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(sweep) / 0.06f)));
+    const float radii[4] = {r - t / 2 - 0.8f, r - t / 2 + 0.2f, r + t / 2 - 0.2f, r + t / 2 + 0.8f};   // 1px soft edges on both sides
+    const uint8_t alphas[4] = {0, c.a, c.a, 0};
+    const int base = static_cast<int>(v_.size());
+    for (int i = 0; i <= steps; ++i) {
+        const float a = start + sweep * i / steps, cs = std::cos(a), sn = std::sin(a);
+        for (int k = 0; k < 4; ++k) v_.push_back({{cx + cs * radii[k], cy + sn * radii[k]}, {c.r, c.g, c.b, alphas[k]}, {u, v}});
+    }
+    for (int i = 0; i < steps; ++i)
+        for (int k = 0; k < 3; ++k) {
+            const int a0 = base + i * 4 + k, a1 = a0 + 1, b0 = a0 + 4, b1 = b0 + 1;
+            for (int ix : {a0, a1, b0, a1, b1, b0}) idx_.push_back(ix);
+        }
+    if (round_caps) { circle(cx + std::cos(start) * r, cy + std::sin(start) * r, t / 2, c); circle(cx + std::cos(start + sweep) * r, cy + std::sin(start + sweep) * r, t / 2, c); }
+}
+
 void Gfx::circle(float cx, float cy, float r, Color c) { fill_round({cx - r, cy - r, 2 * r, 2 * r}, r, c); }
 
 void Gfx::ring(float cx, float cy, float r, float t, Color c) { stroke_round({cx - r, cy - r, 2 * r, 2 * r}, r, t, c); }
@@ -288,9 +339,27 @@ void Gfx::image_round(SDL_Texture* tex, Rect d, float rad, Color tint) {
 
 void Gfx::clip(const Rect* r) {
     flush();
-    if (!r) { SDL_RenderSetClipRect(ren_, nullptr); return; }
-    SDL_Rect c{int(r->x), int(r->y), int(r->w), int(r->h)};
+    if (!r) {
+        if (has_base_) SDL_RenderSetClipRect(ren_, &base_); else SDL_RenderSetClipRect(ren_, nullptr);
+        return;
+    }
+    SDL_Rect c{int(r->x), int(r->y), std::max(0, int(r->w)), std::max(0, int(r->h))};   // SDL turns clipping off for a negative size; an empty rect clips everything
+    if (has_base_) {
+        if (grow_to_ > grow_from_ && std::abs((c.y + c.h) - grow_from_) <= 1) c.h = std::max(0, grow_to_ - c.y);
+        SDL_Rect out{0, 0, 0, 0};
+        if (!SDL_IntersectRect(&c, &base_, &out)) out = SDL_Rect{0, 0, 0, 0};
+        c = out;
+    }
     SDL_RenderSetClipRect(ren_, &c);
+}
+
+void Gfx::set_base_clip(const Rect* r, float grow_from, float grow_to) {
+    flush();
+    if (!r) { has_base_ = false; grow_from_ = grow_to_ = 0; SDL_RenderSetClipRect(ren_, nullptr); return; }
+    base_ = SDL_Rect{int(r->x), int(r->y), std::max(0, int(r->w)), std::max(0, int(r->h))};
+    has_base_ = true;
+    grow_from_ = int(grow_from); grow_to_ = int(grow_to);
+    SDL_RenderSetClipRect(ren_, &base_);
 }
 
 namespace {
@@ -310,12 +379,21 @@ size_t utf8(const std::string& s, size_t i, uint32_t& cp) {
 }  // namespace
 
 float Gfx::measure(int font, const std::string& s) {
+    uint64_t key = 1469598103934665603ULL ^ static_cast<uint64_t>(font + 1);
+    uint32_t sp = 0;
+    std::memcpy(&sp, &spacing_, sizeof sp);
+    key = (key ^ sp) * 1099511628211ULL;
+    for (unsigned char c : s) { key ^= c; key *= 1099511628211ULL; }
+    auto hit = measure_cache_.find(key);
+    if (hit != measure_cache_.end()) return hit->second;
+    if (measure_cache_.size() > 16384) measure_cache_.clear();
     float w = 0;
     for (size_t i = 0; i < s.size();) {
         uint32_t cp;
         i += utf8(s, i, cp);
         if (const Glyph* g = glyph(font, cp)) w += g->adv + spacing_;
     }
+    measure_cache_[key] = w;
     return w;
 }
 

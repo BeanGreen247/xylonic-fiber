@@ -6,6 +6,7 @@
 struct Song {
     std::string id, title, album, album_id, artist, artist_id, cover_art, suffix;
     int track = 0, year = 0, duration = 0, bit_rate = 0;
+    int sampling_rate = 0, bit_depth = 0, channels = 0;   // OpenSubsonic samplingRate / bitDepth / channelCount (0 = unknown)
     uint64_t size = 0;
     bool starred = false;
 };

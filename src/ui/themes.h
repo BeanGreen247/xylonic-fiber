@@ -6,7 +6,7 @@
 
 struct ThemeDef {
     std::string name;
-    uint32_t primary, primary_light, primary_dark, secondary, secondary_light, secondary_dark, accent, accent_light;
+    uint32_t primary = 0, primary_light = 0, primary_dark = 0, secondary = 0, secondary_light = 0, secondary_dark = 0, accent = 0, accent_light = 0;
 };
 enum class ThemeMode : uint8_t { System, Light, Dark };
 
@@ -22,7 +22,7 @@ uint32_t ensure_contrast(uint32_t hex, uint32_t bg, float min);  // walks lightn
 uint32_t on_color(uint32_t hex);                     // black or white, whichever reads better
 uint32_t blend(uint32_t fg, uint32_t bg, float alpha);
 
-struct Neutrals { uint32_t accent, text_secondary, text_muted; Color border, border_strong; };
+struct Neutrals { uint32_t accent = 0, text_secondary = 0, text_muted = 0; Color border, border_strong; };
 Neutrals derive_neutrals(bool light, uint32_t accent_hex);
 
 // Builds the full token set for a theme in a mode (what ThemeContext.applyTheme sets on <html>).

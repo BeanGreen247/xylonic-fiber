@@ -49,3 +49,54 @@ The command fails on any differing pixel and writes a visual diff when the third
 - Mini player: header Mini button or Ctrl+M opens the 350x100 window and hides the main one; expand button or closing it brings the main window back.
 - Remote: two devices on one account and one LAN (old app or this one): header Remote button lists them; connect, then play/pause, next, seek and volume act on the other device. Settings > Remote switches Be Controlled / Control Others. Needs UDP 7766 and TCP 7767 open.
 - Playlists (P): create, rename, expand, play, add to queue, remove songs; they mirror to the server and sync from it. Right-click a song row for the context menu.
+
+## Checklist for the cache foundation (generations, media manifest, store speed)
+
+- Unit tests: `ctest --test-dir build-linux -R "cache|journal|media|downloads"` (generation publish, recovery, corruption, concurrent readers, page cache bounds, media dedup/eviction/reconcile).
+- Benchmarks: `build-linux/cache_bench 100000` and `build-linux/store_bench 300`; compare with the table in `docs/cache-design.md`.
+- Real server: open a large library, browse albums, then search; search results should appear without a pause and the first search after start builds the index once. Quit and relaunch: albums and downloads must still be there (the journal is replayed if the app was killed).
+- Player bar right side: Queue, History, Playlists toggle buttons (same as Q/H/P keys) left of nothing else; check at 1024x768.
+
+## Checklist for the wired cache (likes, playlists, artwork, downloads)
+
+- Heart a song in the player bar, Now Playing and Car Mode; quit, relaunch offline (stop the server): Library > Liked still lists it.
+- Add a song to a playlist from the row menu; the dialog shows a check on playlists that already hold it, also after a restart.
+- Search finds songs from albums you opened earlier without contacting the server; first search after a fresh start may take a moment (index rebuild), later starts load the persisted index.
+- Covers: browse, restart offline, covers still show; Settings > clear image cache empties it. Disk use stays under 64 MiB of artwork.
+- Downloads: download two albums that share a track file (or the same song twice); one file under `downloads/<account>/media/audio`; removing one keeps the other playable; removing both deletes the file.
+- Kill the app with `kill -9` during a crawl and relaunch: albums and likes survive (journal replay).
+
+## Checklist for Shuffle/Download All, quality picker, Reauth, Cache Statistics, Car Mode
+
+- Library > Songs > Shuffle All on a large library: playback starts after the first page; skipping forward later reaches songs from later pages; the queue panel count grows.
+- Library > Download All: a quality list appears first; downloads start immediately and queue grows page by page. Settings > Downloads quality changes affect the next download without restarting.
+- Change the account password on the server while the app is running (or revoke the token), then browse: "Sign in again" appears; a wrong password shows the server message, the right one closes it and downloads continue. `--modal reauth|cachestats|dlquality` opens the dialogs for screenshots.
+- Settings > Offline & Cache > Cache Statistics matches what you expect (artwork stays under 64 MB).
+- Car Mode with no cover or offline: a thumbnail or the music glyph shows instead of an empty square. On Android the screen stays landscape while Car Mode is open.
+
+## Checklist for the third pass (text size, mobile layout, covers, auto-offline)
+
+- 1024x768: text sizes and positions look like the Electron app (compare `docs/ui-ref/home.png`); no Queue/History/Playlists buttons on the bar below 1100 px, they appear from 1100 px.
+- Drag the window narrower than 700 px (minimum 320x480): bottom nav, compact header, mini player; tap the mini player title to open Now Playing; Library tabs and pills wrap.
+- Artists whose server image is the grey star show an iTunes cover (or an empty tile with the fallback off). Settings > Cover art fallback toggles it; it sends artist/album names to Apple.
+- Eco mode: covers load smaller; Cache Statistics shows the lower artwork budget.
+- Metered connection (Linux): mark the connection metered in NetworkManager, enable Settings > Auto-offline on mobile data with songs downloaded; the app goes offline within 30 s and returns when the flag is cleared.
+- Screenshot flags: `--size WxH --nav home|library|settings --panel queue --modal reauth --shot out.bmp --shot-after 6000`.
+
+## Checklist for the performance cache prestep
+
+- Fresh profile, first login: "Building Performance Cache" appears by itself with four gauges, finishes with "Library Ready!" and a 15 s countdown (Restart Now skips it). Second launch: no dialog. `--no-precache` suppresses it for scripted runs.
+- Settings > Performance Cache shows images/bytes, the search index counts and size, and the cache/network counters; the refresh icon re-reads them. Settings > Rebuild Cache asks first, then rebuilds. Clear All Caches asks first and also deletes downloaded files.
+- Change the server library (add or remove an artist or songs), relaunch, wait 3 s: "Library Change Detected!" with the differences; Later dismisses it, Rebuild Cache Now runs "Updating Library Cache".
+- Stop the server mid-build or use a flaky link: the dialog shows the failure text with Try Again and Skip for Now; the done flag stays unset after a failure.
+- Artists without a photo show the user-circle icon (not Navidrome's star); items without any cover id ask iTunes (online only).
+- `--modal newcontent|outdated|rebuild`, `--scroll N` (settings) and `--shot` open the prompt and dialogs for screenshots.
+
+## Checklist for the fifth pass (picker, banner, prompts, compact layout)
+
+- Library > Download All opens "Download Quality" (Original (Raw), 320 default, 256, 128, 64) with Cancel and "Download All"/"Download Missing"; after confirming, only songs that are not downloaded are queued and the Downloads page opens. On an album page the confirm reads "Download N Songs"; on an artist page "Download Artist".
+- Shuffle All: with a song playing the first press shows "Confirm?" for 3 s; the second press shows "Loading..." and starts a shuffled queue. Offline it shuffles downloaded songs.
+- Banner: with some (not all) songs downloaded, 5 s after connecting a blue "N songs not downloaded" strip appears; Download Missing opens the picker, the cross dismisses it. `--modal banner` shows it for screenshots.
+- Stop the server while the app runs: within 30 s "No Internet Connection" appears (Continue Online Mode / Enable Offline Mode). `--modal offlineprompt|cellprompt` show the prompts.
+- Header: offline mode shows the plane and "Offline"; Gaming/Eco show a coloured badge; Mini is dimmed until a song is loaded.
+- Narrow window (<=767 px, minimum 320x480): bottom nav with the Queue submenu, mini player, 3-column library and artist pages, album hero page, search page with its own input. `--size 390x844 --nav home|library|search|artist:ID|album:ID` for screenshots.

@@ -1,0 +1,19 @@
+name: CI
+
+# Linux build and tests on every push and pull request to main (cheap, no Apple or Android toolchain). Android and iOS run from their own workflows
+# or from the release workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    uses: ./.github/workflows/linux.yml
+    with:
+      run_tests: true

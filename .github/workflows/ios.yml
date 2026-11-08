@@ -1,0 +1,90 @@
+name: iOS
+
+# Builds the app for iPhone/iPad (arm64) with CMake's Xcode generator and packs an IPA.
+# No Apple account is needed for the build: the IPA is UNSIGNED, which is what Sideloadly, AltStore and TrollStore want (they sign it with your own
+# Apple ID / certificate when installing on your phone). With the signing secrets set the workflow signs it itself, ready for `ideviceinstaller` or
+# Apple Configurator.
+on:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      IOS_CERT_P12_BASE64: { required: false }
+      IOS_CERT_PASSWORD: { required: false }
+      IOS_PROVISION_BASE64: { required: false }
+
+jobs:
+  build:
+    name: iOS arm64
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the generated project and its build products
+        uses: actions/cache@v4
+        with:
+          path: build-ios
+          key: ios-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'third_party/**') }}
+          restore-keys: ios-${{ runner.os }}-
+
+      - name: Generate the Xcode project
+        run: |
+          cmake -S . -B build-ios -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DXF_BUILD_TESTS=OFF
+
+      - name: Build for device, no signing
+        run: |
+          set -o pipefail
+          xcodebuild -project build-ios/xylonic-fiber.xcodeproj -scheme xylonic-fiber \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -jobs "$(sysctl -n hw.ncpu)" build > xcodebuild.log 2>&1 || { echo "--- compiler errors ---"; grep -E "error:|fatal error:|Undefined symbols|ld: " -A4 xcodebuild.log | head -120; tail -15 xcodebuild.log; exit 1; }
+          tail -5 xcodebuild.log
+          APP=$(find build-ios -type d -name 'xylonic-fiber.app' -path '*Release-iphoneos*' | head -1)
+          [ -n "$APP" ] || { echo "app bundle not found"; exit 1; }
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Keep the build log when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Sign (only when the signing secrets exist)
+        env:
+          P12: ${{ secrets.IOS_CERT_P12_BASE64 }}
+          P12PW: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROV: ${{ secrets.IOS_PROVISION_BASE64 }}
+        run: |
+          if [ -z "$P12" ] || [ -z "$PROV" ]; then echo "No signing secrets: the IPA stays unsigned (sign it with Sideloadly or AltStore)"; exit 0; fi
+          KC=$RUNNER_TEMP/sign.keychain-db
+          security create-keychain -p ci "$KC"; security set-keychain-settings -lut 21600 "$KC"; security unlock-keychain -p ci "$KC"
+          echo "$P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12PW" -A -t cert -f pkcs12 -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple: -k ci "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" login.keychain-db
+          echo "$PROV" | base64 -d > "$RUNNER_TEMP/profile.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' "$RUNNER_TEMP/profile.plist" > "$RUNNER_TEMP/entitlements.plist"
+          IDENT=$(security find-identity -v -p codesigning "$KC" | sed -n 's/.*"\(.*\)"/\1/p' | head -1)
+          cp "$RUNNER_TEMP/profile.mobileprovision" "$APP/embedded.mobileprovision"
+          codesign -f -s "$IDENT" --entitlements "$RUNNER_TEMP/entitlements.plist" "$APP"
+          echo "SIGNED=true" >> "$GITHUB_ENV"
+
+      - name: Pack the IPA
+        run: |
+          VERSION=$(sed -n 's/.*kVersion = "\(.*\)";/\1/p' src/app/app.h)
+          SUFFIX=unsigned; [ "${SIGNED:-}" = true ] && SUFFIX=signed
+          rm -rf Payload dist; mkdir -p Payload dist
+          cp -R "$APP" Payload/
+          zip -qry "dist/xylonic-fiber-$VERSION-ios-$SUFFIX.ipa" Payload
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: dist/*.ipa
+          if-no-files-found: error
+          retention-days: 14

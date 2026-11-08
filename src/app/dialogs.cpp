@@ -21,9 +21,9 @@ void App::draw_ctx_menu(float W, float H) {
     Ui& u = *ui_;
     const float s = S_;
     const Theme& th = u.th;
-    struct Item { uint32_t icon; const char* label; int id; };
+    struct Item { uint32_t icon; const char* label; int id = 0; };
     std::vector<Item> items = {{skin::Play, "Play Now", 0}, {skin::StepFwd, "Play Next", 1}, {skin::ListUl, "Add to Queue", 2}, {0, "", -1},
-                               {0xf067, "Add to Playlist\xE2\x80\xA6", 3}};
+                               {skin::CirclePlus, "Add to Playlist\xE2\x80\xA6", 3}};
     if (downloads_ && !offline_) { items.push_back({0, "", -1}); items.push_back({skin::Download, "Download", 4}); }
     float mw = 220 * s, hh = 52 * s, ih = 46 * s;
     float mh = 8 * s + hh + 1 * s;
@@ -92,7 +92,7 @@ void App::draw_help(float W, float H) {
             } else { size_t j = i; while (j < k.size() && static_cast<unsigned char>(k[j]) != 0xE2) ++j; x += gfx_->text(fk, x, top + (lh * S_ - gfx_->line_height(fk)) / 2, k.substr(i, j - i), c); i = j; }
         }
     };
-    float bw = 420 * s, bh = (76 + 11 * 40) * s;
+    float bw = std::min(420 * s, W - 24 * s), bh = std::min((76 + 11 * 40) * s, H - 24 * s);
     Rect b{(W - bw) / 2, (H - bh) / 2, bw, bh};
     gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 3 * s, th.border);
     gfx_->fill_round(b, 2 * s, th.bg_light);

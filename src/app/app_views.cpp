@@ -6,7 +6,7 @@
 namespace {
 std::string mmss(int s) {
     if (s < 0) s = 0;
-    char b[16];
+    char b[16] = {};
     std::snprintf(b, sizeof b, "%d:%02d", s / 60, s % 60);
     return b;
 }
@@ -116,51 +116,5 @@ void App::draw_queue(Rect r) {
         Rect x{row.x + row.w - 40 * s, row.y + 12 * s, 32 * s, 32 * s};
         if (hov && u.icon_button(x, Icon::Close, false, 0.3f)) { bool was_cur = cur; queue_.remove(i); if (was_cur) { if (queue_.empty()) { player_.stop(); ++play_gen_; } else start_current(); } return; }
         if (u.clicked(row) && !x.contains(u.in.mx, u.in.my) && list.contains(u.in.mx, u.in.my)) { queue_.jump(i); start_current(); return; }
-    }
-}
-
-void App::draw_downloads(Rect r) {
-    Ui& u = *ui_;
-    const float s = S_;
-    if (!downloads_) { u.label(u.f_body, r.x + 24 * s, r.y + 10 * s, "Downloads are unavailable.", u.th.sub); return; }
-    auto items = downloads_->snapshot();
-    int done = 0, active = 0, failed = 0;
-    int64_t bytes = 0;
-    for (auto& it : items) { if (it.state == Downloads::Done) { ++done; bytes += it.total; } else if (it.state == Downloads::Failed) ++failed; else ++active; }
-    char hdr[128];
-    std::snprintf(hdr, sizeof hdr, "%d downloaded (%.1f MB), %d pending, %d failed", done, bytes / 1048576.0, active, failed);
-    u.label(u.f_small, r.x + 24 * s, r.y + 10 * s, hdr, u.th.sub);
-    float bx = r.x + r.w - 24 * s - 120 * s;
-    if (u.button({bx, r.y + 2 * s, 120 * s, 30 * s}, "Clear all")) { downloads_->clear_all(); return; }
-    if (u.button({bx - 130 * s, r.y + 2 * s, 120 * s, 30 * s}, "Verify")) downloads_->verify();
-    if (failed && u.button({bx - 260 * s, r.y + 2 * s, 120 * s, 30 * s}, "Retry failed")) downloads_->retry_failed();
-    Rect list{r.x, r.y + 40 * s, r.w, r.h - 40 * s};
-    gfx_->clip(&list);
-    float rh = 60 * s;
-    if (items.empty()) u.label(u.f_body, r.x + 24 * s, list.y + 8 * s, "Nothing downloaded yet. Open an album and press Download.", u.th.sub);
-    if (u.hover(list)) dl_scroll_.y -= u.in.wheel * 60 * s;
-    dl_scroll_.clamp(rh * items.size() + 16 * s, list.h);
-    size_t i0 = static_cast<size_t>(std::max(0.0f, std::floor(dl_scroll_.y / rh)));
-    size_t i1 = std::min(items.size(), static_cast<size_t>(std::ceil((dl_scroll_.y + list.h) / rh)) + 1);
-    static const char* names[] = {"Queued", "Downloading", "Done", "Failed", "Paused"};
-    for (size_t i = i0; i < i1; ++i) {
-        const auto& it = items[i];
-        Rect row{list.x + 12 * s, list.y + i * rh - dl_scroll_.y, list.w - 24 * s, rh};
-        bool hov = u.hover(row) && list.contains(u.in.mx, u.in.my);
-        if (hov) gfx_->fill_round(row, 8 * s, u.th.hover);
-        float tw = row.w - 260 * s;
-        u.label(u.f_body, row.x + 14 * s, row.y + 8 * s, it.song.title, u.th.text, tw);
-        u.label(u.f_small, row.x + 14 * s, row.y + 32 * s, it.song.artist + "  -  " + names[it.state], it.state == Downloads::Failed ? u.th.danger : u.th.sub, tw);
-        if (it.state == Downloads::Active || it.state == Downloads::Paused) {
-            float frac = it.total > 0 ? static_cast<float>(it.bytes) / it.total : 0;
-            Rect pb{row.x + row.w - 230 * s, row.y + row.h / 2 - 2 * s, 140 * s, 4 * s};
-            gfx_->fill_round(pb, 2 * s, u.th.panel2);
-            gfx_->fill_round({pb.x, pb.y, pb.w * std::min(1.0f, frac), pb.h}, 2 * s, u.th.accent);
-        }
-        Rect act{row.x + row.w - 80 * s, row.y + 14 * s, 32 * s, 32 * s};
-        Rect del{row.x + row.w - 44 * s, row.y + 14 * s, 32 * s, 32 * s};
-        if (it.state == Downloads::Active || it.state == Downloads::Queued) { if (u.icon_button(act, Icon::Pause)) downloads_->pause(it.song.id); }
-        else if (it.state == Downloads::Paused || it.state == Downloads::Failed) { if (u.icon_button(act, Icon::Play)) downloads_->resume(it.song.id); }
-        if (u.icon_button(del, Icon::Close, false, 0.3f)) { downloads_->remove(it.song.id); return; }
     }
 }

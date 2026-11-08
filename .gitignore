@@ -1,2 +1,8 @@
 build/
 build-linux/
+
+# iOS signing material and downloaded packages
+*.ipa
+*.p12
+*.mobileprovision
+ios-artifact/

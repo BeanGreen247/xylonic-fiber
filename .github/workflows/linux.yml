@@ -1,0 +1,70 @@
+name: Linux
+
+# Native Linux build (x86_64 and aarch64) with the ctest suite. Reusable: ci.yml and release.yml call it; it can also be started by hand.
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      run_tests:
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64,  runner: ubuntu-24.04 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config git \
+            libsdl2-dev libsdl2-image-dev libsystemd-dev libasound2-dev
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-${{ matrix.arch }}
+
+      - name: Configure (Release, LTO, tests)
+        run: |
+          cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release -DXF_BUILD_TESTS=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build-linux --parallel
+
+      - name: Tests
+        if: ${{ inputs.run_tests != false }}
+        working-directory: build-linux
+        env:
+          SDL_AUDIODRIVER: dummy
+          SDL_VIDEODRIVER: dummy
+        # the audio test opens a device and hangs on a runner without sound hardware; every other test must pass
+        run: ctest -E '^audio$' --output-on-failure --timeout 120 --parallel 2
+
+      - name: Package
+        run: |
+          VERSION=$(sed -n 's/.*kVersion = "\(.*\)";/\1/p' src/app/app.h)
+          D=xylonic-fiber-$VERSION-linux-${{ matrix.arch }}
+          mkdir -p dist/$D
+          cp build-linux/xylonic-fiber dist/$D/
+          cp -r assets dist/$D/assets
+          cp LICENSE README.md dist/$D/
+          strip dist/$D/xylonic-fiber
+          tar -C dist -czf dist/$D.tar.gz $D
+          echo "PKG=dist/$D.tar.gz" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: ${{ env.PKG }}
+          if-no-files-found: error
+          retention-days: 14

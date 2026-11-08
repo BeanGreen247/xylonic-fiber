@@ -40,6 +40,18 @@ int main() {
     std::set<std::string> s2; for (int i = 0; i < 51; ++i) s2.insert(q.songs()[0].id), q.next();
     uint32_t r = q.revision(); q.add(mk(1)[0]); CHECK(q.revision() == r + 1);
 
+    // bulk append: ordered mode keeps order, shuffle mode mixes new tracks into the unplayed rest and never moves the current one
+    { Queue q; q.set(mk(5), 0); q.append(mk(5)); CHECK(q.size() == 10);
+      Queue t; t.set_shuffle(true); t.set(mk(20), 3); std::string cur = t.current()->id; std::vector<Song> more = mk(30); for (auto& s : more) s.id = "n" + s.id; t.append(more);
+      CHECK(t.size() == 50 && t.current()->id == cur);
+      std::set<std::string> seen; for (int i = 0; i < 50; ++i) { seen.insert(t.current()->id); t.next(); } CHECK(seen.size() == 50);
+      Queue e; e.append(mk(3)); CHECK(e.size() == 3 && e.current()); }
+
+    // neighbours: what prev/next reach, in play order, without the current track or duplicates
+    { Queue q; q.set(mk(10), 5); auto n = q.neighbours(2); CHECK(n.size() == 4);
+      std::set<std::string> ids; for (auto& s : n) ids.insert(s.id); CHECK(ids.size() == 4 && !ids.count(q.current()->id));
+      Queue two; two.set(mk(2), 0); CHECK(two.neighbours(5).size() == 1); Queue one; one.set(mk(1), 0); CHECK(one.neighbours(2).empty()); }
+
     // persistence round trip
     Queue a; a.set(mk(3), 0);
     a.add([] { Song s; s.id = "x"; s.title = "Ünï \"q\""; s.size = 5000000000ULL; s.starred = true; return s; }());

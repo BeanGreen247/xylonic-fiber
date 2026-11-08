@@ -31,6 +31,12 @@ int main(int argc, char** argv) {
     CHECK(u.compare(0, 31, "http://h:1/rest/stream.view?u=u") == 0);
     CHECK(u.find("u=us%20er&t=") != std::string::npos && u.find("&id=a%20b&maxBitRate=128") != std::string::npos);
     CHECK(c.stream_url("x") != c.stream_url("x"));  // fresh salt per URL
+    {   // downloads: the original file through download.view, anything bitrate-limited or converted through stream.view as MP3
+        const std::string orig = c.download_url("s1"), q64 = c.download_url("s1", 64), conv = c.download_url("s1", 0, true);
+        CHECK(orig.find("/rest/download") != std::string::npos && orig.find("maxBitRate") == std::string::npos);
+        CHECK(q64.find("/rest/stream") != std::string::npos && q64.find("maxBitRate=64") != std::string::npos && q64.find("format=mp3") != std::string::npos);
+        CHECK(conv.find("/rest/stream") != std::string::npos && conv.find("maxBitRate=320") != std::string::npos && conv.find("format=mp3") != std::string::npos);
+    }
 
     if (argc >= 5 && !std::strcmp(argv[1], "--live")) {  // --live <url> <user> <pass>
         SubsonicClient l(argv[2], argv[3], argv[4]);

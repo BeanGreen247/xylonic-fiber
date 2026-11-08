@@ -59,7 +59,7 @@ int get_metadata(sd_bus*, const char*, const char*, const char*, sd_bus_message*
 }
 
 int set_loop(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void* u, sd_bus_error*) { const char* s = nullptr; if (sd_bus_message_read(v, "s", &s) < 0 || !s) return -EINVAL; I(u)->cb(MprisCmd::SetLoop, 0, s); return 0; }
-int set_rate(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void*, sd_bus_error*) { double d; return sd_bus_message_read(v, "d", &d) < 0 ? -EINVAL : 0; }
+int set_rate(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void*, sd_bus_error*) { double d = 0; return sd_bus_message_read(v, "d", &d) < 0 ? -EINVAL : 0; }
 int set_shuffle(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void* u, sd_bus_error*) { int b = 0; if (sd_bus_message_read(v, "b", &b) < 0) return -EINVAL; I(u)->cb(MprisCmd::SetShuffle, b ? 1 : 0, ""); return 0; }
 int set_volume(sd_bus*, const char*, const char*, const char*, sd_bus_message* v, void* u, sd_bus_error*) { double d = 0; if (sd_bus_message_read(v, "d", &d) < 0) return -EINVAL; I(u)->cb(MprisCmd::SetVolume, std::fmax(0.0, std::fmin(1.0, d)), ""); return 0; }
 
@@ -182,6 +182,51 @@ void Mpris::stop() {
     sd_bus_slot_unref(p_->slot_player);
     sd_bus_flush_close_unref(p_->bus);
     p_->bus = nullptr;
+}
+#elif defined(__ANDROID__)
+// Android: MediaSession + foreground service in Java (org.xylonic.fiber.MediaService); android_bridge pushes state over JNI and
+// transport commands come back through MediaBridge.nativeCommand (called on an Android thread; the app callback only posts to the UI thread).
+#include <jni.h>
+#include <mutex>
+#include "android_bridge.h"
+
+struct Mpris::Impl {};
+
+namespace {
+std::mutex g_cb_mu;
+Mpris::Callback g_cb;
+}  // namespace
+
+extern "C" JNIEXPORT void JNICALL Java_org_xylonic_fiber_MediaBridge_nativeCommand(JNIEnv*, jclass, jint cmd, jdouble arg) {
+    Mpris::Callback cb;
+    { std::lock_guard<std::mutex> lk(g_cb_mu); cb = g_cb; }
+    if (!cb) return;
+    switch (cmd) {
+    case 0: cb(MprisCmd::Play, 0, ""); break;
+    case 1: cb(MprisCmd::Pause, 0, ""); break;
+    case 2: cb(MprisCmd::PlayPause, 0, ""); break;
+    case 3: cb(MprisCmd::Stop, 0, ""); break;
+    case 4: cb(MprisCmd::Next, 0, ""); break;
+    case 5: cb(MprisCmd::Previous, 0, ""); break;
+    case 6: cb(MprisCmd::SeekAbsolute, arg, ""); break;
+    default: break;
+    }
+}
+
+Mpris::Mpris() : p_(new Impl) {}
+Mpris::~Mpris() { stop(); }
+
+bool Mpris::start(const std::string&, Callback cb) {
+    std::lock_guard<std::mutex> lk(g_cb_mu);
+    g_cb = std::move(cb);
+    return true;
+}
+
+void Mpris::update(const MprisState& st) { android_bridge::media_update(st); }   // UI thread
+
+void Mpris::stop() {
+    std::lock_guard<std::mutex> lk(g_cb_mu);
+    g_cb = nullptr;
 }
 #else
 struct Mpris::Impl {};

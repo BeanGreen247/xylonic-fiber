@@ -15,6 +15,10 @@ int main(int argc, char** argv) {
     int f = g.add_font("assets/fonts/Roboto-Regular.ttf", 18), fb = g.add_font("assets/fonts/Roboto-Bold.ttf", 28);
     CHECK(f >= 0 && fb >= 0);
     CHECK(g.add_font("nope.ttf", 12) == -1);
+    {   // font sizes are CSS px (em), as in the reference captures: "Discover" in Roboto Bold 32px has 119 px of ink there
+        int h1 = g.add_font("assets/fonts/Roboto-Bold.ttf", 32); const float dw = g.measure(h1, "Discover");
+        CHECK(dw > 124 && dw < 128);   // advance width; the ink spans 119 px
+    }
     float w1 = g.measure(f, "Hello"), w2 = g.measure(f, "Hello, world");
     CHECK(w1 > 20 && w2 > w1);
     CHECK(g.measure(f, "é\xE2\x80\x94") > 0);  // multibyte

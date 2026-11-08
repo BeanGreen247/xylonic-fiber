@@ -3,7 +3,6 @@
 #include <functional>
 #include <string>
 #include "gfx.h"
-
 // Exact token set of the old app's CSS variables (index.css + ThemeContext), light/dark aware.
 struct Theme {
     // Structural tokens
@@ -74,6 +73,9 @@ public:
     // here avoids making the portable widget layer depend on app/skin.h.
     std::function<void(uint32_t, Rect, Color)> draw_fa;
 
+    // Hover tooltip (browser "title"): widgets register a candidate each frame; the app shows it after a dwell.
+    std::string tip_text; Rect tip_rect{};
+    void tip(Rect r, const char* text) { if (tip_text.empty() && hover(r)) { tip_text = text; tip_rect = r; } }
     bool hover(Rect r) const { return r.contains(in.mx, in.my); }
     bool clicked(Rect r) const { return in.released && r.contains(in.mx, in.my) && r.contains(in.press_x, in.press_y); }
 

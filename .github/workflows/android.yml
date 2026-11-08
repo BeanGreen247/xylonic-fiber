@@ -1,0 +1,86 @@
+name: Android
+
+# APK for arm64-v8a and armeabi-v7a (add -Pxf.abis=x86_64 for an emulator). Debug by default; with the keystore secrets set it also signs a release APK.
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: Build type
+        type: choice
+        default: debug
+        options: [debug, release]
+  workflow_call:
+    inputs:
+      build_type:
+        type: string
+        default: debug
+    secrets:
+      ANDROID_KEYSTORE_BASE64: { required: false }
+      ANDROID_KEYSTORE_PASSWORD: { required: false }
+      ANDROID_KEY_ALIAS: { required: false }
+      ANDROID_KEY_PASSWORD: { required: false }
+
+jobs:
+  build:
+    name: Android ${{ inputs.build_type || 'debug' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android SDK, NDK and CMake
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018 cmake;3.22.1'
+
+      - name: SDL2 sources and Java glue
+        run: sh android/setup.sh
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Signing keystore (release only, when the secrets exist)
+        if: ${{ inputs.build_type == 'release' }}
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KA: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > android/release.keystore
+            printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$PWD/android/release.keystore" "$KSP" "$KA" "$KP" > android/keystore.properties
+            echo "SIGNED=true" >> "$GITHUB_ENV"
+          else
+            echo "No keystore secrets: the release APK will be unsigned"
+          fi
+
+      - name: Build
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          if [ "${{ inputs.build_type }}" = "release" ]; then
+            ./gradlew assembleRelease -x test -x lint -x lintDebug --no-daemon --parallel
+          else
+            ./gradlew assembleDebug -x test -x lint -x lintDebug --no-daemon --parallel
+          fi
+
+      - name: Name the APK
+        run: |
+          VERSION=$(sed -n 's/.*kVersion = "\(.*\)";/\1/p' src/app/app.h)
+          KIND=${{ inputs.build_type || 'debug' }}
+          SRC=$(find android/app/build/outputs/apk -name '*.apk' | head -1)
+          [ -n "$SRC" ] || { echo "no APK produced"; exit 1; }
+          mkdir -p dist
+          cp "$SRC" dist/xylonic-fiber-$VERSION-android-$KIND.apk
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ inputs.build_type || 'debug' }}
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 14

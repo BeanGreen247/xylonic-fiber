@@ -9,6 +9,7 @@ struct MprisState {
     bool has_song = false, playing = false, shuffle = false;
     std::string title, artist, album, track_id, art_url, loop = "None";  // loop: None | Track | Playlist
     double length_s = 0, position_s = 0, volume = 1.0;
+    int downloads = 0;   // queued + active downloads (Android keeps a foreground service alive for them)
 };
 
 enum class MprisCmd { Play, Pause, PlayPause, Stop, Next, Previous, SeekRelative, SeekAbsolute, SetVolume, SetShuffle, SetLoop, Raise };

@@ -9,7 +9,7 @@ namespace {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
 std::string mmss(int s) {
     if (s < 0) s = 0;
-    char b[16];
+    char b[16] = {};
     std::snprintf(b, sizeof b, "%d:%02d", s / 60, s % 60);
     return b;
 }
@@ -32,7 +32,7 @@ void App::history_load() {
     if (!store_ || !store_->get("history", j)) return;
     yyjson_doc* d = yyjson_read(j.data(), j.size(), 0);
     if (!d) return;
-    size_t i, n; yyjson_val* o;
+    size_t i = 0, n = 0; yyjson_val* o = nullptr;
     yyjson_arr_foreach(yyjson_doc_get_root(d), i, n, o) {
         HistoryEntry e;
         yyjson_val* sv = yyjson_obj_get(o, "song");
@@ -79,13 +79,15 @@ void App::draw_right_panel(float W, float H) {
     Ui& u = *ui_;
     const float s = S_;
     const Theme& th = u.th;
-    float pw = std::min(360.0f, std::max(260.0f, 0.30f * W / s)) * s;
-    Rect p{W - pw, 74 * s, pw, H - 74 * s - 130 * s};
+    // compact: the panel fills the space between the header and the mini player + bottom nav (top 56, bottom 114)
+    float pw = mobile_ ? W : std::min(360.0f, std::max(260.0f, 0.30f * W / s)) * s;
+    Rect p = mobile_ ? Rect{0, 56 * s + banner_h_, W, H - 56 * s - banner_h_ - 114 * s} : Rect{W - pw, 74 * s, pw, H - 74 * s - 130 * s};
+    const float prad = mobile_ ? 0.0f : 16 * s;
     // shadow: -8px 0 40px rgba(0,0,0,.55) approximated by fading strips
-    for (int i = 0; i < 6; ++i) gfx_->fill({p.x - (i + 1) * 6 * s, p.y + 8 * s, 6 * s, p.h - 8 * s}, {0, 0, 0, static_cast<uint8_t>(34 - i * 5)});
+    for (int i = 0; i < (mobile_ ? 0 : 6); ++i) gfx_->fill({p.x - (i + 1) * 6 * s, p.y + 8 * s, 6 * s, p.h - 8 * s}, {0, 0, 0, static_cast<uint8_t>(34 - i * 5)});
     // left-rounded panel: rounded rect extended past the right edge so only the left corners show
-    gfx_->fill_round({p.x - 1 * s, p.y - 1 * s, p.w + 40 * s, p.h + 2 * s}, 16 * s, th.border);
-    gfx_->fill_round({p.x, p.y, p.w + 40 * s, p.h}, 15 * s, th.bg_medium);
+    gfx_->fill_round({p.x - 1 * s, p.y - 1 * s, p.w + 40 * s, p.h + 2 * s}, prad, th.border);
+    gfx_->fill_round({p.x, p.y, p.w + 40 * s, p.h}, prad > 0 ? 15 * s : 0, th.bg_medium);
     Rect clipr{p.x, p.y, p.w, p.h};
     gfx_->clip(&clipr);
     static const char* titles[3] = {"QUEUE", "RECENTLY PLAYED", "PLAYLISTS"};
@@ -111,7 +113,7 @@ void App::draw_right_panel(float W, float H) {
         Rect sf{p.x + 12 * s, cy + 6 * s, p.w - 24 * s, 30 * s};
         gfx_->fill_round(sf, 15 * s, th.panel2);
         fa(skin::Search, sf.x + 16 * s, sf.y + 15 * s, 12, th.sub);
-        u.text_field(kPanelSearch, sf, panel_search_, "Search...", false, false, 32 * s, F(400, 13));
+        u.text_field(kPanelSearch, sf, panel_search_, "Filter\xE2\x80\xA6", false, false, 32 * s, F(400, 13));
         cy += 42 * s;
     }
     std::string flt = panel_search_;
@@ -131,9 +133,16 @@ void App::draw_right_panel(float W, float H) {
         gfx_->clip(nullptr);
         return;
     }
+    if (total > 0 && idx.empty()) {   // filter matched nothing
+        const std::string l = "No results for \"" + panel_search_ + "\"";
+        fa(skin::Search, p.x + p.w / 2, cy + 70 * s, 28, th.muted);
+        T(400, 13, p.x + (p.w - gfx_->measure(F(400, 13), l)) / 2, cy + 100 * s, 20, l, th.sub, p.w - 24 * s);
+        gfx_->clip(nullptr);
+        return;
+    }
     if (total == 0) {
-        std::string l1 = panel_tab_ == PanelTab::Queue ? "Queue is empty." : "No recently played songs.";
-        std::string l2 = panel_tab_ == PanelTab::Queue ? "Play a song to get started." : "Songs you play will show up here.";
+        std::string l1 = panel_tab_ == PanelTab::Queue ? "Queue is empty." : "No recently played songs yet.";
+        std::string l2 = panel_tab_ == PanelTab::Queue ? "Play a song to get started." : "Start playing to build your history.";
         fa(icons[tab], p.x + p.w / 2, cy + 70 * s, 28, th.muted);
         T(400, 13, p.x + (p.w - gfx_->measure(F(400, 13), l1)) / 2, cy + 100 * s, 20, l1, th.sub);
         T(400, 13, p.x + (p.w - gfx_->measure(F(400, 13), l2)) / 2, cy + 120 * s, 20, l2, th.sub);
@@ -181,6 +190,7 @@ void App::draw_right_panel(float W, float H) {
         if (panel_tab_ == PanelTab::Queue) {
             Rect g{row.x + 12 * s, row.y + 15 * s, 23 * s, 22 * s};
             fa(skin::Grip, g.x + 11 * s, g.y + 11 * s, 12, rgb(0xb5b5b5));
+            u.tip(g, "Drag to reorder");
             if (u.in.pressed && g.contains(u.in.mx, u.in.my)) { panel_drag_ = static_cast<int>(k); }
         }
         float tw = row.w - 45 * s - 6 * s - (panel_tab_ == PanelTab::Queue ? 112 : 112) * s;
@@ -195,14 +205,15 @@ void App::draw_right_panel(float W, float H) {
         }
         Rect a1{row.x + row.w - 76 * s, row.y + 15 * s, 29 * s, 22 * s}, a2{row.x + row.w - 46 * s, row.y + 15 * s, 29 * s, 22 * s};
         if (hov || is_cur) {
-            auto ab = [&](Rect b, uint32_t ic, bool danger) {
+            auto ab = [&](Rect b, uint32_t ic, bool danger, const char* tip) {
+                u.tip(b, tip);
                 if (u.hover(b)) gfx_->fill_round(b, 8 * s, th.hover);
                 fa(ic, b.x + b.w / 2, b.y + b.h / 2, 12, u.hover(b) ? (danger ? th.danger : th.accent) : th.sub);
                 return u.clicked(b);
             };
             if (panel_tab_ == PanelTab::Queue) {
-                if (ab(a1, skin::CirclePlus, false)) add_song_ = sg;
-                if (ab(a2, skin::Xmark, true)) {
+                if (ab(a1, skin::CirclePlus, false, "Add to playlist")) add_song_ = sg;
+                if (ab(a2, skin::Xmark, true, "Remove from queue")) {
                     bool was_cur = is_cur;
                     queue_.remove(static_cast<size_t>(i));
                     if (was_cur) { if (queue_.empty()) { player_.stop(); ++play_gen_; } else start_current(); }
@@ -210,8 +221,11 @@ void App::draw_right_panel(float W, float H) {
                     return;
                 }
             } else {
-                if (ab(a1, skin::ListUl, false)) queue_.add(sg);
-                if (ab(a2, skin::Xmark, true)) { history_.erase(history_.begin() + i); history_save(); gfx_->clip(nullptr); return; }
+                // HistoryTab: Add to queue, Add to playlist, Play (there is no per-entry remove; Clear empties the list)
+                Rect a0{row.x + row.w - 106 * s, a1.y, 29 * s, 22 * s};
+                if (ab(a0, skin::ListUl, false, "Add to queue")) queue_.add(sg);
+                if (ab(a1, skin::CirclePlus, false, "Add to playlist")) add_song_ = sg;
+                if (ab(a2, skin::Play, false, "Play")) { std::vector<Song> one{sg}; play_songs(one, 0, false); gfx_->clip(nullptr); return; }
             }
         }
         ctx_hit(row, sg);

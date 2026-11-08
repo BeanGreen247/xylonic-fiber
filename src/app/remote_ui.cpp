@@ -7,12 +7,13 @@
 #include <mbedtls/md5.h>
 #include <psa/crypto.h>
 #include "app.h"
+#include "metered.h"
 #include "../../third_party/yyjson.h"
 
 namespace {
 Color alpha(Color c, float a) { c.a = static_cast<uint8_t>(std::lround(a * 255)); return c; }
 std::string md5hex(const std::string& s) {
-    unsigned char d[16];
+    unsigned char d[16] = {};
     mbedtls_md5(reinterpret_cast<const unsigned char*>(s.data()), s.size(), d);
     static const char* h = "0123456789abcdef";
     std::string o;
@@ -23,7 +24,7 @@ std::string device_id(const std::string& path) {
     std::ifstream f(path);
     std::string id;
     if (f && std::getline(f, id) && id.size() >= 8) return id;
-    unsigned char r[16];
+    unsigned char r[16] = {};
     psa_crypto_init();
     psa_generate_random(r, sizeof r);
     static const char* h = "0123456789abcdef";
@@ -96,7 +97,7 @@ void App::remote_apply(const std::string& action, const std::string& data_json) 
         free(js);
     } else if (action == "playPlaylist" && data) {
         std::vector<Song> songs;
-        size_t i, n; yyjson_val* o;
+        size_t i = 0, n = 0; yyjson_val* o = nullptr;
         yyjson_arr_foreach(yyjson_obj_get(data, "songs"), i, n, o) {
             char* js = yyjson_val_write(o, 0, nullptr);
             Song s;
@@ -156,7 +157,7 @@ void App::draw_remote_picker(float W, float H) {
     const Theme& th = u.th;
     gfx_->fill({0, 0, W, H}, {0, 0, 0, 170});
     auto devs = remote_ ? remote_->devices() : std::vector<RemoteDevice>{};
-    float bw = 440 * s, bh = std::min(H - 80 * s, (150 + 62 * std::max<size_t>(1, devs.size())) * s);
+    float bw = std::min(440 * s, W - 24 * s), bh = std::min(H - 80 * s, (150 + 62 * std::max<size_t>(1, devs.size())) * s);
     Rect b{(W - bw) / 2, (H - bh) / 2, bw, bh};
     gfx_->fill_round({b.x - 1, b.y - 1, b.w + 2, b.h + 2}, 3 * s, th.border);
     gfx_->fill_round(b, 2 * s, th.bg_light);
@@ -169,6 +170,12 @@ void App::draw_remote_picker(float W, float H) {
     float y = b.y + 64 * s;
     if (!remote_error_.empty()) { T(500, 12, b.x + 20 * s, y, 18, remote_error_, th.danger, b.w - 40 * s); y += 24 * s; }
     if (!cfg_.control_others) { T(400, 13, b.x + 20 * s, y, 20, "Control Others is turned off in Settings.", th.sub); y += 24 * s; }
+    // RemoteDevicePicker: Remote Mode needs Wi-Fi; a metered (mobile data) link shows the warning. Polled off the UI thread every 5 s.
+    if (!remote_net_busy_ && SDL_GetTicks() - remote_net_at_ > 5000) {
+        remote_net_busy_ = true; remote_net_at_ = SDL_GetTicks();
+        worker_->post([this] { const bool m = network_metered(); ui_post([this, m] { remote_net_busy_ = false; if (m != remote_metered_) { remote_metered_ = m; mark(); } }); });
+    }
+    if (remote_metered_) { fa(0xf1eb, b.x + 28 * s, y + 10 * s, 13, th.danger); T(500, 12, b.x + 44 * s, y, 20, "Remote Mode requires a WiFi connection (not mobile data).", th.danger, b.w - 64 * s); y += 24 * s; }
     if (remote_mode_) {
         for (auto& d : devs) if (d.id == remote_target_) {
             fa(skin::Satellite, b.x + 30 * s, y + 14 * s, 13, th.accent);
@@ -179,21 +186,25 @@ void App::draw_remote_picker(float W, float H) {
         }
         y += 40 * s;
     }
-    if (devs.empty()) T(400, 13, b.x + 20 * s, y + 8 * s, 20, "Looking for Xylonic devices on your network\xE2\x80\xA6", th.sub, b.w - 40 * s);
+    if (cfg_.username.empty()) T(400, 13, b.x + 20 * s, y + 8 * s, 20, "Sign into a Navidrome account to use Remote Mode.", th.danger, b.w - 40 * s);
+    else if (!devs.empty()) T(400, 13, b.x + 20 * s, y + 4 * s, 20, "Select an available device to control it remotely.", th.sub, b.w - 40 * s);
+    if (!devs.empty()) y += 28 * s;
+    if (devs.empty() && !cfg_.username.empty()) T(400, 13, b.x + 20 * s, y + 8 * s, 20, "Searching for Xylonic devices on your network\xE2\x80\xA6", th.sub, b.w - 40 * s);
     std::string myacc = md5hex(cfg_.username + ":" + cfg_.server_url);
     for (auto& d : devs) {
         Rect row{b.x + 8 * s, y, b.w - 16 * s, 56 * s};
         bool wrong = !d.account_id.empty() && d.account_id != myacc;
         bool busy = !d.paired_with.empty() && d.paired_with != (remote_ ? remote_->device_id() : std::string());
         bool active = remote_mode_ && d.id == remote_target_;
-        if (u.hover(row) && !wrong && !busy && !active) gfx_->fill_round(row, 10 * s, th.hover);
+        if (u.hover(row) && !wrong && !active) gfx_->fill_round(row, 10 * s, th.hover);
         fa(d.platform == "android" ? 0xf3cd : 0xf390, row.x + 28 * s, row.y + 28 * s, 18, wrong ? th.muted : th.accent);
         std::string nm = d.name.substr(0, d.name.find(','));
         T(500, 14, row.x + 56 * s, row.y + 8 * s, 20, nm, wrong ? th.muted : th.text, row.w - 190 * s);
-        T(400, 11, row.x + 56 * s, row.y + 30 * s, 16, d.host + (d.playing ? "  \xC2\xB7  playing" : ""), th.sub, row.w - 190 * s);
+        T(400, 11, row.x + 56 * s, row.y + 30 * s, 16, d.host + " \xC2\xB7 " + (d.platform == "android" ? "Android" : "Desktop"), th.sub, row.w - 190 * s);
         const char* badge = active ? "Active" : wrong ? "Different account" : busy ? "Busy" : "";
         if (*badge) { float bw2 = gfx_->measure(F(600, 11), badge) + 20 * s; Rect pr{row.x + row.w - bw2 - 12 * s, row.y + 17 * s, bw2, 22 * s}; gfx_->fill_round(pr, 11 * s, alpha(active ? th.accent : th.text, 0.12f)); T(600, 11, pr.x + 10 * s, pr.y, 22, badge, active ? th.accent : th.sub); }
-        if (u.clicked(row) && !wrong && !busy && !active && cfg_.control_others) remote_connect(d);
+        u.tip(row, wrong ? "Signed into a different Navidrome account" : active ? "Currently connected" : busy ? "Another Xylonic may be using this device \xE2\x80\x94 tap to try anyway" : ("Control " + nm).c_str());
+        if (u.clicked(row) && !wrong && !active && cfg_.control_others) remote_connect(d);
         y += 62 * s;
     }
 }

@@ -1,0 +1,77 @@
+name: Release
+
+# Push a tag v<version> (the version in src/app/app.h, e.g. v0.2.0): builds Linux (x86_64, aarch64), Android (signed when the keystore secrets exist)
+# and iOS, then publishes a GitHub PRERELEASE with every package attached and the CHANGELOG section as notes. Promote it by hand once tested:
+#   gh release edit v0.2.0 --prerelease=false --latest
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Tag matches the version in the source
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          VERSION=$(sed -n 's/.*kVersion = "\(.*\)";/\1/p' src/app/app.h)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "v$VERSION" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match kVersion $VERSION"; exit 1
+          fi
+
+  linux:
+    needs: check
+    uses: ./.github/workflows/linux.yml
+    with:
+      run_tests: true
+
+  android:
+    needs: check
+    uses: ./.github/workflows/android.yml
+    with:
+      build_type: release
+    secrets: inherit
+
+  ios:
+    needs: check
+    uses: ./.github/workflows/ios.yml
+    secrets: inherit
+
+  publish:
+    name: Publish prerelease
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, linux, android, ios]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: pkg
+          merge-multiple: true
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v v="$VERSION" '$0 ~ "^## " v " " {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Release $VERSION" > notes.md
+          { echo; echo "Android debug/release APK, iOS IPA (unsigned unless signing secrets are set: install with Sideloadly or AltStore) and Linux tarballs below."; } >> notes.md
+
+      - name: Create the prerelease
+        run: |
+          TAG=v$VERSION
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" pkg/* --clobber
+          else
+            gh release create "$TAG" pkg/* --title "Xylonic Fiber $VERSION" --notes-file notes.md --prerelease --verify-tag
+          fi

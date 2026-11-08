@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     std::string path = argv[1];
     { // ring wraparound
         SampleRing r(8);
-        int16_t a[6] = {1,2,3,4,5,6}, b[8] = {};
+        float a[6] = {1,2,3,4,5,6}, b[8] = {};
         CHECK(r.write(a, 6) == 6); CHECK(r.read(b, 4) == 4);
         CHECK(r.write(a, 6) == 6); CHECK(r.readable() == 8); CHECK(r.write(a, 1) == 0);
         CHECK(r.read(b, 8) == 8); CHECK(b[0] == 5 && b[1] == 6 && b[2] == 1);
@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
         CHECK(d != nullptr);
         if (!d) return 1;
         auto t0 = std::chrono::steady_clock::now();
-        std::vector<int16_t> buf(4096 * d->channels());
+        std::vector<float> buf(4096 * d->channels());
         uint64_t frames = 0, n;
         while ((n = d->read(buf.data(), 4096)) > 0) frames += n;
         double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
         CHECK(SDL_Init(SDL_INIT_AUDIO) == 0);
         {
             Player p; std::string err;
-            CHECK(p.load_url(url, cache, "mp3", ConnectOptions{}, 30.0, err));
+            { const bool ok_url = p.load_url(url, cache, "mp3", ConnectOptions{}, 30.0, err); if (!ok_url) std::printf("load_url error: %s\n", err.c_str()); CHECK(ok_url); }
             CHECK(p.duration_seconds() == 30.0);
             CHECK(p.play());
             std::this_thread::sleep_for(std::chrono::milliseconds(300));
