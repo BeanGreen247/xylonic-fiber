@@ -6,6 +6,31 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
+# Flags carried over from Lestrix and hootedit (docs there: -O3 in every build, -fno-plt about 4% on libc-heavy loops, GCC block-reorder and
+# vector-cost tuning +5% on a parse engine); each is only used when the compiler accepts it. Rejected there and here: -funroll-loops,
+# -ffast-math, -march=native (a distributable binary), -fno-threadsafe-statics (crashes).
+option(XF_TUNE_FLAGS "Extra -O3/-fno-plt/GCC tuning flags (see the comment above)" ON)
+include(CheckCXXCompilerFlag)
+if(XF_TUNE_FLAGS)
+foreach(f -O3 -fno-plt -freorder-blocks-algorithm=simple -fvect-cost-model=unlimited)
+  string(MAKE_C_IDENTIFIER "XF_HAS${f}" xf_var)
+  check_cxx_compiler_flag(${f} ${xf_var})
+  if(${xf_var})
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${f}>)
+  endif()
+endforeach()
+endif()
+if(XF_TUNE_FLAGS AND NOT APPLE AND NOT ANDROID)
+  foreach(f -Wl,-O1 -Wl,--as-needed)   # pack-relative-relocs left out: it makes the binary need glibc 2.36+ at run time
+    string(MAKE_C_IDENTIFIER "XF_LD${f}" xf_var)
+    set(CMAKE_REQUIRED_LINK_OPTIONS ${f})
+    check_cxx_compiler_flag("" ${xf_var})
+    unset(CMAKE_REQUIRED_LINK_OPTIONS)
+    if(${xf_var})
+      add_link_options(${f})
+    endif()
+  endforeach()
+endif()
 option(XF_LTO "Link-time optimisation and section GC for Release builds (binary 3.73 -> 2.91 MB, same CPU: docs/baseline.md)" ON)
 if(XF_LTO AND NOT ANDROID AND NOT IOS AND CMAKE_BUILD_TYPE STREQUAL "Release")
   include(CheckIPOSupported)
@@ -170,7 +195,7 @@ elseif(APPLE)
     MACOSX_BUNDLE_INFO_PLIST ${XF_PLIST}
     MACOSX_BUNDLE_GUI_IDENTIFIER org.xylonic.fiber
     MACOSX_BUNDLE_BUNDLE_NAME "Xylonic Fiber"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2.0"
     MACOSX_BUNDLE_BUNDLE_VERSION "1"
     XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER org.xylonic.fiber)
   if(IOS)

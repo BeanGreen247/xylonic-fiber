@@ -51,6 +51,27 @@ int main() {
         CHECK(lo <= 1000.0 && 1000.0 <= hi * 1.05 && b[best] > 0.7f);
         std::vector<float> z(n, 0.0f); spectrum_bands(z.data(), n, 44100, b, 24); CHECK(b[5] < 0.01f);
     }
+    { // the half-size real transform must agree with a brute-force windowed DFT on a noisy multi-tone signal
+        const size_t n = 512; const int nb = 12; const double rate = 44100;
+        std::vector<float> m(n); unsigned seed = 12345;
+        for (size_t i = 0; i < n; ++i) { seed = seed * 1664525u + 1013904223u; m[i] = 0.3f * std::sin(6.283185307 * 700.0 * i / rate) + 0.2f * std::sin(6.283185307 * 5200.0 * i / rate) + 0.05f * (static_cast<float>(seed >> 8) / 8388608.0f - 1.0f); }
+        float got[12]; spectrum_bands(m.data(), n, rate, got, nb);
+        const double fmin = 40.0, fmax = 16000.0;
+        double worst = 0;
+        for (int b = 0; b < nb; ++b) {
+            const double f0 = fmin * std::pow(fmax / fmin, double(b) / nb), f1 = fmin * std::pow(fmax / fmin, double(b + 1) / nb);
+            size_t k0 = size_t(f0 * n / rate), k1 = size_t(f1 * n / rate); if (k1 <= k0) k1 = k0 + 1; if (k1 > n / 2) k1 = n / 2;
+            double peak2 = 0;
+            for (size_t k = k0; k < k1; ++k) {
+                double re = 0, im = 0;
+                for (size_t i = 0; i < n; ++i) { const double w = 0.5 - 0.5 * std::cos(6.283185307179586 * i / double(n - 1)); const double a2 = -6.283185307179586 * double(k) * double(i) / double(n); re += m[i] * w * std::cos(a2); im += m[i] * w * std::sin(a2); }
+                peak2 = std::max(peak2, re * re + im * im);
+            }
+            const double mag = std::sqrt(peak2) / (n / 4.0), ref = std::min(1.0, std::max(0.0, (20.0 * std::log10(mag + 1e-6) + 60.0) / 60.0));
+            worst = std::max(worst, std::fabs(ref - double(got[b])));
+        }
+        CHECK(worst < 0.01);
+    }
     std::printf(fails ? "FAILED\n" : "OK\n");
     return fails ? 1 : 0;
 }

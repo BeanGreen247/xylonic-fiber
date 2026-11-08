@@ -32,6 +32,12 @@ int main() {
     CHECK(e.get("k1", path));                                                          // k1 becomes most recent
     CHECK(e.evict_to(2000) == 3000 && e.total_bytes() == 2000 && e.get("k0", path) && e.get("k1", path) && !e.get("k2", path));
     CHECK(e.pin("k0", false) && e.evict_to(0) == 2000 && e.blob_count() == 0);
+    // clear_all drops pinned blobs too and removes their files (the wipe path)
+    { MediaCache w((dir / "wipe").string()); CHECK(w.open());
+      std::vector<std::string> files;
+      for (int i = 0; i < 600; ++i) { CHECK(w.put("w" + std::to_string(i), MediaKind::Artwork, "blob" + std::to_string(i), i % 7 == 0)); std::string wp; CHECK(w.get("w" + std::to_string(i), wp)); files.push_back(wp); }
+      CHECK(w.clear_all() == 600 && w.blob_count() == 0 && w.total_bytes() == 0);
+      bool any = false; for (auto& f : files) any = any || fs::exists(f); CHECK(!any); }
     // a corrupt manifest starts empty and removes stray files
     CHECK(e.put("z", MediaKind::Audio, a) && e.save());
     { std::fstream f((dir / "evict" / "cache.manifest").string(), std::ios::in | std::ios::out | std::ios::binary); f.seekp(40); char x = '!'; f.write(&x, 1); }

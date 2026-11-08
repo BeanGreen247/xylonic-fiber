@@ -80,8 +80,15 @@ void App::draw_main(float W, float H) {
     mobile_ = W / s <= 767.0f;   // LayoutModeContext COMPACT_MAX; decided before any full-screen view
     struct Restore { App* a; Input saved; ~Restore() { } } restore{this, saved};
     (void)restore;
+    if (mini_open_) {
+        gfx_->fill({0, 0, W, H}, {0, 0, 0, 255});
+        const float uh = winamp_shade_ ? 14.0f : 116.0f, k = std::min(W / 275.0f, H / uh);
+        if (draw_winamp({(W - 275 * k) / 2, (H - uh * k) / 2, 275 * k, uh * k}) || uin.in.escape) { mini_open_ = false; player_.enable_spectrum(false); mark(); }
+        draw_tooltip(W, H);
+        return;
+    }
     if (car_open_) { draw_car_mode(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } return; }
-    if (np_open_) { draw_now_playing(W, H); if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); } return; }
+    if (np_open_) { draw_now_playing(W, H); if (add_song_) { uin.in = saved; draw_add_to_playlist(W, H); } if (modal_ != Modal::None) { uin.in = saved; draw_modal(W, H); } if (ctx_song_) { uin.in = saved; draw_ctx_menu(W, H); } return; }
     mobile_ = W / s <= 767.0f;   // LayoutModeContext COMPACT_MAX
     banner_h_ = (missing_banner_ && !offline_) ? (mobile_ ? 47.0f : 60.0f) * s : 0.0f;
     if (!mobile_) draw_nav(H);

@@ -1,6 +1,9 @@
 #include <atomic>
 #include <thread>
 #include "media.h"
+#include <unistd.h>
+#include <unordered_set>
+#include "parallel.h"
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -193,19 +196,40 @@ bool MediaCache::pin(const std::string& key, bool pinned) {
     Blob& b = blobs_[it->second.hash]; it->second.pinned = pinned; if (pinned) ++b.pinned; else if (b.pinned) --b.pinned; return true;
 }
 
+size_t MediaCache::clear_all() {
+    std::vector<std::string> paths;
+    size_t n = 0;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        paths.reserve(blobs_.size());
+        for (const auto& b : blobs_) paths.push_back(path_for(b.second.kind, b.first));
+        n = blobs_.size();
+        blobs_.clear(); keys_.clear();
+    }
+    parallel_for(paths.size(), [&](size_t i) { ::unlink(paths[i].c_str()); });
+    return n;
+}
+
 size_t MediaCache::evict_to(uint64_t budget) {
     std::lock_guard<std::mutex> lk(m_);
     uint64_t total = 0; for (const auto& b : blobs_) total += b.second.size;
+    if (total <= budget) return 0;
     std::vector<std::pair<uint64_t, std::string>> order;
     for (const auto& b : blobs_) if (!b.second.pinned) order.emplace_back(b.second.last_used, b.first);
     std::sort(order.begin(), order.end());
+    std::unordered_set<std::string> victims;
+    std::vector<std::string> paths;
     uint64_t freed = 0;
     for (const auto& item : order) {
         if (total <= budget) break;
-        const uint64_t size = blobs_[item.second].size;
-        for (auto k = keys_.begin(); k != keys_.end();) { if (k->second.hash == item.second) k = keys_.erase(k); else ++k; }
-        drop_blob_locked(item.second); total -= size; freed += size;
+        const Blob& blob = blobs_[item.second];
+        total -= blob.size; freed += blob.size;
+        paths.push_back(path_for(blob.kind, item.second));
+        victims.insert(item.second);
     }
+    for (auto k = keys_.begin(); k != keys_.end();) { if (victims.count(k->second.hash)) k = keys_.erase(k); else ++k; }   // one pass, not one per blob
+    for (const auto& h : victims) blobs_.erase(h);
+    parallel_for(paths.size(), [&](size_t i) { ::unlink(paths[i].c_str()); });
     return freed;
 }
 

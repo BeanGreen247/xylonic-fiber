@@ -56,6 +56,7 @@ private:
     bool save_locked() const;
     bool journal_put_locked(const std::string& key, const std::string& value);
     bool journal_erase_locked(const std::string& key);
+    bool journal_erase_many_locked(const std::vector<std::string>& keys);
     bool journal_download_locked(char op, const Row& row);
     bool journal_download_erase_locked(const std::string& id);
     void apply_journal_locked(const std::string& payload);

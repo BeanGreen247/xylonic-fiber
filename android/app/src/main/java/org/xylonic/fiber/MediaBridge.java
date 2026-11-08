@@ -126,6 +126,65 @@ public final class MediaBridge {
      * Car Mode is a landscape display: force it whatever the auto-rotate setting says. On exit the screen goes back to the orientation it
      * had before (a phone lying flat has no gravity to rotate it back), then rotation is handed back to the user setting.
      */
+    private static Runnable lockHide;
+    private static android.view.View.OnLayoutChangeListener lockLayout;
+
+    /** Car Mode: sticky immersive with the bars re-hidden at once if they pop up, and the right edge excluded from the system swipe gestures. */
+    @SuppressWarnings("deprecation")
+    public static void setImmersiveLock(final Activity a, final boolean on) {
+        a.runOnUiThread(new Runnable() {
+            @Override public void run() {
+                final android.view.View v = a.getWindow().getDecorView();
+                final int flags = android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+                if (on) {
+                    lockHide = new Runnable() { @Override public void run() { v.setSystemUiVisibility(flags); } };
+                    v.setSystemUiVisibility(flags);
+                    v.setOnSystemUiVisibilityChangeListener(new android.view.View.OnSystemUiVisibilityChangeListener() {
+                        @Override public void onSystemUiVisibilityChange(int vis) {
+                            if ((vis & android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0 && lockHide != null) { v.post(lockHide); v.postDelayed(lockHide, 250); }   // hide again at once, and once more in case the system re-asserts them
+                        }
+                    });
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        // the insets API: bars only ever come back transiently on a swipe, and the listener sends them away the moment they are visible
+                        final android.view.WindowInsetsController c = a.getWindow().getInsetsController();
+                        if (c != null) {
+                            c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                            c.hide(android.view.WindowInsets.Type.systemBars());
+                            v.setOnApplyWindowInsetsListener(new android.view.View.OnApplyWindowInsetsListener() {
+                                @Override public android.view.WindowInsets onApplyWindowInsets(android.view.View view, android.view.WindowInsets insets) {
+                                    if (insets.isVisible(android.view.WindowInsets.Type.systemBars())) c.hide(android.view.WindowInsets.Type.systemBars());
+                                    return view.onApplyWindowInsets(insets);
+                                }
+                            });
+                        }
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        if (lockLayout != null) v.removeOnLayoutChangeListener(lockLayout);   // a repeated call must not stack listeners
+                        lockLayout = new android.view.View.OnLayoutChangeListener() {
+                            @Override public void onLayoutChange(android.view.View view, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                                int edge = (int) (48 * view.getResources().getDisplayMetrics().density);
+                                view.setSystemGestureExclusionRects(java.util.Collections.singletonList(new android.graphics.Rect(Math.max(0, r - l - edge), 0, r - l, b - t)));
+                            }
+                        };
+                        v.addOnLayoutChangeListener(lockLayout);
+                        v.requestLayout();
+                    }
+                } else {
+                    v.setOnSystemUiVisibilityChangeListener(null);
+                    if (android.os.Build.VERSION.SDK_INT >= 30) v.setOnApplyWindowInsetsListener(null);
+                    if (lockHide != null) v.removeCallbacks(lockHide);
+                    lockHide = null;
+                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        if (lockLayout != null) v.removeOnLayoutChangeListener(lockLayout);
+                        lockLayout = null;
+                        v.setSystemGestureExclusionRects(java.util.Collections.<android.graphics.Rect>emptyList());
+                    }
+                }
+            }
+        });
+    }
+
     public static void setLandscape(final Activity a, final boolean landscape) {
         a.runOnUiThread(new Runnable() {
             @Override public void run() {

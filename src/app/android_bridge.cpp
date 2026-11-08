@@ -8,7 +8,7 @@
 namespace {
 struct Bridge {
     jclass cls = nullptr;   // global ref
-    jmethodID update = nullptr, appicon = nullptr, landscape = nullptr, back = nullptr, exempt = nullptr, request = nullptr, density = nullptr, decode = nullptr, rate = nullptr, volumes = nullptr, pick = nullptr, poll = nullptr;
+    jmethodID update = nullptr, appicon = nullptr, landscape = nullptr, immersive = nullptr, back = nullptr, exempt = nullptr, request = nullptr, density = nullptr, decode = nullptr, rate = nullptr, volumes = nullptr, pick = nullptr, poll = nullptr;
     bool tried = false;
 };
 Bridge g;
@@ -37,6 +37,7 @@ bool bind(JNIEnv* env, jobject act) {
         g.request = env->GetStaticMethodID(gcls, "requestBatteryExemption", "(Landroid/app/Activity;)V");
         if (env->ExceptionCheck()) env->ExceptionClear();
         g.landscape = env->GetStaticMethodID(gcls, "setLandscape", "(Landroid/app/Activity;Z)V");
+        g.immersive = env->GetStaticMethodID(gcls, "setImmersiveLock", "(Landroid/app/Activity;Z)V");
         g.appicon = env->GetStaticMethodID(gcls, "setAppIcon", "(Landroid/app/Activity;Ljava/lang/String;)V");
         g.density = env->GetStaticMethodID(gcls, "density", "(Landroid/content/Context;)F");
         g.decode = env->GetStaticMethodID(gcls, "decode", "([BI)[I");
@@ -80,6 +81,13 @@ void set_landscape(bool landscape) {
     Scope j;
     if (!j.ok() || !g.landscape) return;
     j.env->CallStaticVoidMethod(g.cls, g.landscape, j.act, static_cast<jboolean>(landscape));
+    if (j.env->ExceptionCheck()) j.env->ExceptionClear();
+}
+
+void set_immersive_lock(bool on) {
+    Scope j;
+    if (!j.ok() || !g.immersive) return;
+    j.env->CallStaticVoidMethod(g.cls, g.immersive, j.act, static_cast<jboolean>(on));
     if (j.env->ExceptionCheck()) j.env->ExceptionClear();
 }
 

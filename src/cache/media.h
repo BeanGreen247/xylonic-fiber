@@ -32,6 +32,7 @@ public:
     size_t release_songs(const std::unordered_set<std::string>& ids);   // release_prefix("song:<id>@") for every id in one pass over the keys
     size_t prune_prefix(const std::string& prefix, size_t keep);   // keep only the `keep` most recently used keys with this prefix     // every key starting with prefix (all qualities of one song)
     bool pin(const std::string& key, bool pinned);
+    size_t clear_all();                                    // drops every blob and key (pinned too) with parallel unlinks; returns the blob count
     size_t evict_to(uint64_t budget_bytes);                // returns bytes freed; pinned content never evicted
     struct Report { size_t orphan_files = 0, missing_files = 0, dropped_keys = 0; };
     Report reconcile();

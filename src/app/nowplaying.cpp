@@ -197,11 +197,47 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
     const float s = S_;
     const Theme& th = u.th;
     const float lw = W / s, lh = H / s;
+    // NowPlayingOverlay touch handlers: a swipe down anywhere closes, a swipe left/right skips the track, a tap on the artwork plays or pauses.
+    // A slider that took the touch (progress bar) cancels the gesture.
+    {
+        const Input& in = u.in;
+        if (in.pressed) { np_gx_ = in.mx; np_gy_ = in.my; np_gdx_ = np_gdy_ = 0; np_gdir_ = 0; np_gon_ = true; }
+        if (np_gon_ && in.down) {
+            if (u.active != 0) { np_gon_ = false; np_gdir_ = 0; }
+            else {
+                np_gdx_ = in.mx - np_gx_; np_gdy_ = in.my - np_gy_;
+                if (np_gdir_ == 0) {
+                    if (std::fabs(np_gdx_) > 10 * s && std::fabs(np_gdx_) > std::fabs(np_gdy_)) np_gdir_ = 1;
+                    else if (np_gdy_ > 12 * s && np_gdy_ > std::fabs(np_gdx_) * 1.2f) np_gdir_ = 2;
+                }
+                if (np_gdir_ != 0) u.wants_frames = true;
+            }
+        }
+        if (np_gon_ && !in.down && !in.pressed) {   // finger up (a touch that travelled never sets `released`, so test the button state)
+            np_gon_ = false;
+            if (np_gdir_ == 2) { np_anim_from_ = np_off_; np_anim_t0_ = SDL_GetTicks(); np_anim_close_ = np_gdy_ > 50 * s; np_anim_ = true; }   // finish the slide down, or spring back
+            if (np_gdir_ == 1 && std::fabs(np_gdx_) > 50 * s) {
+                if (np_gdx_ < 0) next_track();
+                else if (remote_mode_) remote_send("previous");
+                else if (queue_.prev()) start_current();   // a swipe always changes track, no "restart when past 3 s"
+            }
+        }
+    }
+    // the sheet follows the finger while it is pulled down (translateY in the original), then slides out (0.2 s ease-in) or springs back
+    if (np_gon_ && np_gdir_ == 2) { np_off_ = np_gdy_ > 0 ? std::min(np_gdy_ * 0.55f, 180.0f * s) : 0.0f; np_anim_ = false; }
+    else if (np_anim_) {
+        const float t = std::min(1.0f, static_cast<float>(SDL_GetTicks() - np_anim_t0_) / (np_anim_close_ ? 200.0f : 260.0f));
+        if (np_anim_close_) np_off_ = np_anim_from_ + (H - np_anim_from_) * t * t;
+        else np_off_ = np_anim_from_ * (1.0f - (1.0f - (1.0f - t) * (1.0f - t)));
+        u.wants_frames = true;
+        if (t >= 1.0f) { np_anim_ = false; np_off_ = 0; if (np_anim_close_) { np_open_ = false; np_gdir_ = 0; gfx_->shift_y(0); mark(); return; } }
+    } else np_off_ = 0;
+    if (np_off_ > 0.5f) { gfx_->shift_y(static_cast<int>(np_off_)); u.in.pressed = u.in.released = false; }   // drawn lower than it hit-tests: no taps while the sheet moves
     gfx_->fill_round({W / 2 - 18 * s, 10 * s, 36 * s, 4 * s}, 2 * s, {255, 255, 255, 89});
     Rect cl{8 * s, 18 * s, 44 * s, 44 * s};
     if (u.hover(cl)) gfx_->fill_round(cl, 22 * s, th.hover);
     fa(0xf078, cl.x + 22 * s, cl.y + 22 * s, 18, {255, 255, 255, 217});
-    if (u.clicked(cl) || u.in.escape) { np_open_ = false; mark(); return; }
+    if (u.clicked(cl) || u.in.escape) { gfx_->shift_y(0); np_open_ = false; mark(); return; }
     gfx_->set_letter_spacing(1.32f * s);
     const float lblw = gfx_->measure(F(700, 11), "NOW PLAYING");
     T(700, 11, W / 2 - lblw / 2, 18 * s, 44, "NOW PLAYING", {255, 255, 255, 153});
@@ -212,7 +248,11 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
     const float wrap_h = short_h ? std::max(188.0f, std::min(lh - 327, lw - 8)) : std::max(332.0f, std::min(lh - 390, lw - 8));
     float y = 70 * s;
     Rect ar{(W - art_px * s) / 2, y, art_px * s, art_px * s};
-    if (cur) { if (SDL_Texture* t = cover(cur->cover_art, static_cast<int>(art_px), cur->artist, cur->album)) gfx_->image_round(t, ar, 6 * s); else draw_art_fallback(ar, cur->cover_art, 6 * s); }
+    const Rect art_hit = ar;   // the tap target stays put while the artwork follows a horizontal swipe
+    if (np_gon_ && np_gdir_ == 1) ar.x += std::max(-W * 0.6f, std::min(W * 0.6f, np_gdx_));
+    const uint8_t art_a = static_cast<uint8_t>(255 - std::min(150.0f, std::fabs(ar.x - art_hit.x) / W * 250.0f));
+    if (cur) { if (SDL_Texture* t = cover(cur->cover_art, static_cast<int>(art_px), cur->artist, cur->album)) gfx_->image_round(t, ar, 6 * s, {255, 255, 255, art_a}); else draw_art_fallback(ar, cur->cover_art, 6 * s); }
+    if (cur && np_gdir_ == 0 && u.clicked(art_hit)) toggle_play();
     else gfx_->fill_round(ar, 6 * s, {255, 255, 255, 15});
     y += wrap_h * s;
     // info row
@@ -271,7 +311,7 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
         const bool on = queue_.repeat() != Repeat::Off;
         const float c = slot(small);
         if (glyph(c, skin::Repeat, 20, on ? th.accent : Color{255, 255, 255, 128}, small)) queue_.set_repeat(queue_.repeat() == Repeat::Off ? Repeat::All : queue_.repeat() == Repeat::All ? Repeat::One : Repeat::Off);
-        if (queue_.repeat() == Repeat::One) T(800, 9, c + 12 * s, ccy - 22 * s, 12, "1", th.accent);
+        if (queue_.repeat() == Repeat::One) T(800, 9, c - gfx_->measure(F(800, 9), "1") / 2, ccy - 6.5f * s, 13, "1", th.accent);   // the 1 sits inside the arrow
     }
     y += ctrl_h * s + (short_h ? 10.0f : 24.0f) * s;
     // selectors row (quality, speed): padding 4 22 0, gap 8, 12 px/600
@@ -370,4 +410,5 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
     int si = 2; for (int i = 0; i < 7; ++i) if (std::fabs(player_.speed() - svals[i]) < 1e-6) si = i;
     popup(sp, {"0.5\xC3\x97", "0.75\xC3\x97", "Normal", "1.25\xC3\x97", "1.5\xC3\x97", "1.75\xC3\x97", "2\xC3\x97"}, si, speed_popup_, [&](int i) { player_.set_speed(svals[i]); });
     if (SDL_GetTicks() < np_toast_until_) { T(500, 11, W / 2 - gfx_->measure(F(500, 11), np_toast_) / 2, qb.y - 22 * s, 17, np_toast_, th.accent); u.wants_frames = true; }
+    gfx_->shift_y(0);
 }

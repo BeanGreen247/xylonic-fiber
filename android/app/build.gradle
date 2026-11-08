@@ -7,11 +7,11 @@ android {
         applicationId 'org.xylonic.fiber'
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 2
+        versionName '0.2.0'
         // phones by default; an emulator needs x86_64: ./gradlew assembleDebug -Pxf.abis=x86_64
         ndk { abiFilters((project.findProperty('xf.abis') ?: 'arm64-v8a,armeabi-v7a').split(',') as String[]) }
-        externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared'; cppFlags '-O2' } }
+        externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared'; cppFlags '-O3 -fno-plt' } }
     }
     externalNativeBuild { cmake { path 'jni/CMakeLists.txt'; version '3.22.1' } }
     sourceSets { main { assets.srcDirs = ['../../assets'] } }

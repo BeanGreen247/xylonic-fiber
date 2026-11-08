@@ -120,6 +120,15 @@ void Gfx::flush() {
     v_.clear(); idx_.clear();
 }
 
+void Gfx::shift_y(int dy) {
+    flush();
+    if (dy <= 0) { SDL_RenderSetViewport(ren_, nullptr); return; }
+    int w = 0, h = 0;
+    SDL_GetRendererOutputSize(ren_, &w, &h);
+    const SDL_Rect vp{0, dy, w, std::max(1, h - dy)};
+    SDL_RenderSetViewport(ren_, &vp);
+}
+
 void Gfx::end_frame() {
     flush();
     if (!capture_path_.empty()) {   // read the finished frame before the present leaves the back buffer undefined

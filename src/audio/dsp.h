@@ -20,7 +20,28 @@ public:
         const double fc = step > 1.0 ? 1.0 / step : 1.0;                // cutoff relative to the input rate
         const double halfw = static_cast<double>(kHalf) / fc;           // kernel half width in input samples
         const int64_t end = base_ + static_cast<int64_t>(buf_.size() / 2);
-        while (pos_ + halfw + 1.0 < static_cast<double>(end)) {
+        out.reserve(out.size() + static_cast<size_t>(static_cast<double>(frames) / step) * 2 + 16);
+        if (fc == 1.0) {   // rate conversion up or 1:1 (the common 44.1 -> 48 kHz): the 32 weights depend only on the fractional position, so they come from a phase table
+            while (pos_ + 17.0 < static_cast<double>(end)) {
+                const int64_t ip = static_cast<int64_t>(std::floor(pos_));
+                const float ph = static_cast<float>(pos_ - static_cast<double>(ip)) * kPh;
+                const int p = std::min(static_cast<int>(ph), kPh - 1);   // ph can round up to exactly kPh: stay inside the table
+                const float t = ph - static_cast<float>(p);
+                const float* __restrict a0 = &poly_[static_cast<size_t>(p) * kTaps];
+                const float* __restrict a1 = a0 + kTaps;
+                float w[kTaps];
+                for (int j = 0; j < kTaps; ++j) w[j] = a0[j] + (a1[j] - a0[j]) * t;
+                const float* __restrict x = &buf_[static_cast<size_t>(ip - (kHalf - 1) - base_) * 2];
+                float l0 = 0, l1 = 0, r0 = 0, r1 = 0;
+                for (int j = 0; j < kTaps; j += 2) {
+                    l0 += x[2 * j] * w[j];         r0 += x[2 * j + 1] * w[j];
+                    l1 += x[2 * j + 2] * w[j + 1]; r1 += x[2 * j + 3] * w[j + 1];
+                }
+                out.push_back(l0 + l1); out.push_back(r0 + r1);
+                pos_ += step;
+            }
+        }
+        while (fc != 1.0 && pos_ + halfw + 1.0 < static_cast<double>(end)) {
             const int64_t first = static_cast<int64_t>(std::ceil(pos_ - halfw)), last = static_cast<int64_t>(std::floor(pos_ + halfw));
             float l = 0, r = 0;
             for (int64_t k = first; k <= last; ++k) {
@@ -49,7 +70,7 @@ public:
     }
     bool primed() const { return primed_; }
 private:
-    static constexpr int kHalf = 16, kPer = 256;
+    static constexpr int kHalf = 16, kPer = 256, kPh = 128, kTaps = 32;
     void build_table() {
         tab_.assign(static_cast<size_t>(kHalf) * kPer + 2, 0.0f);
         const double beta = 8.6;   // ~ -90 dB stopband
@@ -61,6 +82,9 @@ private:
             const double u = x / kHalf, win = u >= 1.0 ? 0.0 : i0(beta * std::sqrt(1.0 - u * u)) / norm;
             tab_[i] = static_cast<float>(sinc * win);
         }
+        poly_.assign(static_cast<size_t>(kPh + 1) * kTaps, 0.0f);   // row p: weights of taps k = ip-15 .. ip+16 at fractional position p / kPh
+        for (int p = 0; p <= kPh; ++p)
+            for (int j = 0; j < kTaps; ++j) poly_[static_cast<size_t>(p) * kTaps + static_cast<size_t>(j)] = weight(static_cast<double>(j - (kHalf - 1)) - static_cast<double>(p) / kPh);
     }
     float weight(double x) const {
         const double a = std::fabs(x) * kPer;
@@ -69,7 +93,7 @@ private:
         const float f = static_cast<float>(a - static_cast<double>(i));
         return tab_[i] + (tab_[i + 1] - tab_[i]) * f;
     }
-    std::vector<float> tab_, buf_;
+    std::vector<float> tab_, buf_, poly_;
     int64_t base_ = 0;       // absolute index of buf_[0]
     double pos_ = 0;         // absolute input position of the next output sample
     bool primed_ = false;
@@ -107,5 +131,5 @@ private:
     float b0_ = 1, b1_ = 0, b2_ = 0, a1_ = 0, a2_ = 0, z1_[2] = {0, 0}, z2_[2] = {0, 0};
 };
 
-// Magnitude spectrum of the latest samples folded into log-spaced bands (Pulse Deck: 24 bands, 40 Hz .. 16 kHz).
+// Magnitude spectrum of the latest samples folded into log-spaced bands (Riverbero: 24 bands, 40 Hz .. 16 kHz).
 void spectrum_bands(const float* mono, size_t n /* power of two */, double rate, float* bands, int nbands);

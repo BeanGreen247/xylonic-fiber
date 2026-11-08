@@ -89,7 +89,15 @@ void App::draw_modal(float W, float H) {
         float gw = std::min(go_w * s, avail * 0.62f);
         return std::make_pair(Rect{b.x + 20 * s, b.y + b.h - 56 * s, avail - gw, 36 * s}, Rect{b.x + b.w - 20 * s - gw, b.y + b.h - 56 * s, gw, 36 * s});
     };
-    if (modal_ == Modal::ConfirmWipe) {
+    if (modal_ == Modal::Busy) {
+        Rect b = frame(380, 130, skin::Sync, "Working");
+        T(400, 13, b.x + 20 * s, b.y + 64 * s, 20, busy_label_, th.sub, b.w - 40 * s);
+        Rect bar{b.x + 20 * s, b.y + 96 * s, b.w - 40 * s, 6 * s};
+        gfx_->fill_round(bar, 3 * s, {255, 255, 255, 40});
+        const float ph = std::fmod(SDL_GetTicks() / 900.0f, 1.0f);
+        gfx_->fill_round({bar.x + (bar.w - bar.w * 0.3f) * ph, bar.y, bar.w * 0.3f, bar.h}, 3 * s, th.accent);
+        mark();
+    } else if (modal_ == Modal::ConfirmWipe) {
         const std::vector<std::string> ls{"This removes downloaded songs, cover art, credentials and all settings.", "It cannot be undone."};
         Rect b = frame(420, 64 + para_h(420, ls) + 70, skin::Warning, "Clear all app data?");
         para_draw(b, 64, ls);
@@ -196,14 +204,15 @@ void App::draw_modal(float W, float H) {
         T(600, 14, go.x + (go.w - gfx_->measure(F(600, 14), gl)) / 2, go.y, 36, gl, rgb(rebuild ? 0x121212 : 0xffffff));
         if (u.clicked(go)) {
             modal_ = Modal::None;
-            if (rebuild) { images_->clear_memory(); images_->clear_disk(); if (store_) { store_->clear_library(); store_->erase_prefix("pre:"); } }
-            else {   // offlineCacheService.clearAllCache + imageCacheService.clearAllCacheAndReset + search cache + flags
-                if (downloads_) downloads_->clear_all();
-                images_->clear_memory(); images_->clear_disk();
-                if (store_) { store_->clear_library(); store_->erase_prefix("pre:"); store_->erase_prefix("home:"); }
-                album_cache_.clear(); artist_cache_.clear();
-            }
-            start_cache_preload(false);   // the original reloads, which shows the first-run build again
+            cancel_cache_preload();   // a running preload would keep writing entries while the worker erases them
+            images_->clear_memory();
+            album_cache_.clear(); artist_cache_.clear();
+            run_busy(rebuild ? "Rebuilding the cache\xE2\x80\xA6" : "Clearing caches\xE2\x80\xA6", [this, rebuild] {
+                std::thread dl([this, rebuild] { if (!rebuild && downloads_) downloads_->clear_all(); });   // offlineCacheService.clearAllCache
+                std::thread img([this] { images_->clear_disk(); });                                          // imageCacheService.clearAllCacheAndReset
+                if (store_) { store_->clear_library(); store_->erase_prefix("pre:"); if (!rebuild) store_->erase_prefix("home:"); }
+                dl.join(); img.join();
+            }, [this] { images_->clear_memory(); start_cache_preload(false); });   // the original reloads, which shows the first-run build again
         }
     } else if (modal_ == Modal::DownloadQuality) { draw_download_picker(W, H);
     } else if (modal_ == Modal::Reauth) {
@@ -461,9 +470,10 @@ void App::draw_settings(Rect r) {
     card_fill(y, 311 * s);
     if (row(skin::Car, "Car Mode", "A high-contrast widescreen player for your dashboard", 1, true, "Launch", true, 61)) modal_ = Modal::ConfirmCarMode;   // asks first, as the original does
     { static const char* m[3] = {"Auto", "Always", "Never"}; if (row(0xf422, "Minimal layout", cfg_.car_minimal == 0 ? "Automatic: no top and bottom bars on very small screens" : cfg_.car_minimal == 1 ? "Always: seek bar on top, art as large as possible" : "Never: always show the full layout with its bars", 1, false, m[cfg_.car_minimal], cfg_.car_minimal != 2, 61)) { cfg_.car_minimal = (cfg_.car_minimal + 1) % 3; cfg_.save(cfg_path_); } }
+    if (mini_available() && row(skin::Compress, "Mini Player", "The classic Winamp look: spectrum, scrolling title, seek and volume sliders", 1, true, "Launch", true, 61)) toggle_mini();
     if (row(0xf0eb, "Keep screen on", "Stop the screen from dimming, sleeping or locking while Car Mode is open", 1, false, cfg_.car_keep_on ? "On" : "Off", cfg_.car_keep_on, 61)) { cfg_.car_keep_on = !cfg_.car_keep_on; cfg_.save(cfg_path_); }
     if (row(0xf011, "Start in Car Mode", "Open the driving display automatically when the app starts", 1, false, cfg_.car_start ? "On" : "Off", cfg_.car_start, 61)) { cfg_.car_start = !cfg_.car_start; cfg_.save(cfg_path_); }
-    if (row(0xf080, "Start in Pulse Deck", "Open the animated spectrum visualizer when the app starts", 1, false, cfg_.car_pulse ? "On" : "Off", cfg_.car_pulse, 61)) { cfg_.car_pulse = !cfg_.car_pulse; cfg_.save(cfg_path_); }
+    if (row(0xf080, "Start in Riverbero", "Open the animated spectrum visualizer when the app starts", 1, false, cfg_.car_pulse ? "On" : "Off", cfg_.car_pulse, 61)) { cfg_.car_pulse = !cfg_.car_pulse; cfg_.save(cfg_path_); }
     y += (1 + 32) * s; row_i = 0;
     // ---- ACCOUNT
     section("ACCOUNT");
@@ -728,15 +738,31 @@ void App::draw_settings(Rect r) {
     if (dropdown_draw_) dropdown_draw_();
 }
 
+void App::run_busy(const std::string& label, std::function<void()> work, std::function<void()> done) {
+    if (busy_) return;
+    busy_ = true; busy_label_ = label; modal_ = Modal::Busy; mark();
+    worker_->post([this, work = std::move(work), done = std::move(done)] {
+        work();
+        ui_post([this, done] { busy_ = false; if (modal_ == Modal::Busy) modal_ = Modal::None; if (done) done(); mark(); });
+    });
+}
+
 void App::wipe_all_data() {
     secret_clear(cfg_.server_url + "|" + cfg_.username);
-    if (downloads_) downloads_->clear_all();
-    if (store_) { store_->erase_prefix(""); }
-    cfg_ = Config{};
+    cancel_cache_preload();
+    cfg_ = Config{};   // the saved account is gone before the slow part starts, so a kill mid-wipe cannot leave a half-reset config
     cfg_.save(cfg_path_);
-    logout();
-    cfg_ = Config{};
-    apply_theme();
+    run_busy("Clearing all app data\xE2\x80\xA6", [this] {
+        // Independent stores wipe side by side: the download files and rows, the artwork blobs, and the key-value store.
+        std::thread dl([this] { if (downloads_) downloads_->clear_all(); });
+        std::thread img([this] { if (images_) images_->clear_disk(); });
+        if (store_) store_->erase_prefix("");
+        dl.join(); img.join();
+    }, [this] {
+        logout();
+        cfg_ = Config{};
+        apply_theme();
+    });
 }
 
 void App::apply_perf_mode() {

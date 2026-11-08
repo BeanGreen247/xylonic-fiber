@@ -219,7 +219,7 @@ void ImageCache::clear_memory() {
 
 int ImageCache::clear_disk() {
     int removed = static_cast<int>(media_->blob_count());
-    media_->evict_to(0); media_->save();
+    media_->clear_all(); media_->save();
     DIR* dir = ::opendir(dir_.c_str());
     if (dir) {   // pre-manifest files
         while (dirent* e = ::readdir(dir)) {

@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include "downloads.h"
+#include "../cache/parallel.h"
 #include <chrono>
 #include <cstdio>
 #include <sys/stat.h>
@@ -20,17 +21,7 @@ namespace {
 uint32_t now_ms() {
     return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
-// Runs fn(i) for i in [0, n) on up to 8 threads (inline for small n). fn must be thread-safe.
-template <class F> void parallel_for(size_t n, F&& fn) {
-    size_t t = std::min<size_t>(8, std::max<size_t>(2, std::thread::hardware_concurrency()));
-    if (n < 256 || t < 2) { for (size_t i = 0; i < n; ++i) fn(i); return; }
-    std::atomic<size_t> next{0};
-    auto work = [&] { for (size_t b = 0; (b = next.fetch_add(64)) < n;) for (size_t i = b; i < std::min(n, b + 64); ++i) fn(i); };
-    std::vector<std::thread> th;
-    for (size_t k = 1; k < t; ++k) th.emplace_back(work);
-    work();
-    for (auto& x : th) x.join();
-}
+using xf::cache::parallel_for;
 std::string suffix_of(const std::string& song_json) {
     Song sg;
     return from_json(song_json, sg) ? sg.suffix : std::string();

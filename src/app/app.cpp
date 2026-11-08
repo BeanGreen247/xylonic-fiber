@@ -692,7 +692,7 @@ void App::push_view(ViewKind k, const std::string& id, const std::string& title)
 // leave the app running in the background while music plays or close it.
 void App::handle_back() {
     if (ui_->focus) { ui_->focus = 0; mark(); return; }
-    const bool overlay = modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_ || pre_open_ || newcontent_open_ || prompt_ != Prompt::None || car_open_ || np_open_ || panel_open_ || bottom_menu_open_;
+    const bool overlay = modal_ != Modal::None || add_song_ || show_help_ || ctx_song_ || hamburger_open_ || pre_open_ || newcontent_open_ || prompt_ != Prompt::None || car_open_ || mini_open_ || np_open_ || panel_open_ || bottom_menu_open_;
     if (overlay) {
         ++ui_->in.escape;   // dialogs and Car Mode close on Escape
         np_open_ = false; panel_open_ = false; bottom_menu_open_ = false;
@@ -1081,17 +1081,38 @@ void App::handle(const SDL_Event& e) {
     }
 }
 
+// SDL 2.32 only blocks natively on X11, Wayland, Windows and Cocoa. Everywhere else SDL_WaitEvent(Timeout) is a loop of SDL_Delay(1): 1000 wakeups a
+// second while the app is idle, which kept an idle Android phone at ~5% of a core. An event watch (called for every event, from any thread: touch
+// from the Java thread, ui_post from workers, lifecycle) signals a semaphore instead, so the thread sleeps in the kernel until something happens.
+#if defined(__ANDROID__) || defined(__IPHONE_OS_VERSION_MIN_REQUIRED)
+namespace {
+SDL_sem* g_wake = nullptr;
+int SDLCALL wake_watch(void*, SDL_Event* ev) { if (ev->type == 0x7f00 /* SDL_POLLSENTINEL: SDL pushes it on every poll */) return 1; if (g_wake && SDL_SemValue(g_wake) == 0) SDL_SemPost(g_wake); return 1; }
+}  // namespace
+bool App::wait_event(SDL_Event& e, int timeout_ms) {
+    if (!g_wake) { g_wake = SDL_CreateSemaphore(0); SDL_AddEventWatch(wake_watch, nullptr); }
+    if (SDL_PollEvent(&e)) return true;
+    if (timeout_ms == 0) return false;
+    if (timeout_ms < 0) SDL_SemWait(g_wake); else SDL_SemWaitTimeout(g_wake, static_cast<Uint32>(timeout_ms));
+    return SDL_PollEvent(&e) != 0;
+}
+#else
+bool App::wait_event(SDL_Event& e, int timeout_ms) { return (timeout_ms < 0 ? SDL_WaitEvent(&e) : SDL_WaitEventTimeout(&e, timeout_ms)) != 0; }
+#endif
+
 int App::run() {
     uint32_t last_draw = 0;
     while (running_) {
         bool pulse_live = car_open_ && cfg_.car_pulse && !pulse_off_ && player_.playing();
-        bool animating = storage_lost_ || fling_vel_ != 0 || pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_ || tip_pending_ || (press_touch_ && !long_fired_ && ui_->in.down);
+        const bool amp_live = (mini_open_ || mini_win_) && player_.playing();
+        const bool rail_anim = (car_open_ && rail_vis_ > 0.0f && rail_vis_ < 1.0f) || (np_open_ && (np_anim_ || (np_gon_ && np_gdir_ == 2)));   // the Riverbero rail sliding: draw every few ms, not at the visualizer or idle rate
+        bool animating = rail_anim || amp_live || storage_lost_ || fling_vel_ != 0 || pulse_live || sleep_end_ms_ != 0 || player_.playing() || track_loading_ || ui_->wants_frames || connecting_ || search_pending_ || tip_pending_ || (press_touch_ && !long_fired_ && ui_->in.down);
         SDL_Event e {};
         bool got = false;
         if (dirty_ || opt_.bench > 0) got = SDL_PollEvent(&e) != 0;
-        else if (shot_deadline_) got = SDL_WaitEventTimeout(&e, 50) != 0;
-        else if (animating) got = SDL_WaitEventTimeout(&e, pulse_live ? 33 : (tip_pending_ || press_touch_) ? 80 : 250) != 0;
-        else got = SDL_WaitEvent(&e) != 0;
+        else if (shot_deadline_) got = wait_event(e, 50);
+        else if (animating) got = wait_event(e, rail_anim ? 4 : pulse_live ? static_cast<int>(pulse_interval_ms()) : amp_live ? 66 : (tip_pending_ || press_touch_) ? 80 : 250);
+        else got = wait_event(e, -1);
         while (got) {
             handle(e);
             got = SDL_PollEvent(&e) != 0;
@@ -1108,7 +1129,7 @@ int App::run() {
             }
         }
         if (screen_ == Screen::Main) tick_player();
-        if (opt_.mini && !mini_win_ && queue_.current() && !track_loading_) toggle_mini();
+        if (opt_.mini && !mini_win_ && !mini_open_ && !mini_opened_once_ && queue_.current() && !track_loading_) { mini_opened_once_ = true; toggle_mini(); }
         if (search_pending_ && SDL_GetTicks() >= search_due_) run_search();
         tick_sleep();
         uint32_t now = SDL_GetTicks();
@@ -1123,7 +1144,9 @@ int App::run() {
             }
         }
         if (ui_->wants_frames && now - last_draw > 400) mark();
-        if (pulse_live && now - last_draw >= 33) mark();
+        if (pulse_live && now - last_draw >= pulse_interval_ms()) mark();
+        if (rail_anim) mark();
+        if (amp_live && now - last_draw >= 66) mark();
         if (tip_pending_ && now - last_draw >= 80) mark();
         if (press_touch_ && !long_fired_ && !touch_moved_ && ui_->in.down && ui_->active == 0 && now - press_ms_ >= 500 && std::hypot(ui_->in.mx - ui_->in.press_x, ui_->in.my - ui_->in.press_y) <= 8 * S_) {   // the original: Chromium turns a long press into "contextmenu"
             Input& in = ui_->in;

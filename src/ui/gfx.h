@@ -54,6 +54,8 @@ public:
     void image(SDL_Texture* tex, Rect dst, Color tint = {255, 255, 255, 255});
     // Image with rounded corners (mesh with UVs; flushes the batch like image()).
     void image_round(SDL_Texture* tex, Rect dst, float radius, Color tint = {255, 255, 255, 255});
+    // Draws everything that follows dy pixels lower (a sheet being pulled down); 0 restores the normal origin.
+    void shift_y(int dy);
     void clip(const Rect* r);  // nullptr clears (back to the base clip when one is set)
     // A base clip every later clip() is intersected with, so a page that clips to its own row (a carousel scrolled half out of view) cannot
     // paint over the header. A clip whose bottom edge sits at grow_from is stretched down to grow_to: the page may draw into the strip

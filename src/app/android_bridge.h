@@ -19,6 +19,8 @@ int output_rate();
 bool decode_image(const std::string& bytes, std::vector<uint8_t>& rgba, int& w, int& h);
 // Forces landscape (Car Mode) or gives rotation back to the user setting.
 void set_landscape(bool landscape);
+// Car Mode: keeps the system bars hidden (a bar that pops up is hidden again within a second) and reserves the right edge from the system swipe gestures.
+void set_immersive_lock(bool on);
 // Enables the launcher activity-alias for the app icon `name` (see app_icons.h) and disables the others.
 void set_app_icon(const char* name);
 // Mounted volumes' app-specific folders as (label, path, removable) triples.

@@ -73,6 +73,14 @@ bool Store::journal_put_locked(const std::string& key, const std::string& value)
     return journal_->append_transaction(++transaction_, ++generation_, {payload});
 }
 
+bool Store::journal_erase_many_locked(const std::vector<std::string>& keys) {
+    if (!journal_ || keys.empty()) return true;
+    std::vector<std::string> payloads;
+    payloads.reserve(keys.size());
+    for (const auto& key : keys) payloads.push_back(std::string(1, 'E') + key);
+    return journal_->append_transaction(++transaction_, ++generation_, payloads);   // one open/append/close for the whole batch
+}
+
 bool Store::journal_erase_locked(const std::string& key) {
     if (!journal_) return true;
     return journal_->append_transaction(++transaction_, ++generation_, {std::string(1, 'E') + key});
@@ -221,7 +229,7 @@ void Store::clear_library() {
     std::lock_guard<std::mutex> lk(m_);
     std::vector<std::string> gone;
     for (const auto& item : kv_) if (item.first.compare(0, 6, "album:") == 0 || item.first.compare(0, 7, "artist:") == 0 || item.first == "artists") gone.push_back(item.first);
-    for (const auto& key : gone) { if (!journal_erase_locked(key)) break; kv_.erase(key); }
+    if (journal_erase_many_locked(gone)) for (const auto& key : gone) kv_.erase(key);
     if (meta_) { xf::cache::UpdateBatch reset; reset.reset = true; meta_->apply(reset); }
     index_stale_ = false;
     save_locked();
@@ -341,7 +349,7 @@ void Store::erase_prefix(const std::string& prefix) {
     std::lock_guard<std::mutex> lk(m_);
     std::vector<std::string> removed;
     for (const auto& item : kv_) if (item.first.compare(0, prefix.size(), prefix) == 0) removed.push_back(item.first);
-    for (const auto& key : removed) if (!journal_erase_locked(key)) return;
+    if (!journal_erase_many_locked(removed)) return;
     for (auto it = kv_.begin(); it != kv_.end();) { if (it->first.compare(0, prefix.size(), prefix) == 0) it = kv_.erase(it); else ++it; }
     if (prefix.empty() || prefix.rfind("album", 0) == 0) index_stale_ = true;
     save_locked();
