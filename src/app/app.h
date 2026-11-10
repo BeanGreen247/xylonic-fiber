@@ -102,6 +102,11 @@ private:
     bool bottom_menu_open_ = false;   // Queue / History / Playlists submenu above the bottom nav
     bool mobile_ = false;   // logical width under 700: bottom nav, compact header and mini player
     void set_current_liked(bool on);   // server star + local metadata index
+    void set_song_liked(const Song& song, bool on);   // every list, the queue, the index; queued for the server when offline or failing
+    void likes_load_pending();
+    void likes_save_pending();
+    void likes_flush();                // sends the queued stars/unstars (online only)
+    void likes_sync();                 // pulls the server's starred list into the queue, the index and the Liked page
     void draw_library(Rect r);
     void draw_artist(Rect r);
     void draw_album(Rect r);
@@ -459,6 +464,9 @@ private:
     int panel_drag_ = -1;
     int lib_mode_ = 0, lib_page_[4] = {0, 0, 0, 0};
     std::vector<Album> alb_items_; bool alb_more_ = false, alb_loading_ = false; int alb_loaded_page_ = -1;
+    std::vector<std::pair<std::string, bool>> like_pending_;   // (song id, wanted state) not yet confirmed by the server, oldest first
+    bool like_flushing_ = false, like_syncing_ = false;
+    uint32_t like_sync_ms_ = 0, queue_saved_ms_ = 0;
     std::vector<Song> song_items_, liked_; bool song_more_ = false, song_loading_ = false, liked_loaded_ = false, liked_loading_ = false, busy_all_ = false;
     int song_loaded_page_ = -1, total_songs_ = -1;
     void load_offline_page(int mode, int page);

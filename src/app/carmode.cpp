@@ -175,7 +175,7 @@ void App::draw_car_mode(float W, float H) {
         if (queue_.repeat() == Repeat::One) T(800, 9, r.x + (r.w - gfx_->measure(F(800, 9), "1")) / 2, r.y + r.h / 2 - 6.5f * s, 13, "1", th.accent);   // the 1 sits inside the arrow
     };
     auto like_b = [&](Rect r, float px) {
-        if (ctl(r, skin::Heart, px, cur && cur->starred) && cur && client_) set_current_liked(!cur->starred);
+        if (ctl(r, skin::Heart, px, cur && cur->starred) && cur) set_current_liked(!cur->starred);
     };
     auto prev_b = [&](Rect r, float px) { if (ctl(r, skin::StepBack, px, false)) prev_track(); };
     auto next_b = [&](Rect r, float px) { if (ctl(r, skin::StepFwd, px, false)) next_track(); };

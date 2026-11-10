@@ -61,7 +61,7 @@ void App::draw_now_playing(float W, float H) {
             T(400, 14, 24 * s, ar.y + ar.h + 47 * s, 20, cur->artist, th.sub, W - 48 * s);
             Rect lk{W - 62 * s, ar.y + ar.h + 15 * s, 38 * s, 38 * s};
             fa(skin::Heart, lk.x + 19 * s, lk.y + 19 * s, 20, cur->starred ? th.accent : th.sub);
-            if (u.clicked(lk) && client_) {
+            if (u.clicked(lk)) {
                 bool on = !cur->starred;
                 set_current_liked(on);
             }
@@ -116,7 +116,7 @@ void App::draw_now_playing(float W, float H) {
         Rect lk{lx + (lw - 44 * s) / 2, ar.y + ar.h + 96 * s, 44 * s, 34 * s};
         bool liked = cur->starred;
         fa(skin::Heart, lk.x + 22 * s, lk.y + 17 * s, 22, liked ? th.accent : rgb(0xb5b5b5));
-        if (u.clicked(lk) && client_) {
+        if (u.clicked(lk)) {
             bool on = !cur->starred;
             set_current_liked(on);
         }
@@ -266,7 +266,7 @@ void App::draw_now_playing_compact(float W, float H, const Song* cur) {
     const bool liked = cur && cur->starred;
     fa(skin::Heart, lk.x + 22 * s, lk.y + 22 * s, 22, liked ? th.accent : Color{255, 255, 255, 140});
     fa(skin::ListUl, pl.x + 22 * s, pl.y + 22 * s, 18, {255, 255, 255, 140});
-    if (cur && u.clicked(lk) && client_) set_current_liked(!cur->starred);
+    if (cur && u.clicked(lk)) set_current_liked(!cur->starred);
     if (cur && u.clicked(pl)) add_song_ = *cur;
     y += 53 * s;                                   // row bottom (title block + 4)
     // progress: 10 px full-width bar

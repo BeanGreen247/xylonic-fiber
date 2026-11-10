@@ -270,6 +270,8 @@ void App::toggle_offline() {
         return;
     }
     if (!offline_ && images_) images_->forget_offline_misses();
+    if (!offline_ && client_) { like_sync_ms_ = SDL_GetTicks(); likes_sync(); }   // offline likes go out now
+    liked_loaded_ = false;
     alb_loaded_page_ = song_loaded_page_ = -1;   // the Albums and Songs lists switch between the server and the downloads
     if (offline_ && nav_ == Nav::Home) set_nav(Nav::Library);
     load_home(); load_artists();

@@ -447,6 +447,7 @@ void App::enter_offline() {
     nav_ = Nav::Library;   // Discover needs the server: offline starts in the Library
     open_account_data();
     queue_.load_songs(pref_ + "queue_" + acct_ + ".json");
+    likes_load_pending();
     load_playstate();
     queue_saved_rev_ = queue_.revision();
     history_load();
@@ -469,12 +470,15 @@ void App::on_connected() {
     open_account_data();
     std::string acct = acct_;
     queue_.load_songs(pref_ + "queue_" + acct + ".json");
+    likes_load_pending();
     load_playstate();
     queue_saved_rev_ = queue_.revision();
     history_load();
     pl_load();
     load_home();
     load_artists();
+    like_sync_ms_ = SDL_GetTicks();
+    likes_sync();   // unsent likes go out, then the server's starred list refreshes the queue, the index and the Liked page
     check_first_run();   // first launch for this account: build the performance cache
     if (store_) images_->set_alias(store_->cover_alias());   // song covers resolve to their album art
     if (downloads_ && client_) {   // downloaded songs keep their cover art on disk, so the library looks right offline (older downloads did not fetch it)
@@ -1130,6 +1134,13 @@ int App::run() {
         if (search_pending_ && SDL_GetTicks() >= search_due_) run_search();
         tick_sleep();
         uint32_t now = SDL_GetTicks();
+        if (screen_ == Screen::Main && client_ && !offline_ && now - like_sync_ms_ > 30000) { like_sync_ms_ = now; likes_sync(); }   // likes made on another device show up, failed ones are retried
+        if (screen_ == Screen::Main && !acct_.empty() && queue_.revision() != queue_saved_rev_ && now - queue_saved_ms_ > 1500) {   // the queue survives a kill or a power cut: written within 1.5 s of every change
+            queue_saved_ms_ = now;
+            queue_.save_songs(pref_ + "queue_" + acct_ + ".json");
+            queue_saved_rev_ = queue_.revision();
+            save_playstate();
+        }
         if (player_.playing() && now - playstate_saved_ms_ > 10000) save_playstate();   // a killed app (Android, reboot) keeps the spot to within 10 s
         if (storage_lost_ && screen_ == Screen::Main && now - storage_check_ms_ > 3000) {   // the SD card came up after the app did: reopen the real folders
             storage_check_ms_ = now;

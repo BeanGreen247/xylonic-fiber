@@ -569,7 +569,7 @@ void App::draw_player_bar(Rect strip) {
     }
     cx += 34 * s;
     const bool liked = cur && cur->starred;
-    if (cbtn(cx, skin::Heart, liked, liked ? "Unlike" : "Like") && cur && client_) set_current_liked(!cur->starred);
+    if (cbtn(cx, skin::Heart, liked, liked ? "Unlike" : "Like") && cur) set_current_liked(!cur->starred);
     if (show_time && live) {
         const float shown = (u.active == kSeek && dur > 0) ? seek_drag_v_ * dur : pos;
         const std::string tm = mmss(static_cast<int>(shown)) + " / " + mmss(static_cast<int>(dur));
@@ -684,10 +684,110 @@ void App::draw_bottom_nav(float W, float H) {
 
 void App::set_current_liked(bool on) {
     const Song* cur = queue_.current();
-    if (!cur || !client_) return;
-    worker_->post([c = client_, id = cur->id, on] { std::string e; c->set_star(id, on, e); });
-    const_cast<Song*>(cur)->starred = on;
-    if (store_) store_->set_liked(cur->id, on);
+    if (!cur) return;
+    const Song sg = *cur;   // set_song_liked rewrites the queue entry this points at
+    set_song_liked(sg, on);
+}
+
+// One path for every like/unlike (player buttons, Liked page, car mode): every in-memory list, the queue and the index change at once,
+// the change is queued on disk and sent to the server when online. Offline or on a failed request it stays queued and goes out later.
+void App::set_song_liked(const Song& song, bool on) {
+    if (song.id.empty()) return;
+    const std::string id = song.id;
+    queue_.set_starred(id, on);
+    for (Song& s : song_items_) if (s.id == id) s.starred = on;
+    if (on) {
+        bool have = false;
+        for (const Song& s : liked_) if (s.id == id) { have = true; break; }
+        if (!have) { Song c = song; c.starred = true; liked_.insert(liked_.begin(), std::move(c)); }
+    } else {
+        liked_.erase(std::remove_if(liked_.begin(), liked_.end(), [&](const Song& s) { return s.id == id; }), liked_.end());
+    }
+    if (store_) { Song c = song; c.starred = on; store_->index_songs({c}); store_->set_liked(id, on); }
+    like_pending_.erase(std::remove_if(like_pending_.begin(), like_pending_.end(), [&](const std::pair<std::string, bool>& p) { return p.first == id; }), like_pending_.end());
+    like_pending_.emplace_back(id, on);
+    likes_save_pending();
+    likes_flush();
+    mark();
+}
+
+void App::likes_save_pending() {
+    if (!store_) return;
+    std::string s;
+    for (const auto& p : like_pending_) { s += p.second ? '1' : '0'; s += p.first; s += '\n'; }
+    store_->put("likes_pending", s);
+}
+
+// Reads the unsent likes of this account and makes the restored queue agree with the index (likes made on another screen or offline).
+void App::likes_load_pending() {
+    like_pending_.clear();
+    like_flushing_ = like_syncing_ = false;
+    if (!store_) return;
+    std::string s;
+    if (store_->get("likes_pending", s)) {
+        size_t pos = 0;
+        while (pos < s.size()) {
+            size_t nl = s.find('\n', pos);
+            if (nl == std::string::npos) nl = s.size();
+            if (nl > pos + 1) like_pending_.emplace_back(s.substr(pos + 1, nl - pos - 1), s[pos] == '1');
+            pos = nl + 1;
+        }
+    }
+    std::vector<std::pair<std::string, bool>> fix;
+    for (const Song& q : queue_.songs()) { Song o; if (store_->song(q.id, o) && o.starred != q.starred) fix.emplace_back(q.id, o.starred); }
+    for (const auto& f : fix) queue_.set_starred(f.first, f.second);
+}
+
+void App::likes_flush() {
+    if (like_flushing_ || offline_ || !client_ || like_pending_.empty()) return;
+    like_flushing_ = true;
+    worker_->post([this, c = client_, s = session_, work = like_pending_] {
+        std::vector<std::pair<std::string, bool>> done;
+        for (const auto& w : work) { std::string e; if (c->set_star(w.first, w.second, e)) done.push_back(w); }   // a failed one stays queued for the next poll
+        ui_post([this, s, done = std::move(done)] {
+            like_flushing_ = false;
+            if (s != session_) return;
+            for (const auto& d : done)
+                like_pending_.erase(std::remove(like_pending_.begin(), like_pending_.end(), d), like_pending_.end());
+            if (!done.empty()) likes_save_pending();
+            if (!like_pending_.empty()) likes_flush();   // taps that arrived while this batch was in flight
+            else likes_sync();
+        });
+    });
+}
+
+void App::likes_sync() {
+    if (offline_ || !client_) return;
+    if (!like_pending_.empty()) { likes_flush(); return; }   // local changes go first, or the server list would undo them
+    if (like_syncing_) return;
+    like_syncing_ = true;
+    worker_->post([this, c = client_, s = session_] {
+        std::vector<Song> r; std::string e;
+        const bool ok = c->starred(r, e);
+        ui_post([this, s, r = std::move(r), ok]() mutable {
+            like_syncing_ = false;
+            if (s != session_ || !ok || !like_pending_.empty()) return;   // a tap since the request left: the next poll sees the settled state
+            std::unordered_set<std::string> ids;
+            for (const Song& x : r) ids.insert(x.id);
+            bool changed = !liked_loaded_ || liked_.size() != r.size();
+            for (size_t i = 0; !changed && i < r.size(); ++i) changed = liked_[i].id != r[i].id;
+            std::vector<std::pair<std::string, bool>> fix;
+            for (const Song& q : queue_.songs()) if (q.starred != (ids.count(q.id) > 0)) fix.emplace_back(q.id, ids.count(q.id) > 0);
+            for (const auto& f : fix) { queue_.set_starred(f.first, f.second); changed = true; }
+            if (changed) {
+                if (store_) {
+                    std::vector<std::string> gone;
+                    for (const Song& o : store_->liked_songs()) if (!ids.count(o.id)) gone.push_back(o.id);
+                    store_->index_songs(r);
+                    for (const std::string& id : gone) store_->set_liked(id, false);
+                }
+                for (Song& sg : song_items_) sg.starred = ids.count(sg.id) > 0;
+                liked_ = std::move(r);
+                liked_loaded_ = true;
+                mark();
+            }
+        });
+    });
 }
 
 // ---------------------------------------------------------------- Discover

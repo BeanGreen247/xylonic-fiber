@@ -23,6 +23,8 @@ public:
     const std::vector<Song>& songs() const { return songs_; }
     const Song* current() const { return songs_.empty() ? nullptr : &songs_[cur_]; }
     size_t index() const { return cur_; }
+    // Sets the starred flag on every copy of a song id (the same track can sit in the queue more than once); true if anything changed.
+    bool set_starred(const std::string& id, bool on);
     bool jump(size_t i);  // make i current; false if out of range
 
     // Manual next/prev. Both wrap around at the ends regardless of repeat mode.

@@ -1,4 +1,8 @@
 #include "queue.h"
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include <algorithm>
 #include <cstdio>
 #include "../../third_party/yyjson.h"
@@ -26,6 +30,13 @@ void Queue::set(std::vector<Song> songs, size_t start) {
     cur_ = start < songs_.size() ? start : 0;
     reshuffle_keep_current();
     ++rev_;
+}
+
+bool Queue::set_starred(const std::string& id, bool on) {
+    bool changed = false;
+    for (Song& s : songs_) if (s.id == id && s.starred != on) { s.starred = on; changed = true; }
+    if (changed) ++rev_;
+    return changed;
 }
 
 void Queue::add(Song s) {
@@ -154,6 +165,9 @@ bool Queue::save_songs(const std::string& path) const {
     std::string tmp = path + ".tmp";
     bool ok = yyjson_mut_write_file(tmp.c_str(), d, 0, nullptr, nullptr);
     yyjson_mut_doc_free(d);
+#ifndef _WIN32
+    if (ok) { int fd = ::open(tmp.c_str(), O_RDONLY); if (fd >= 0) { ::fsync(fd); ::close(fd); } }   // on disk before the rename: a power cut leaves the old or the new file, never half
+#endif
     return ok && std::rename(tmp.c_str(), path.c_str()) == 0;
 }
 

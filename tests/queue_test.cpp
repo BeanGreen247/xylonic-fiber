@@ -60,6 +60,14 @@ int main() {
     CHECK(b.size() == 4 && b.songs()[3].title == "Ünï \"q\"" && b.songs()[3].size == 5000000000ULL && b.songs()[3].starred);
     CHECK(!b.load_songs("/nonexistent/q.json"));
     std::remove("queue_test_tmp.json");
+
+    // set_starred: every copy of the id changes, the revision moves only on a real change
+    Queue st; st.set(mk(3), 0); st.add(mk(1)[0]);   // "s0" twice
+    uint32_t r0 = st.revision();
+    CHECK(st.set_starred("s0", true) && st.songs()[0].starred && st.songs()[3].starred && !st.songs()[1].starred && st.revision() != r0);
+    r0 = st.revision();
+    CHECK(!st.set_starred("s0", true) && !st.set_starred("nope", true) && st.revision() == r0);
+    CHECK(st.set_starred("s0", false) && !st.songs()[0].starred && !st.songs()[3].starred);
     std::printf(fails ? "FAILED\n" : "OK\n");
     return fails ? 1 : 0;
 }

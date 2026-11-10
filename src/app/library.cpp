@@ -81,7 +81,12 @@ void App::load_songs_page(int page) {
 }
 
 void App::load_liked() {
-    if (liked_loading_ || !client_) return;
+    if (liked_loading_) return;
+    if (!client_ || offline_) {   // offline: the likes kept in the index, including ones made offline
+        if (store_) liked_ = store_->liked_songs();
+        liked_loaded_ = true;
+        return;
+    }
     liked_loading_ = true;
     worker_->post([this, c = client_, s = session_] {
         std::vector<Song> r; std::string e;
@@ -89,8 +94,9 @@ void App::load_liked() {
         ui_post([this, s, r = std::move(r), ok]() mutable {
             if (s != session_) return;
             liked_loading_ = false;
-            if (ok) { if (store_) store_->index_songs(r); liked_ = std::move(r); liked_loaded_ = true; }
-            else if (store_) { liked_ = store_->liked_songs(); liked_loaded_ = !liked_.empty(); }   // offline: serve the indexed likes
+            if (ok && !like_pending_.empty()) liked_loaded_ = true;   // unsent taps: keep the local list, it is newer than the server's
+            else if (ok) { if (store_) store_->index_songs(r); liked_ = std::move(r); liked_loaded_ = true; }
+            else if (store_) { liked_ = store_->liked_songs(); liked_loaded_ = !liked_.empty(); }   // request failed: serve the indexed likes
             mark();
         });
     });
@@ -371,6 +377,7 @@ void App::draw_library(Rect r) {
         }
     } else {
         const std::vector<Song>& list = lib_mode_ == 2 ? song_items_ : liked_;
+        Song unlike_song; bool do_unlike = false;   // applied after the loop: it edits liked_, which this loop walks
         for (size_t i = 0; i < list.size(); ++i) {
             const Song& sg = list[i];
             Rect row{x, cy + i * 72 * s, w, 72 * s};
@@ -386,16 +393,24 @@ void App::draw_library(Rect r) {
                 gfx_->fill_round(art, 8 * s, {0, 0, 0, 140});
                 fa(isplay && player_.playing() ? static_cast<uint32_t>(skin::Pause) : static_cast<uint32_t>(skin::Play), art.x + 24 * s, art.y + 24 * s, 16, rgb(0xffffff));
             }
-            float tw = row.w - 80 * s - 100 * s;
+            const float heart_w = lib_mode_ == 3 ? 40 * s : 0.0f;
+            float tw = row.w - 80 * s - 100 * s - heart_w;
             T(600, 15.2f, row.x + 80 * s, row.y + 12 * s, 23, sg.title, isplay ? th.accent : th.text, tw);
             float aw = T(400, 13.6f, row.x + 80 * s, row.y + 39 * s, 20, sg.artist, th.sub, tw * 0.5f);
             T(400, 13.6f, row.x + 80 * s + aw, row.y + 39 * s, 20, sg.album.empty() ? "" : " \xC2\xB7 " + sg.album, th.muted, tw - aw);
             std::string d = mmss(sg.duration);
             float dw = gfx_->measure(F(400, 13), d);
             T(400, 13, row.x + row.w - 16 * s - dw, row.y + 26 * s, 20, d, th.sub);
+            bool heart_hit = false;
+            if (lib_mode_ == 3) {   // .liked-song-unlike: tap to remove from Liked
+                Rect hb{row.x + row.w - 16 * s - dw - 48 * s, row.y + 18 * s, 36 * s, 36 * s};
+                fa(skin::Heart, hb.x + 18 * s, hb.y + 18 * s, 16, u.hover(hb) ? th.sub : th.accent);
+                if (u.clicked(hb) && r.contains(u.in.mx, u.in.my)) { heart_hit = true; unlike_song = sg; do_unlike = true; }
+            }
             ctx_hit(row, sg);
-            if (u.clicked(row) && r.contains(u.in.mx, u.in.my)) play_songs(list, i, false);
+            if (!heart_hit && u.clicked(row) && r.contains(u.in.mx, u.in.my)) play_songs(list, i, false);
         }
+        if (do_unlike) set_song_liked(unlike_song, false);
         if (list.empty()) {
             bool busy = lib_mode_ == 2 ? song_loading_ : liked_loading_;
             if (busy) T(400, 16, x, cy, 24, "Loading...", th.sub);
